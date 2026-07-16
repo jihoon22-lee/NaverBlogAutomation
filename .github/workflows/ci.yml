@@ -11,8 +11,32 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Quality gate
+  commit-convention:
+    name: Commit convention
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          failed=0
+          while IFS= read -r subject; do
+            if ! bash scripts/check_commit_message.sh "$subject"; then
+              failed=1
+            fi
+          done < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          exit "$failed"
+
+  python-quality:
+    name: Python quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -56,11 +80,11 @@ jobs:
             --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY" \
             | tee reports/pytest-output.txt
 
-      - name: Upload detailed test reports
+      - name: Upload Python reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: quality-reports
+          name: python-quality-reports
           path: |
             reports/pytest.xml
             reports/pytest-output.txt
@@ -68,7 +92,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Enforce quality gate
+      - name: Enforce Python quality gate
         if: always()
         shell: bash
         env:
@@ -77,7 +101,7 @@ jobs:
           TY_RESULT: ${{ steps.ty.outcome }}
           PYTEST_RESULT: ${{ steps.pytest.outcome }}
         run: |
-          echo "## Quality gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Python quality gate" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Ruff | $RUFF_RESULT |" >> "$GITHUB_STEP_SUMMARY"
@@ -96,6 +120,99 @@ jobs:
             || "$FORMAT_RESULT" != "success" \
             || "$TY_RESULT" != "success" \
             || "$PYTEST_RESULT" != "success" ]]; then
-            echo "One or more required checks failed." >&2
+            echo "One or more Python checks failed." >&2
+            exit 1
+          fi
+
+  typescript-quality:
+    name: TypeScript quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci --prefix extension
+
+      - name: Check formatting
+        id: formatting
+        continue-on-error: true
+        run: npm --prefix extension run format:check
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm --prefix extension run lint
+
+      - name: Type check
+        id: types
+        continue-on-error: true
+        run: npm --prefix extension run typecheck
+
+      - name: Test
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          npm --prefix extension run test:coverage | tee reports/vitest-output.txt
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm --prefix extension run build
+
+      - name: Upload TypeScript reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: typescript-quality-reports
+          path: |
+            reports/vitest-output.txt
+            extension/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce TypeScript quality gate
+        if: always()
+        shell: bash
+        env:
+          FORMAT_RESULT: ${{ steps.formatting.outcome }}
+          LINT_RESULT: ${{ steps.lint.outcome }}
+          TYPES_RESULT: ${{ steps.types.outcome }}
+          TEST_RESULT: ${{ steps.tests.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+        run: |
+          echo "## TypeScript quality gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Biome format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Biome lint | $LINT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript | $TYPES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vitest + coverage | $TEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Extension build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -f reports/vitest-output.txt ]]; then
+            echo "### Vitest summary" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 20 reports/vitest-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [[ "$FORMAT_RESULT" != "success" \
+            || "$LINT_RESULT" != "success" \
+            || "$TYPES_RESULT" != "success" \
+            || "$TEST_RESULT" != "success" \
+            || "$BUILD_RESULT" != "success" ]]; then
+            echo "One or more TypeScript checks failed." >&2
             exit 1
           fi
