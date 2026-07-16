@@ -47,3 +47,7 @@ work directly to `main`. Pull requests should explain the motivation, summarize 
 verification commands, and link relevant issues. Merge only after the required `Quality gate`
 check passes. Include screenshots or sanitized logs when UI behavior changes. Never include account
 identifiers, cookies, access tokens, or unpublished blog content.
+
+작업이 명시적으로 미완료인 경우가 아니라면 PR은 draft가 아닌 review 가능한 상태로
+생성합니다. README, PR 설명, 커밋 메시지처럼 사용자가 직접 읽는 내용에는 한글을 우선
+사용하고, 기술 식별자나 명령어에는 필요한 영어를 함께 사용합니다.
