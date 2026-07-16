@@ -7,12 +7,14 @@
 
 - CPython 3.14 (standard GIL build)
 - `uv`
+- Node.js 24 LTS and npm 11
 - `OPENAI_API_KEY` available in the process environment
 
 ## Setup
 
 ```bash
 uv sync
+npm ci --prefix extension
 uv run streamlit run src/naver_blog_assistant/app.py
 ```
 
@@ -32,6 +34,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run ty check
 uv run pytest
+npm --prefix extension run check
 ```
 
 Pytest measures branch coverage for `naver_blog_assistant` and fails below 85%. Generate a local
@@ -40,9 +43,10 @@ HTML report with `uv run pytest --cov-report=html`; then open `htmlcov/index.htm
 ## Contribution workflow
 
 Create a task branch and open a pull request into `main`. The `Quality gate` GitHub Actions job
-runs Ruff, ty, and pytest for every pull request. Its job summary includes the test and coverage
-output, while detailed JUnit and HTML coverage reports are retained as a `quality-reports`
-artifact for seven days. Merging is allowed only after this required check succeeds.
+validates commit subjects and runs the Python and extension format, lint, type, test, coverage,
+and build checks. Its job summary includes both test suites, while detailed coverage reports are
+retained as a `quality-reports` artifact for seven days. Merging is allowed only after this
+required check succeeds.
 
 This checkout uses the committed `.githooks/pre-push` hook to reject direct pushes to `main`.
 Enable it after a fresh clone with:
@@ -50,6 +54,10 @@ Enable it after a fresh clone with:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+The same hook directory validates Conventional Commit subjects such as
+`feat(api): add recommendation endpoint`. Commit types and examples are documented in
+[`AGENTS.md`](AGENTS.md).
 
 GitHub server-side branch protection for a private personal repository requires an account plan
 that supports the feature. Until then, the local hook and PR review workflow provide a lightweight

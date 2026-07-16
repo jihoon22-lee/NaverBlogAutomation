@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Naver Blog Comment Assistant",
+  "version": "0.1.0",
+  "description": "Send the active Naver Blog post to the local comment recommendation service.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "댓글 추천"
+  }
+}

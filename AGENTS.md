@@ -6,6 +6,7 @@ This Python 3.14 project is a human-in-the-loop Naver Blog comment assistant. Ke
 
 - `src/naver_blog_assistant/` for application code, grouped by responsibility.
 - `tests/` for automated tests that mirror the `src/` hierarchy.
+- `extension/` for the Manifest V3 TypeScript browser extension and its tests.
 - `assets/` for non-code fixtures, templates, or sample media.
 - `scripts/` for developer utilities and one-off maintenance commands.
 
@@ -20,6 +21,8 @@ Use `uv` for dependency management and run commands from the repository root:
 - `uv run pytest` — run tests with branch coverage and enforce the 85% minimum.
 - `uv run ruff check .` and `uv run ruff format --check .` — lint and verify formatting.
 - `uv run ty check` — run static type analysis.
+- `npm ci --prefix extension` — install the locked extension toolchain.
+- `npm --prefix extension run check` — format-check, lint, type-check, test, and build the extension.
 
 Commands should run from the repository root and behave consistently in local and CI environments.
 
@@ -33,4 +36,14 @@ Add tests with every behavior change and maintain at least 85% branch coverage. 
 
 ## Commit & Pull Request Guidelines
 
-Use concise, imperative subjects (for example, `Add draft validation`) and keep each commit focused. Create a task branch such as `feature/comment-review` or `fix/config-loading`; do not push feature work directly to `main`. Pull requests should explain the motivation, summarize changes, list verification commands, and link relevant issues. Merge only after the required `Quality gate` check passes. Include screenshots or sanitized logs when UI behavior changes. Never include account identifiers, cookies, access tokens, or unpublished blog content.
+Use Conventional Commits with `type(scope): subject`, keeping the subject concise and the commit
+focused. Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`,
+`ci`, `chore`, and `revert`. Scope is optional; examples include `feat(api): add recommendation
+endpoint` and `test(extension): cover empty article extraction`. Mark breaking changes with `!`.
+The committed `commit-msg` hook and PR quality gate enforce this format.
+
+Create a task branch such as `feature/comment-review` or `fix/config-loading`; do not push feature
+work directly to `main`. Pull requests should explain the motivation, summarize changes, list
+verification commands, and link relevant issues. Merge only after the required `Quality gate`
+check passes. Include screenshots or sanitized logs when UI behavior changes. Never include account
+identifiers, cookies, access tokens, or unpublished blog content.
