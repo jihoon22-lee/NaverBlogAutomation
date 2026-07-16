@@ -6,9 +6,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID
 
-from naver_blog_assistant.application.errors import RecommendationNotFoundError
+from naver_blog_assistant.application.errors import (
+    ConcurrentReviewError,
+    RecommendationNotFoundError,
+)
 from naver_blog_assistant.domain import Recommendation, ReviewPatch
-from naver_blog_assistant.ports import RecommendationRepository
+from naver_blog_assistant.ports import (
+    RecommendationRepository,
+    RecommendationVersionConflictError,
+)
 
 
 class ReviewRecommendation:
@@ -29,5 +35,9 @@ class ReviewRecommendation:
         if recommendation is None:
             raise RecommendationNotFoundError(recommendation_id)
         updated = recommendation.apply_review(patch, reviewed_at=self._clock())
-        self._recommendations.update(updated)
-        return updated
+        try:
+            return self._recommendations.update(updated)
+        except RecommendationVersionConflictError as error:
+            raise ConcurrentReviewError(
+                f"recommendation {recommendation_id} was updated by another review"
+            ) from error

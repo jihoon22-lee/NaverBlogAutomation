@@ -23,3 +23,7 @@ class IdempotencyConflictError(ApplicationError):
 
 class GenerationInProgressError(ApplicationError):
     """Raised when another request is already generating with the same key."""
+
+
+class ConcurrentReviewError(ApplicationError):
+    """Raised when a review was based on an outdated recommendation version."""

@@ -1,0 +1,127 @@
+"""Lossless, body-free serialization for domain recommendations."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
+
+from naver_blog_assistant.domain import (
+    CandidateTone,
+    CommentCandidate,
+    Recommendation,
+    ReviewStatus,
+)
+
+
+def format_timestamp(value: datetime) -> str:
+    """Serialize a timezone-aware timestamp in canonical UTC form."""
+    if value.tzinfo is None:
+        raise ValueError("timestamp must be timezone-aware")
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def parse_timestamp(value: str) -> datetime:
+    """Parse a timestamp produced by :func:`format_timestamp`."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def serialize_topics(topics: tuple[str, ...]) -> str:
+    """Serialize ordered topics without ASCII escaping."""
+    return json.dumps(topics, ensure_ascii=False, separators=(",", ":"))
+
+
+def deserialize_topics(value: str) -> tuple[str, ...]:
+    """Deserialize and validate an ordered topic list."""
+    data = json.loads(value)
+    if not isinstance(data, list) or not all(isinstance(topic, str) for topic in data):
+        raise ValueError("topics_json must contain a string list")
+    return tuple(data)
+
+
+def serialize_snapshot(recommendation: Recommendation) -> str:
+    """Freeze the first response without storing the captured article body."""
+    data = {
+        "id": str(recommendation.id),
+        "source_url": recommendation.source_url,
+        "title": recommendation.title,
+        "content_hash": recommendation.content_hash,
+        "excerpt": recommendation.excerpt,
+        "summary": recommendation.summary,
+        "topics": list(recommendation.topics),
+        "candidates": [
+            {
+                "id": str(candidate.id),
+                "tone": candidate.tone.value,
+                "comment": candidate.comment,
+                "referenced_detail": candidate.referenced_detail,
+            }
+            for candidate in recommendation.candidates
+        ],
+        "review_status": recommendation.review_status.value,
+        "created_at": format_timestamp(recommendation.created_at),
+        "selected_candidate_id": (
+            str(recommendation.selected_candidate_id)
+            if recommendation.selected_candidate_id is not None
+            else None
+        ),
+        "edited_comment": recommendation.edited_comment,
+        "updated_at": (
+            format_timestamp(recommendation.updated_at)
+            if recommendation.updated_at is not None
+            else None
+        ),
+        "version": recommendation.version,
+    }
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def deserialize_snapshot(value: str) -> Recommendation:
+    """Restore an immutable first-response snapshot."""
+    data: Any = json.loads(value)
+    if not isinstance(data, dict):
+        raise ValueError("response snapshot must be an object")
+    return _recommendation_from_mapping(data)
+
+
+def _recommendation_from_mapping(data: Mapping[str, Any]) -> Recommendation:
+    candidates_data = data["candidates"]
+    topics_data = data["topics"]
+    if not isinstance(candidates_data, Sequence) or isinstance(candidates_data, str):
+        raise ValueError("snapshot candidates must be a list")
+    if not isinstance(topics_data, Sequence) or isinstance(topics_data, str):
+        raise ValueError("snapshot topics must be a list")
+    return Recommendation(
+        id=UUID(str(data["id"])),
+        source_url=str(data["source_url"]),
+        title=str(data["title"]),
+        content_hash=str(data["content_hash"]),
+        excerpt=str(data["excerpt"]),
+        summary=str(data["summary"]),
+        topics=tuple(str(topic) for topic in topics_data),
+        candidates=tuple(
+            CommentCandidate(
+                id=UUID(str(candidate["id"])),
+                tone=CandidateTone(str(candidate["tone"])),
+                comment=str(candidate["comment"]),
+                referenced_detail=str(candidate["referenced_detail"]),
+            )
+            for candidate in candidates_data
+        ),
+        review_status=ReviewStatus(str(data["review_status"])),
+        created_at=parse_timestamp(str(data["created_at"])),
+        selected_candidate_id=(
+            UUID(str(data["selected_candidate_id"]))
+            if data.get("selected_candidate_id") is not None
+            else None
+        ),
+        edited_comment=(
+            str(data["edited_comment"]) if data.get("edited_comment") is not None else None
+        ),
+        updated_at=(
+            parse_timestamp(str(data["updated_at"])) if data.get("updated_at") is not None else None
+        ),
+        version=int(data["version"]),
+    )

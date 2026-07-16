@@ -180,6 +180,7 @@ class Recommendation:
     selected_candidate_id: UUID | None = None
     edited_comment: str | None = None
     updated_at: datetime | None = None
+    version: int = 0
 
     def __post_init__(self) -> None:
         if not self.source_url.strip():
@@ -219,6 +220,8 @@ class Recommendation:
             raise DomainValidationError("created_at must be timezone-aware")
         if self.updated_at is not None and self.updated_at.tzinfo is None:
             raise DomainValidationError("updated_at must be timezone-aware")
+        if self.version < 0:
+            raise DomainValidationError("version must not be negative")
 
     def apply_review(self, patch: ReviewPatch, *, reviewed_at: datetime) -> Recommendation:
         """Apply a validated, forward-only human-review operation."""
