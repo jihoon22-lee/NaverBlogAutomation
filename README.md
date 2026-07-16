@@ -33,3 +33,14 @@ uv run pytest --cov=src
 Create a task branch and open a pull request into `main`. The `Quality gate` GitHub Actions job
 runs Ruff, ty, and pytest for every pull request. Its job summary includes the test and coverage
 output; merging is allowed only after this required check succeeds.
+
+This checkout uses the committed `.githooks/pre-push` hook to reject direct pushes to `main`.
+Enable it after a fresh clone with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+GitHub server-side branch protection for a private personal repository requires an account plan
+that supports the feature. Until then, the local hook and PR review workflow provide a lightweight
+guardrail but cannot prevent changes made from another unconfigured clone or the GitHub website.
