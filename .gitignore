@@ -5,10 +5,10 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+reports/
 .env
 .env.*
 !.env.example
 data/*.db
 data/*.sqlite*
 .streamlit/secrets.toml
-

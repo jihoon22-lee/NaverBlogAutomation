@@ -17,7 +17,7 @@ Use `uv` for dependency management and run commands from the repository root:
 
 - `uv sync` — create `.venv` and install locked dependencies.
 - `uv run streamlit run src/naver_blog_assistant/app.py` — start the local UI.
-- `uv run pytest --cov=src` — run tests with coverage.
+- `uv run pytest` — run tests with branch coverage and enforce the 85% minimum.
 - `uv run ruff check .` and `uv run ruff format --check .` — lint and verify formatting.
 - `uv run ty check` — run static type analysis.
 
@@ -29,7 +29,7 @@ Use four-space indentation and Ruff formatting. Use `snake_case` for functions/m
 
 ## Testing Guidelines
 
-Add tests with every behavior change. Mirror source paths under `tests/` and name tests after observable behavior (for example, `test_publish_retries_after_timeout`). Unit-test parsing and content generation; use mocked boundaries for Naver and browser interactions. Document any opt-in end-to-end tests and required environment variables without including secret values.
+Add tests with every behavior change and maintain at least 85% branch coverage. Mirror source paths under `tests/` and name tests after observable behavior (for example, `test_publish_retries_after_timeout`). Use Streamlit `AppTest` for UI behavior. Unit-test parsing and content generation; use mocked boundaries for Naver, OpenAI, and browser interactions. Document opt-in end-to-end tests and required environment variables without including secret values.
 
 ## Commit & Pull Request Guidelines
 
