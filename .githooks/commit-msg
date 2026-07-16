@@ -3,4 +3,4 @@
 set -euo pipefail
 
 repository_root="$(git rev-parse --show-toplevel)"
-exec "$repository_root/scripts/check_commit_message.sh" --file "$1"
+exec bash "$repository_root/scripts/check_commit_message.sh" --file "$1"
