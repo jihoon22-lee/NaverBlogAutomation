@@ -19,6 +19,12 @@ uv run streamlit run src/naver_blog_assistant/app.py
 The application reads `OPENAI_API_KEY` from the environment and never stores its value. Local
 database files are written below `data/` and ignored by Git.
 
+## Design documents
+
+- [Browser-assisted architecture](docs/architecture.md)
+- [Local API contract](docs/api-contract.md)
+- [OpenAPI 3.1 specification](docs/api/openapi.yaml)
+
 ## Quality checks
 
 ```bash
