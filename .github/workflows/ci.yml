@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: Check formatting
+        run: uv run --frozen ruff format --check .
+
+      - name: Type check
+        run: uv run --frozen ty check
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --frozen pytest --cov=src --cov-report=term-missing | tee pytest-output.txt
+
+      - name: Add test results to job summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Test and coverage summary" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f pytest-output.txt ]]; then
+            tail -n 30 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Tests did not produce a report. Check the preceding step logs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
