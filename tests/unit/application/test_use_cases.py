@@ -1,12 +1,13 @@
 """Tests for generation, retrieval, and review application use cases."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 
 from naver_blog_assistant.application import (
+    ConcurrentReviewError,
     GenerateRecommendation,
     GenerationInProgressError,
     GetRecommendation,
@@ -23,7 +24,12 @@ from naver_blog_assistant.domain import (
     ReviewPatch,
     ReviewStatus,
 )
-from naver_blog_assistant.ports import IdempotencyOutcome, IdempotencyReservation
+from naver_blog_assistant.ports import (
+    GenerationNotStartedError,
+    IdempotencyOutcome,
+    IdempotencyReservation,
+    RecommendationVersionConflictError,
+)
 
 KEY = UUID("00000000-0000-0000-0000-000000000010")
 IDS = iter(UUID(f"00000000-0000-0000-0000-{value:012d}") for value in range(20, 100))
@@ -49,54 +55,76 @@ class FakeRecommendationRepository:
     def __init__(self) -> None:
         self.items: dict[UUID, Recommendation] = {}
         self.updated: list[Recommendation] = []
+        self.fail_version = False
 
     def get(self, recommendation_id: UUID) -> Recommendation | None:
         return self.items.get(recommendation_id)
 
-    def update(self, recommendation: Recommendation) -> None:
-        self.items[recommendation.id] = recommendation
-        self.updated.append(recommendation)
+    def update(self, recommendation: Recommendation) -> Recommendation:
+        if self.fail_version:
+            raise RecommendationVersionConflictError("synthetic stale review")
+        persisted = replace(recommendation, version=recommendation.version + 1)
+        self.items[persisted.id] = persisted
+        self.updated.append(persisted)
+        return persisted
 
 
 class FakeIdempotencyRepository:
     def __init__(self, recommendations: FakeRecommendationRepository) -> None:
         self._recommendations = recommendations
-        self.records: dict[UUID, tuple[str, Recommendation | None]] = {}
+        self.records: dict[UUID, tuple[str, Recommendation | None, UUID]] = {}
         self.in_progress: set[UUID] = set()
         self.released: list[UUID] = []
         self.fail_commit = False
+        self.fail_mark = False
+        self.generation_started: set[UUID] = set()
+        self._attempts = iter(UUID(int=value) for value in range(500, 600))
 
     def reserve(self, key: UUID, request_hash: str) -> IdempotencyReservation:
         record = self.records.get(key)
         if record is not None:
-            prior_hash, response_snapshot = record
+            prior_hash, response_snapshot, _ = record
             if prior_hash != request_hash:
                 return IdempotencyReservation(IdempotencyOutcome.CONFLICT)
             if response_snapshot is not None:
                 return IdempotencyReservation(IdempotencyOutcome.REPLAY, response_snapshot)
         if key in self.in_progress:
             return IdempotencyReservation(IdempotencyOutcome.IN_PROGRESS)
-        self.records[key] = (request_hash, None)
+        attempt_id = next(self._attempts)
+        self.records[key] = (request_hash, None, attempt_id)
         self.in_progress.add(key)
-        return IdempotencyReservation(IdempotencyOutcome.STARTED)
+        return IdempotencyReservation(IdempotencyOutcome.STARTED, attempt_id=attempt_id)
+
+    def mark_generation_started(self, key: UUID, attempt_id: UUID) -> None:
+        if self.fail_mark:
+            raise RuntimeError("synthetic mark failure")
+        if key not in self.in_progress or self.records[key][2] != attempt_id:
+            raise RuntimeError("reservation is not active")
+        self.generation_started.add(key)
 
     def commit_generation(
         self,
         key: UUID,
+        attempt_id: UUID,
         *,
         recommendation: Recommendation,
-        response_snapshot: Recommendation,
     ) -> None:
         if self.fail_commit:
             raise RuntimeError("synthetic atomic commit failure")
-        request_hash, _ = self.records[key]
+        request_hash, _, current_attempt = self.records[key]
+        if current_attempt != attempt_id:
+            raise RuntimeError("stale attempt")
         self._recommendations.items[recommendation.id] = recommendation
-        self.records[key] = (request_hash, response_snapshot)
+        self.records[key] = (request_hash, recommendation, attempt_id)
         self.in_progress.remove(key)
+        self.generation_started.discard(key)
 
-    def release(self, key: UUID) -> None:
+    def release(self, key: UUID, attempt_id: UUID) -> None:
+        if key not in self.records or self.records[key][2] != attempt_id:
+            return
         self.records.pop(key, None)
         self.in_progress.discard(key)
+        self.generation_started.discard(key)
         self.released.append(key)
 
 
@@ -221,17 +249,41 @@ def test_generate_rejects_request_already_in_progress() -> None:
 
 
 def test_generate_releases_reservation_after_generator_failure() -> None:
-    failure = RuntimeError("synthetic generator failure")
+    failure = GenerationNotStartedError("provider request was not sent")
     use_case, _, _, idempotency = build_generation_use_case(error=failure)
 
-    with pytest.raises(RuntimeError, match="synthetic"):
+    with pytest.raises(GenerationNotStartedError, match="not sent"):
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert idempotency.released == [KEY]
     assert KEY not in idempotency.records
 
 
-def test_generate_rejects_invalid_generator_candidate_count_and_releases_key() -> None:
+def test_generate_cleans_up_its_attempt_when_generation_mark_fails() -> None:
+    use_case, generator, _, idempotency = build_generation_use_case()
+    idempotency.fail_mark = True
+
+    with pytest.raises(RuntimeError, match="mark failure"):
+        use_case.execute(post=captured_post(), idempotency_key=KEY)
+
+    assert generator.calls == 0
+    assert KEY not in idempotency.records
+    assert idempotency.released == [KEY]
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("provider failure"), TimeoutError("timeout")])
+def test_generate_preserves_uncertain_provider_failure(failure: Exception) -> None:
+    use_case, _, _, idempotency = build_generation_use_case(error=failure)
+
+    with pytest.raises(type(failure)):
+        use_case.execute(post=captured_post(), idempotency_key=KEY)
+
+    assert KEY in idempotency.records
+    assert KEY in idempotency.generation_started
+    assert not idempotency.released
+
+
+def test_generate_rejects_invalid_output_without_risking_duplicate_generation() -> None:
     output = generation_output()
     invalid = GenerationOutput(output.summary, output.topics, output.candidates[:2])
     use_case, _, recommendations, idempotency = build_generation_use_case(output=invalid)
@@ -240,7 +292,9 @@ def test_generate_rejects_invalid_generator_candidate_count_and_releases_key() -
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert not recommendations.items
-    assert idempotency.released == [KEY]
+    assert KEY in idempotency.in_progress
+    assert KEY in idempotency.generation_started
+    assert not idempotency.released
 
 
 def test_generate_atomic_commit_failure_persists_neither_canonical_nor_snapshot() -> None:
@@ -251,9 +305,10 @@ def test_generate_atomic_commit_failure_persists_neither_canonical_nor_snapshot(
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert not recommendations.items
-    assert KEY not in idempotency.records
-    assert KEY not in idempotency.in_progress
-    assert idempotency.released == [KEY]
+    assert KEY in idempotency.records
+    assert KEY in idempotency.in_progress
+    assert KEY in idempotency.generation_started
+    assert not idempotency.released
 
 
 def test_get_returns_existing_recommendation_and_rejects_missing_id() -> None:
@@ -285,6 +340,7 @@ def test_review_updates_selected_candidate_edit_and_status() -> None:
     assert updated.edited_comment == "사용자가 다듬은 댓글"
     assert updated.review_status is ReviewStatus.APPROVED
     assert updated.updated_at == NOW
+    assert updated.version == 1
     assert repository.updated == [updated]
 
 
@@ -298,17 +354,65 @@ def test_review_rejects_missing_recommendation_without_updating_repository() -> 
     assert not repository.updated
 
 
+def test_review_maps_stale_version_to_stable_application_error() -> None:
+    generate, _, repository, _ = build_generation_use_case()
+    recommendation = generate.execute(post=captured_post(), idempotency_key=KEY).recommendation
+    repository.fail_version = True
+
+    with pytest.raises(ConcurrentReviewError) as error:
+        ReviewRecommendation(repository, clock=lambda: NOW).execute(
+            recommendation.id,
+            ReviewPatch(edited_comment="충돌하는 수정"),
+        )
+
+    assert isinstance(error.value.__cause__, RecommendationVersionConflictError)
+
+
 def test_idempotency_reservation_rejects_replay_without_snapshot() -> None:
-    with pytest.raises(ValueError, match="only replay"):
+    with pytest.raises(ValueError, match="response snapshot"):
         IdempotencyReservation(IdempotencyOutcome.REPLAY)
 
 
-@pytest.mark.parametrize("outcome", [IdempotencyOutcome.STARTED, IdempotencyOutcome.CONFLICT])
+@pytest.mark.parametrize("outcome", [IdempotencyOutcome.CONFLICT, IdempotencyOutcome.IN_PROGRESS])
 def test_idempotency_reservation_rejects_snapshot_for_non_replay(
     outcome: IdempotencyOutcome,
 ) -> None:
     generate, _, _, _ = build_generation_use_case()
     snapshot = generate.execute(post=captured_post(), idempotency_key=UUID(int=998)).recommendation
 
-    with pytest.raises(ValueError, match="only replay"):
+    with pytest.raises(ValueError, match="carry no payload"):
         IdempotencyReservation(outcome, snapshot)
+
+
+def test_started_idempotency_reservation_requires_only_attempt_id() -> None:
+    assert IdempotencyReservation(
+        IdempotencyOutcome.STARTED, attempt_id=UUID(int=779)
+    ).attempt_id == UUID(int=779)
+    with pytest.raises(ValueError, match="attempt id"):
+        IdempotencyReservation(IdempotencyOutcome.STARTED)
+    with pytest.raises(ValueError, match="attempt id"):
+        IdempotencyReservation(
+            IdempotencyOutcome.STARTED,
+            response_snapshot=build_generation_use_case()[0]
+            .execute(post=captured_post(), idempotency_key=UUID(int=777))
+            .recommendation,
+            attempt_id=UUID(int=778),
+        )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [IdempotencyOutcome.REPLAY, IdempotencyOutcome.CONFLICT, IdempotencyOutcome.IN_PROGRESS],
+)
+def test_non_started_idempotency_reservation_rejects_attempt_id(
+    outcome: IdempotencyOutcome,
+) -> None:
+    snapshot = (
+        build_generation_use_case()[0]
+        .execute(post=captured_post(), idempotency_key=UUID(int=780))
+        .recommendation
+        if outcome is IdempotencyOutcome.REPLAY
+        else None
+    )
+    with pytest.raises(ValueError):
+        IdempotencyReservation(outcome, snapshot, attempt_id=UUID(int=781))

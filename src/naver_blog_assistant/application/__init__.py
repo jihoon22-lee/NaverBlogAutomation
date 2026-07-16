@@ -2,6 +2,7 @@
 
 from naver_blog_assistant.application.errors import (
     ApplicationError,
+    ConcurrentReviewError,
     GenerationInProgressError,
     IdempotencyConflictError,
     RecommendationNotFoundError,
@@ -15,6 +16,7 @@ from naver_blog_assistant.application.review_recommendation import ReviewRecomme
 
 __all__ = [
     "ApplicationError",
+    "ConcurrentReviewError",
     "GenerateRecommendation",
     "GenerationInProgressError",
     "GenerationResult",

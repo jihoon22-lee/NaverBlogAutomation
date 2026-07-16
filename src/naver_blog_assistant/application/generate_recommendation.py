@@ -19,6 +19,7 @@ from naver_blog_assistant.domain import (
 )
 from naver_blog_assistant.ports import (
     CommentGenerator,
+    GenerationNotStartedError,
     IdempotencyOutcome,
     IdempotencyRepository,
 )
@@ -61,36 +62,46 @@ class GenerateRecommendation:
                 recommendation=reservation.response_snapshot,
                 replayed=True,
             )
+        assert reservation.attempt_id is not None
+        attempt_id = reservation.attempt_id
+
+        try:
+            self._idempotency.mark_generation_started(idempotency_key, attempt_id)
+        except Exception:
+            # Fencing makes cleanup safe if this attempt lost ownership before the mark.
+            self._idempotency.release(idempotency_key, attempt_id)
+            raise
 
         try:
             output = self._generator.generate(post)
-            recommendation = Recommendation(
-                id=self._id_factory(),
-                source_url=post.source_url,
-                title=post.title,
-                content_hash=post.content_hash,
-                excerpt=post.excerpt,
-                summary=output.summary,
-                topics=output.topics,
-                candidates=tuple(
-                    CommentCandidate(
-                        id=self._id_factory(),
-                        tone=candidate.tone,
-                        comment=candidate.comment,
-                        referenced_detail=candidate.referenced_detail,
-                    )
-                    for candidate in output.candidates
-                ),
-                review_status=ReviewStatus.DRAFTED,
-                created_at=self._clock(),
-            )
-            self._idempotency.commit_generation(
-                idempotency_key,
-                recommendation=recommendation,
-                response_snapshot=recommendation,
-            )
-        except Exception:
-            self._idempotency.release(idempotency_key)
+        except GenerationNotStartedError:
+            self._idempotency.release(idempotency_key, attempt_id)
             raise
+
+        recommendation = Recommendation(
+            id=self._id_factory(),
+            source_url=post.source_url,
+            title=post.title,
+            content_hash=post.content_hash,
+            excerpt=post.excerpt,
+            summary=output.summary,
+            topics=output.topics,
+            candidates=tuple(
+                CommentCandidate(
+                    id=self._id_factory(),
+                    tone=candidate.tone,
+                    comment=candidate.comment,
+                    referenced_detail=candidate.referenced_detail,
+                )
+                for candidate in output.candidates
+            ),
+            review_status=ReviewStatus.DRAFTED,
+            created_at=self._clock(),
+        )
+        self._idempotency.commit_generation(
+            idempotency_key,
+            attempt_id,
+            recommendation=recommendation,
+        )
 
         return GenerationResult(recommendation=recommendation, replayed=False)

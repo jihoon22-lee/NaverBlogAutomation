@@ -84,6 +84,12 @@ def test_recommendation_has_no_body_field() -> None:
     assert "body" not in {model_field.name for model_field in fields(Recommendation)}
 
 
+def test_recommendation_version_starts_at_zero_and_cannot_be_negative() -> None:
+    assert make_recommendation().version == 0
+    with pytest.raises(DomainValidationError, match="version"):
+        make_recommendation(version=-1)
+
+
 @pytest.mark.parametrize(
     ("source_url", "title", "body", "message"),
     [
