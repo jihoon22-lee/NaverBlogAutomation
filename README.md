@@ -25,14 +25,18 @@ database files are written below `data/` and ignored by Git.
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check
-uv run pytest --cov=src
+uv run pytest
 ```
+
+Pytest measures branch coverage for `naver_blog_assistant` and fails below 85%. Generate a local
+HTML report with `uv run pytest --cov-report=html`; then open `htmlcov/index.html`.
 
 ## Contribution workflow
 
 Create a task branch and open a pull request into `main`. The `Quality gate` GitHub Actions job
 runs Ruff, ty, and pytest for every pull request. Its job summary includes the test and coverage
-output; merging is allowed only after this required check succeeds.
+output, while detailed JUnit and HTML coverage reports are retained as a `quality-reports`
+artifact for seven days. Merging is allowed only after this required check succeeds.
 
 This checkout uses the committed `.githooks/pre-push` hook to reject direct pushes to `main`.
 Enable it after a fresh clone with:

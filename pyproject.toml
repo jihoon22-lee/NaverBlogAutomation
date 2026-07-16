@@ -35,7 +35,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --cov=naver_blog_assistant --cov-branch --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 pythonpath = ["src"]
 
@@ -44,6 +44,6 @@ branch = true
 source = ["naver_blog_assistant"]
 
 [tool.coverage.report]
+fail_under = 85
 show_missing = true
 skip_covered = true
-

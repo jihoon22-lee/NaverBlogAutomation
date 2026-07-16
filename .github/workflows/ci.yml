@@ -29,29 +29,73 @@ jobs:
         run: uv sync --frozen
 
       - name: Lint
-        run: uv run --frozen ruff check .
+        id: ruff
+        continue-on-error: true
+        run: uv run --frozen ruff check --output-format=github .
 
       - name: Check formatting
+        id: formatting
+        continue-on-error: true
         run: uv run --frozen ruff format --check .
 
       - name: Type check
-        run: uv run --frozen ty check
+        id: ty
+        continue-on-error: true
+        run: uv run --frozen ty check --output-format=github
 
       - name: Test
+        id: pytest
+        continue-on-error: true
         shell: bash
         run: |
+          mkdir -p reports
           set -o pipefail
-          uv run --frozen pytest --cov=src --cov-report=term-missing | tee pytest-output.txt
+          uv run --frozen pytest \
+            --junitxml=reports/pytest.xml \
+            --cov-report=html:htmlcov \
+            --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY" \
+            | tee reports/pytest-output.txt
 
-      - name: Add test results to job summary
+      - name: Upload detailed test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-reports
+          path: |
+            reports/pytest.xml
+            reports/pytest-output.txt
+            htmlcov/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce quality gate
         if: always()
         shell: bash
+        env:
+          RUFF_RESULT: ${{ steps.ruff.outcome }}
+          FORMAT_RESULT: ${{ steps.formatting.outcome }}
+          TY_RESULT: ${{ steps.ty.outcome }}
+          PYTEST_RESULT: ${{ steps.pytest.outcome }}
         run: |
-          echo "## Test and coverage summary" >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          if [[ -f pytest-output.txt ]]; then
-            tail -n 30 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Tests did not produce a report. Check the preceding step logs." >> "$GITHUB_STEP_SUMMARY"
+          echo "## Quality gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Ruff | $RUFF_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Ruff format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ty | $TY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| pytest + coverage | $PYTEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -f reports/pytest-output.txt ]]; then
+            echo "### Pytest summary" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 20 reports/pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$RUFF_RESULT" != "success" \
+            || "$FORMAT_RESULT" != "success" \
+            || "$TY_RESULT" != "success" \
+            || "$PYTEST_RESULT" != "success" ]]; then
+            echo "One or more required checks failed." >&2
+            exit 1
+          fi
