@@ -1,0 +1,376 @@
+openapi: 3.1.0
+info:
+  title: Naver Blog Assistant Local API
+  version: 1.0.0
+  description: >-
+    Loopback-only API used by the browser extension and local review UI to create and
+    review human-approved comment recommendations.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://127.0.0.1:8765
+    description: Local machine only
+tags:
+  - name: System
+    description: Local process diagnostics.
+  - name: Recommendations
+    description: Generate, retrieve, and review comment recommendations.
+security: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [System]
+      summary: Check process health
+      responses:
+        "200":
+          description: The local API process is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+  /api/v1/recommendations:
+    post:
+      operationId: createRecommendation
+      tags: [Recommendations]
+      summary: Generate three comment recommendations for one active blog post
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecommendationRequest"
+      responses:
+        "201":
+          description: A recommendation was generated and stored.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "200":
+          description: A prior completed response was replayed for the same request.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/GenerationFailed"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/GenerationTimeout"
+  /api/v1/recommendations/{recommendation_id}:
+    parameters:
+      - $ref: "#/components/parameters/RecommendationId"
+    get:
+      operationId: getRecommendation
+      tags: [Recommendations]
+      summary: Get a stored recommendation without the source body
+      responses:
+        "200":
+          description: The recommendation was found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: reviewRecommendation
+      tags: [Recommendations]
+      summary: Record the user's review decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRecommendationRequest"
+      responses:
+        "200":
+          description: The review state was updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID generated once for one user-initiated generation request.
+      schema:
+        type: string
+        format: uuid
+    RecommendationId:
+      name: recommendation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  headers:
+    IdempotencyReplayed:
+      description: True when returning a stored result for a repeated request.
+      schema:
+        type: boolean
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    CreateRecommendationRequest:
+      type: object
+      additionalProperties: false
+      required: [source_url, title, body]
+      properties:
+        source_url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: HTTPS URL on an explicitly supported Naver Blog host.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        body:
+          type: string
+          minLength: 20
+          maxLength: 100000
+          description: Visible article text; processed in memory and not retained in full.
+    RecommendationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source_url
+        - title
+        - summary
+        - topics
+        - candidates
+        - review_status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_url:
+          type: string
+          format: uri
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 800
+        topics:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+        candidates:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/CommentCandidate"
+        selected_candidate_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          default: null
+        edited_comment:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: "null"
+          default: null
+        review_status:
+          $ref: "#/components/schemas/ReviewStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          default: null
+    CommentCandidate:
+      type: object
+      additionalProperties: false
+      required: [id, tone, comment, referenced_detail]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tone:
+          type: string
+          enum: [warm, curious, supportive]
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 500
+        referenced_detail:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: Concise article detail grounding this candidate.
+    ReviewStatus:
+      type: string
+      enum: [drafted, approved, completed]
+    ReviewRecommendationRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        selected_candidate_id:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        edited_comment:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: "null"
+        review_status:
+          $ref: "#/components/schemas/ReviewStatus"
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, code, request_id]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        request_id:
+          type: string
+          format: uuid
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+  responses:
+    InvalidRequest:
+      description: The HTTP request is malformed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    NotFound:
+      description: The requested recommendation does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    Conflict:
+      description: Idempotency content or review state conflicts with stored state.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    PayloadTooLarge:
+      description: The HTTP request exceeds the configured body limit.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    ValidationError:
+      description: The request is invalid or uses an unsupported source URL.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    RateLimited:
+      description: Local or model-provider rate limiting prevented generation.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    GenerationFailed:
+      description: The model response was refused or could not be validated.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    Unavailable:
+      description: A required local or provider dependency is unavailable.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    GenerationTimeout:
+      description: Model generation did not finish within the configured timeout.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
