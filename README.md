@@ -8,13 +8,13 @@ OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요�
 
 ## 현재 상태와 Target Architecture
 
-PR 1~3에서 framework-independent domain, SQLite persistence, local FastAPI v1 API를
-구현했습니다. Extension은 popup을 대체한 Side Panel에서 지원되는 Naver URL을 검증하고,
-활성 글의 title, URL, character count, truncation 상태와 bounded body preview를 표시합니다.
-OpenAI Responses adapter와 안전한 failure replay persistence도 구현되었으며,
-Side Panel–FastAPI integrated recommendation/review workflow와 release hardening은 후속
-작업입니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며 target runtime에
-포함되지 않습니다.
+PR 1~6에서 framework-independent domain, SQLite persistence, local FastAPI v1 API,
+Side Panel extraction, OpenAI Responses adapter와 안전한 failure replay persistence를
+구현했습니다. Extension은 Side Panel에서 지원되는 Naver URL을 검증하고, 활성 글의 title,
+URL, character count, truncation 상태와 bounded body preview를 표시합니다.
+Side Panel은 유일한 end-user UI입니다. PR7에서 Side Panel–FastAPI recommendation/review
+workflow를 통합하고 있으며, 이 workflow와 release hardening은 아직 완료 상태로 간주하지
+않습니다.
 
 자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
 

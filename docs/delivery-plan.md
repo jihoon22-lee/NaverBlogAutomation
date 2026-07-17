@@ -11,7 +11,7 @@ being merged unless an explicitly isolated implementation can be rebased without
 
 Scope:
 
-- replace the popup with a Manifest V3 Side Panel opened from the toolbar action;
+- provide a Manifest V3 Side Panel opened from the toolbar action;
 - add a typed browser adapter and extract the active supported Naver post across eligible frames;
 - isolate Naver selectors, ranking, normalization, and generic fallback as testable modules; and
 - render title, URL, character count, truncation notice, preview, and local extraction errors.
@@ -71,7 +71,7 @@ Scope:
 - connect health, generation, candidate selection, editing, approval, copy, and completion;
 - persist a bounded digest-to-idempotency-key registry before the first request;
 - implement retry, in-progress, rate-limit, indeterminate generation, and review-conflict UX; and
-- remove the Streamlit placeholder, dependency, tests, and runtime documentation.
+- remove the legacy Python UI placeholder, dependency, tests, and runtime documentation.
 
 Acceptance criteria:
 
@@ -113,7 +113,7 @@ Acceptance criteria:
 - CI covers health, extraction, create/replay/review, failure recovery, and packaged artifacts;
 - no real blog body, account identifier, browser profile, or secret enters fixtures or artifacts;
 - manual Naver/OpenAI smoke steps are opt-in, sanitized, and keep publishing fully manual;
-- documentation and UI contain no active popup/Streamlit or automatic-engagement claims; and
+- documentation and UI contain no obsolete UI or automatic-engagement claims; and
 - all required GitHub checks pass on a conflict-free, review-ready PR.
 
 Dependencies: merged PR 5~7 and their stable public contracts.
