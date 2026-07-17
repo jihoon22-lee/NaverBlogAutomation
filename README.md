@@ -1,48 +1,82 @@
 # 네이버 블로그 댓글 작성 보조 도구
 
-사람의 최종 검토를 전제로 네이버 블로그 글을 분석하고 댓글 후보를 생성하는 Python
-애플리케이션입니다. 네이버에서의 좋아요와 댓글 등록은 사용자가 직접 수행합니다.
+사람의 최종 검토를 전제로 현재 보고 있는 네이버 블로그 글을 분석하고 댓글 후보를 생성하는
+local-first 애플리케이션입니다. Chrome Side Panel에서 본문 preview, 추천, 편집, 복사를 처리하고
+FastAPI가 OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요와 댓글 등록은
+항상 사용자가 직접 수행합니다.
+
+## 현재 상태와 Target Architecture
+
+PR 1~3에서 framework-independent domain, SQLite persistence, local FastAPI v1 API를
+구현했습니다. 현재 extension은 아직 popup scaffold이고 OpenAI adapter도 구현 전입니다.
+PR 5~8에서 Side Panel extraction, OpenAI Responses adapter, integrated review workflow,
+release hardening을 순서대로 구현합니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며
+target runtime에 포함되지 않습니다.
+
+자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
+
+- [Side Panel architecture](docs/architecture.md)
+- [구현 계획](docs/delivery-plan.md)
+- [Local API 계약](docs/api-contract.md)
+- [OpenAPI 3.1 명세](docs/api/openapi.yaml)
 
 ## 요구 사항
 
-- CPython 3.14(표준 GIL 빌드)
+- CPython 3.14 표준 GIL build
 - `uv`
 - Node.js 24 LTS와 npm 11
-- OpenAI generator 사용 시 프로세스 환경변수에 설정된 `OPENAI_API_KEY`
+- OpenAI generator 사용 시 process environment의 `OPENAI_API_KEY`
 
-## 설치 및 실행
+## 설치
+
+Repository root에서 dependency를 설치합니다.
 
 ```bash
 uv sync
 npm ci --prefix extension
-uv run streamlit run src/naver_blog_assistant/app.py
 ```
 
-애플리케이션은 환경변수에서 `OPENAI_API_KEY`를 읽으며 키 값을 저장하지 않습니다. 로컬
-데이터베이스 파일은 `data/` 아래에 생성되고 Git 추적에서 제외됩니다.
-
-### 로컬 API 실행
-
-브라우저 확장 개발 전에는 명시적인 개발 모드의 결정론적 fake generator로 API 흐름을
-검증할 수 있습니다. `.env.example`을 참고해 환경변수를 설정한 뒤 실행합니다.
+`.env.example`을 `.env.local`로 복사하고 unpacked extension ID에 맞춰
+`CHROME_EXTENSION_ORIGIN`을 수정합니다. 실제 credential은 commit하지 않습니다.
 
 ```bash
-APP_ENV=development \
-COMMENT_GENERATOR_MODE=fake \
-CHROME_EXTENSION_ORIGIN=chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-uv run naver-blog-api
+cp .env.example .env.local
 ```
 
-서버는 `http://127.0.0.1:8765`에만 바인딩되고 시작할 때 Alembic migration을 적용합니다.
-확장 프로그램을 unpacked 상태로 로드한 뒤 예시 origin의 ID를 실제 확장 ID로 교체해야
-CORS 요청이 허용됩니다. fake generator는 production 환경에서 거부되며, OpenAI adapter가
-구현되기 전까지 API 키를 외부로 전송하지 않습니다.
+## Local API 실행
 
-## 설계 문서
+OpenAI adapter가 구현되기 전에는 explicit development mode의 deterministic fake generator로
+현재 API를 검증할 수 있습니다.
 
-- [브라우저 보조 방식 아키텍처](docs/architecture.md)
-- [로컬 API 계약](docs/api-contract.md)
-- [OpenAPI 3.1 명세](docs/api/openapi.yaml)
+```bash
+uv run --env-file .env.local naver-blog-api
+```
+
+`.env.local`에는 개발 단계에서 다음 값이 필요합니다.
+
+```dotenv
+APP_ENV=development
+COMMENT_GENERATOR_MODE=fake
+CHROME_EXTENSION_ORIGIN=chrome-extension://<unpacked-extension-id>
+```
+
+서버는 `http://127.0.0.1:8765`에만 bind하고 시작할 때 Alembic migration을 적용합니다.
+`.env.local`은 application이 암묵적으로 읽는 파일이 아니므로 `uv run --env-file`을 생략하지
+않습니다. Target OpenAI adapter는 server에서 `gpt-5.6-terra`, low reasoning,
+`store=false`를 기본값으로 사용하며 API key를 extension으로 전달하지 않습니다.
+
+## Extension 개발
+
+현재 scaffold를 build하려면 다음 명령을 사용합니다.
+
+```bash
+npm --prefix extension run build
+```
+
+Chrome의 `chrome://extensions`에서 Developer mode를 켜고 `extension/dist`를 unpacked
+extension으로 load합니다. PR 5가 merge되기 전 build는 popup scaffold를 표시하며, 이후에는
+toolbar action으로 Side Panel을 엽니다. 현재 구현과 target behavior가 다른 점은
+[`delivery-plan.md`](docs/delivery-plan.md)에 추적합니다.
 
 ## 품질 검사
 
@@ -54,29 +88,30 @@ uv run pytest
 npm --prefix extension run check
 ```
 
-Pytest는 `naver_blog_assistant`의 브랜치 커버리지를 측정하며 85% 미만이면 실패합니다.
-`uv run pytest --cov-report=html`로 로컬 HTML 보고서를 생성한 다음
-`htmlcov/index.html`을 열어 상세 결과를 확인할 수 있습니다.
+Pytest는 `naver_blog_assistant` branch coverage 85%를 강제합니다.
+`uv run pytest --cov-report=html`로 `htmlcov/index.html` 상세 보고서를 만들 수 있습니다.
+Extension CI도 format, lint, typecheck, Vitest coverage, production build를 독립적으로
+검증합니다. 테스트 fixture에는 synthetic content만 사용합니다.
+
+## Privacy와 운영 범위
+
+- `OPENAI_API_KEY`, browser cookie, login credential, 별도 account profile, 원문 전체를 저장하거나
+  log하지 않습니다.
+- SQLite에는 URL, title, content hash, bounded excerpt, summary와 review 결과가 남습니다. 공개
+  blog/account identifier가 source URL에 포함된 경우 그 URL의 일부로 함께 저장될 수 있습니다.
+- Extension storage에는 retry에 필요한 digest와 opaque ID만 제한적으로 보관합니다.
+- Monitoring, automatic likes, comment publishing, sign-in automation은 MVP 범위가 아닙니다.
+- Live Naver/OpenAI smoke test는 opt-in이며 source text나 secret을 CI artifact에 남기지 않습니다.
 
 ## 기여 및 PR 작업 흐름
 
-작업별 브랜치를 생성하고 `main`을 대상으로 PR을 엽니다. GitHub Actions는
-`Commit convention`, `Python quality`, `TypeScript quality`를 독립적인 Job으로 실행합니다.
-각 언어의 포맷, 린트, 타입, 테스트, 커버리지와 빌드 결과를 별도 Job summary에서 확인할 수
-있고, 상세 보고서는 `python-quality-reports`와 `typescript-quality-reports` artifact로
-7일 동안 보관됩니다. 필수 검사가 모두 성공한 뒤에만 머지합니다.
-
-이 저장소는 `.githooks/pre-push` 훅으로 `main` 브랜치 직접 push를 차단합니다. 새로 clone한
-뒤에는 다음 명령으로 훅을 활성화합니다.
+작업별 branch를 만들고 `main` 대상의 review-ready PR을 엽니다. `Commit convention`,
+`Python quality`, `TypeScript quality`가 모두 성공한 뒤 merge합니다. Conventional Commit과
+branch 규칙은 [`AGENTS.md`](AGENTS.md)를 따릅니다.
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-같은 훅 디렉터리에서 `feat(api): 댓글 추천 엔드포인트를 추가한다`와 같은 Conventional
-Commit 제목도 검증합니다. 허용되는 타입과 예시는 [`AGENTS.md`](AGENTS.md)에 정리되어
-있습니다.
-
-개인 계정의 비공개 저장소에서 GitHub 서버 측 브랜치 보호를 사용하려면 해당 기능을 지원하는
-요금제가 필요합니다. 그전까지는 로컬 훅과 PR 검토 절차를 보호 장치로 사용합니다. 다만 훅이
-설정되지 않은 다른 clone이나 GitHub 웹사이트에서 발생하는 변경까지 차단할 수는 없습니다.
+Local hook은 `main` 직접 push와 잘못된 commit message를 차단합니다. GitHub server-side
+branch protection을 사용할 수 없는 환경에서도 PR 검토와 required checks를 유지합니다.

@@ -1,7 +1,9 @@
-# Local Recommendation API Contract
+# Side Panel Local API Contract
 
 The machine-readable contract is [`api/openapi.yaml`](api/openapi.yaml). This document records
-behavior that consumers and implementations must preserve.
+behavior that the Side Panel client and service implementation must preserve. The API remains
+backward compatible with the v1 contract implemented in PR 3; the architecture pivot changes its
+interactive consumer, not its schemas or endpoints.
 
 ## Transport
 
@@ -9,7 +11,7 @@ behavior that consumers and implementations must preserve.
 - Media type: `application/json`
 - Version prefix: `/api/v1`
 - Authentication: none in the first local-only release
-- Browser access: one configured `chrome-extension://<id>` origin only
+- Browser access: one configured Side Panel `chrome-extension://<id>` origin only
 
 The service must not bind to `0.0.0.0`. CORS allows only the declared origin, `GET` and `POST` or
 `PATCH` as required, and the `Content-Type` and `Idempotency-Key` headers. Cookies and other browser
@@ -17,8 +19,8 @@ credentials are disabled.
 
 ## Create a Recommendation
 
-`POST /api/v1/recommendations` accepts the active post after preview confirmation. A UUID-valued
-`Idempotency-Key` header is required.
+`POST /api/v1/recommendations` accepts the active post only after Side Panel preview confirmation.
+A UUID-valued `Idempotency-Key` header is required and must be stored before the first attempt.
 
 ```json
 {
@@ -55,6 +57,34 @@ key with different content returns `409 Conflict`.
 
 The example abbreviates `candidates`; a successful response always contains exactly three.
 
+### Existing API and Target Client Retry Ownership
+
+The Side Panel derives a stable digest from the exact normalized POST payload and retains the
+associated idempotency key before transmission. It reuses that key after a duplicate click,
+network interruption, `504`, or `generation_in_progress` response when the same payload remains
+available. Current successful replays return `Idempotency-Replayed: true`.
+
+### Target Failure Semantics
+
+PR 6 extends v1 without changing endpoint or success schemas. A failure known to occur before the
+provider call releases the reservation for a safe same-key retry. A terminal refusal or invalid
+result persists only a safe `status`, `code`, `title`, and `detail` snapshot and replays it without
+another provider call; each HTTP response still receives a fresh `request_id`. Once provider
+submission may have occurred but no result is known, the outcome is persisted as indeterminate.
+
+| Situation | HTTP/code | Same-key behavior | New key |
+| --- | --- | --- | --- |
+| Active generation | `409 generation_in_progress` | bounded polling, at most 60 seconds | not automatic |
+| Local/provider rate limit | `429 generation_rate_limited` | retry after `Retry-After` | unnecessary |
+| Terminal refusal | `502 generation_refused` | replay safe failure | explicit new attempt only |
+| Terminal invalid output | `502 generation_invalid` | replay safe failure | explicit new attempt only |
+| Indeterminate provider outcome | `409 generation_indeterminate` | replay indeterminate state | explicit confirmation required |
+
+The target CORS response exposes `Idempotency-Replayed` and `Retry-After` to the configured
+extension origin. Failure replay also sets `Idempotency-Replayed: true`; error responses carry a
+fresh `request_id` in the problem body. The client must not silently replace an indeterminate
+attempt with a new key.
+
 ## Read and Review
 
 - `GET /api/v1/recommendations/{recommendation_id}` returns one persisted recommendation without
@@ -64,7 +94,11 @@ The example abbreviates `candidates`; a successful response always contains exac
 
 Allowed transitions are `drafted → approved → completed`. A user may edit while drafted or
 approved. `completed` means the user reported finishing the manual workflow; it does not mean the
-application posted a comment.
+application posted a comment. Clipboard copy does not perform this transition automatically.
+
+The MVP has no collection history endpoint and no ETag/`If-Match` contract. If a review update
+returns `review_conflict`, the Side Panel fetches the recommendation again and presents the latest
+state instead of blindly overwriting it.
 
 ## Error Contract
 
@@ -82,9 +116,13 @@ rather than human-readable `detail`.
 }
 ```
 
-Provider failures are mapped to `generation_rate_limited`, `generation_timeout`,
-`generation_refused`, or `generation_unavailable`. Responses never include API keys, source text,
-provider request bodies, stack traces, or raw provider errors.
+The implemented PR 3 service maps provider failures to `generation_rate_limited`,
+`generation_timeout`, `generation_refused`, `generation_invalid`, or `generation_unavailable`.
+PR 6 adds `generation_indeterminate` and terminal failure replay as specified above. Responses
+never include API keys, source text, provider request bodies, stack traces, or raw provider errors.
+
+The planned OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`.
+Those are server-side generation settings and do not change this transport schema.
 
 ## Compatibility Rules
 
