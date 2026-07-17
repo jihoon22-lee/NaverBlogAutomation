@@ -69,7 +69,7 @@ Live OpenAI smoke는 실제 비용과 외부 전송이 발생합니다. Private 
 
 ```bash
 RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \
-  pytest --no-cov -m live_openai tests/live -s
+  pytest --no-cov -m live_openai tests/live
 ```
 
 Manual Naver/OpenAI smoke는 본인이 공개 전송을 허용한 글에서만 수행합니다. Preview 확인,
