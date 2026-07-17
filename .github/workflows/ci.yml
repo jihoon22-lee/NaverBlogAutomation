@@ -17,9 +17,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate commit messages
         shell: bash
@@ -41,7 +42,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -145,7 +148,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -229,5 +234,125 @@ jobs:
             || "$TEST_RESULT" != "success" \
             || "$BUILD_RESULT" != "success" ]]; then
             echo "One or more TypeScript checks failed." >&2
+            exit 1
+          fi
+
+  system-e2e:
+    name: System E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install locked extension dependencies
+        id: dependencies
+        continue-on-error: true
+        run: npm ci --prefix extension
+
+      - name: Install bundled Chromium and system dependencies
+        id: chromium
+        if: steps.dependencies.outcome == 'success'
+        continue-on-error: true
+        working-directory: extension
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and install wheel in an isolated environment
+        id: package
+        continue-on-error: true
+        shell: bash
+        run: |
+          wheel_dir="$RUNNER_TEMP/system-e2e-wheel"
+          environment="$RUNNER_TEMP/system-e2e-venv"
+          uv build --wheel --out-dir "$wheel_dir"
+          wheel="$(find "$wheel_dir" -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          uv venv --python 3.14 "$environment"
+          uv pip install --python "$environment/bin/python" "$wheel"
+          executable="$environment/bin/naver-blog-api"
+          test -x "$executable"
+          echo "SYSTEM_E2E_API_EXECUTABLE=$executable" >> "$GITHUB_ENV"
+
+      - name: Run packaged synthetic workflow
+        id: e2e
+        if: >-
+          steps.dependencies.outcome == 'success' &&
+          steps.chromium.outcome == 'success' &&
+          steps.package.outcome == 'success'
+        continue-on-error: true
+        run: npm --prefix extension run test:e2e
+
+      - name: Enforce System E2E gate
+        if: always()
+        shell: bash
+        env:
+          DEPENDENCIES_RESULT: ${{ steps.dependencies.outcome }}
+          CHROMIUM_RESULT: ${{ steps.chromium.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
+          E2E_RESULT: ${{ steps.e2e.outcome }}
+        run: |
+          echo "## System E2E gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Locked extension dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Playwright bundled Chromium | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Installed Python wheel | $PACKAGE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Synthetic packaged workflow | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$DEPENDENCIES_RESULT" != "success" \
+            || "$CHROMIUM_RESULT" != "success" \
+            || "$PACKAGE_RESULT" != "success" \
+            || "$E2E_RESULT" != "success" ]]; then
+            echo "System E2E did not complete successfully." >&2
+            exit 1
+          fi
+
+  quality-gate:
+    name: Quality gate
+    if: always()
+    needs:
+      - commit-convention
+      - python-quality
+      - typescript-quality
+      - system-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize required checks
+        shell: bash
+        env:
+          COMMIT_RESULT: ${{ needs.commit-convention.result }}
+          PYTHON_RESULT: ${{ needs.python-quality.result }}
+          TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
+          E2E_RESULT: ${{ needs.system-e2e.result }}
+        run: |
+          echo "## Required quality checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit convention | $COMMIT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Python quality | $PYTHON_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$COMMIT_RESULT" != "success" \
+            || "$PYTHON_RESULT" != "success" \
+            || "$TYPESCRIPT_RESULT" != "success" \
+            || "$E2E_RESULT" != "success" ]]; then
+            echo "One or more required jobs failed or were skipped." >&2
             exit 1
           fi

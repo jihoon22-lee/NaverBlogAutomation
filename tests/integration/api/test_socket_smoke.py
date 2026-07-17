@@ -11,17 +11,18 @@ import time
 import urllib.request
 from pathlib import Path
 
+from naver_blog_assistant.api.runtime import LOOPBACK_PORT
+
 
 def test_launcher_serves_health_on_loopback(tmp_path: Path) -> None:
     with socket.socket() as candidate:
-        candidate.bind(("127.0.0.1", 0))
-        port = candidate.getsockname()[1]
+        candidate.bind(("127.0.0.1", LOOPBACK_PORT))
 
     environment = os.environ.copy()
     environment.update(
         {
             "API_HOST": "127.0.0.1",
-            "API_PORT": str(port),
+            "API_PORT": str(LOOPBACK_PORT),
             "APP_ENV": "test",
             "COMMENT_GENERATOR_MODE": "fake",
             "CHROME_EXTENSION_ORIGIN": ("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
@@ -39,7 +40,7 @@ def test_launcher_serves_health_on_loopback(tmp_path: Path) -> None:
         while True:
             try:
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/health", timeout=1
+                    f"http://127.0.0.1:{LOOPBACK_PORT}/health", timeout=1
                 ) as response:
                     assert response.status == 200
                     assert json.load(response) == {"status": "ok"}

@@ -114,7 +114,7 @@ export class LocalApiClient {
   async #request(path: string, init: RequestInit): Promise<Response> {
     let response: Response;
     try {
-      response = await this.#fetch(`${LOCAL_API_ORIGIN}${path}`, {
+      response = await this.#fetch.call(globalThis, `${LOCAL_API_ORIGIN}${path}`, {
         ...init,
         cache: "no-store",
         credentials: "omit",

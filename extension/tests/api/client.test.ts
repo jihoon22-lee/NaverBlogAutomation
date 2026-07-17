@@ -62,6 +62,18 @@ function problem(code: string, status: number, headers: Record<string, string> =
 }
 
 describe("LocalApiClient", () => {
+  it("invokes a browser-native fetch with the global receiver", async () => {
+    const fetcher = vi.fn(function (this: unknown): Promise<Response> {
+      if (this !== globalThis) {
+        throw new TypeError("Illegal invocation");
+      }
+      return Promise.resolve(json({ status: "ok" }));
+    }) as unknown as typeof fetch;
+
+    await expect(new LocalApiClient(fetcher).health()).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("connects health, create, GET, and PATCH with typed payloads", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
