@@ -3,9 +3,9 @@
 Status: Accepted target architecture on 2026-07-17
 
 This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
-PR 1~7 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
-and integrated recommendation/review workflow. Release hardening remains tracked in
-[`delivery-plan.md`](delivery-plan.md).
+PR 1~8 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
+integrated recommendation/review workflow, and release hardening. Delivery boundaries and their
+acceptance criteria are recorded in [`delivery-plan.md`](delivery-plan.md).
 
 ## Purpose and Boundaries
 
@@ -153,9 +153,11 @@ extension uses Node.js 24 LTS, TypeScript, esbuild, Biome, and Vitest. The Side 
 end-user presentation and review interaction.
 
 PR CI runs Ruff, ty, pytest with at least 85% branch coverage, TypeScript checking, Biome, Vitest
-coverage, an extension production build, and installed-wheel smoke tests. Fixtures contain only
-synthetic HTML. Real Naver pages and live OpenAI calls remain opt-in and must not emit source text
-or secrets into artifacts.
+coverage, an extension production build, installed-wheel smoke tests, and a separate packaged
+System E2E workflow against the installed console script. Fixtures contain only synthetic HTML.
+Real Naver pages and live OpenAI calls remain opt-in and must not emit source text or secrets into
+artifacts. Operational details and the headless Side Panel limitation are documented in
+[`local-operations.md`](local-operations.md).
 
 ## Consequences
 

@@ -1,124 +1,137 @@
 # 네이버 블로그 댓글 작성 보조 도구
 
-사람의 최종 검토를 전제로 현재 보고 있는 네이버 블로그 글을 분석하고 댓글 후보를 생성하는
-local-first 애플리케이션입니다. 현재 Chrome Side Panel은 활성 글의 본문을 추출해 preview하며,
-후속 integrated workflow에서는 추천, 편집, 복사까지 같은 화면에서 처리합니다. FastAPI는
-OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요와 댓글 등록은 항상
-사용자가 직접 수행합니다.
+현재 보고 있는 네이버 블로그 글을 Chrome Side Panel에서 읽고 댓글 후보를 생성하는
+local-first 도구입니다. 사용자가 본문 preview를 확인한 뒤에만 local FastAPI로 전송하며,
+후보 선택·편집·승인·복사까지 Side Panel에서 처리합니다. 댓글 등록과 좋아요는 자동화하지
+않으며 항상 사용자가 네이버 페이지에서 직접 수행합니다.
 
-## 현재 상태와 Target Architecture
+## 구성
 
-PR 1~7에서 framework-independent domain, SQLite persistence, local FastAPI v1 API,
-Side Panel extraction, OpenAI Responses adapter와 안전한 failure replay persistence를
-구현했습니다. Extension은 Side Panel에서 지원되는 Naver URL을 검증하고, 활성 글의 title,
-URL, character count, truncation 상태와 bounded body preview를 표시합니다.
-Side Panel은 유일한 end-user UI이며 FastAPI recommendation/review workflow를 제공합니다.
-Packaged system E2E와 release hardening은 후속 작업입니다.
+- `extension/`: Manifest V3 TypeScript Side Panel, 본문 추출과 review UI
+- `src/naver_blog_assistant/`: FastAPI, domain/application layer, OpenAI adapter, SQLite persistence
+- `tests/`: Python unit/integration/live opt-in tests
+- `docs/`: architecture, API contract, 운영·보존 정책
 
-자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
-
-- [Side Panel architecture](docs/architecture.md)
-- [구현 계획](docs/delivery-plan.md)
-- [Local API 계약](docs/api-contract.md)
-- [OpenAPI 3.1 명세](docs/api/openapi.yaml)
+FastAPI는 `127.0.0.1:8765`에만 bind합니다. API key와 model 호출은 Python process에 남고
+extension에는 전달되지 않습니다. 자세한 설계는 [architecture](docs/architecture.md)를
+참고하세요.
 
 ## 요구 사항
 
-- CPython 3.14 표준 GIL build
-- `uv`
+- CPython 3.14 standard GIL build와 `uv`
 - Node.js 24 LTS와 npm 11
-- OpenAI generator 사용 시 process environment의 `OPENAI_API_KEY`
+- Chrome 120 이상
+- OpenAI mode를 선택할 때만 `OPENAI_API_KEY`
 
-## 설치
+## Fresh Setup
 
-Repository root에서 dependency를 설치합니다.
+Repository root에서 locked dependency를 설치하고 extension을 먼저 build합니다.
 
 ```bash
-uv sync
+uv sync --frozen
 npm ci --prefix extension
+npm --prefix extension run build
 ```
 
-`.env.example`을 `.env.local`로 복사하고 unpacked extension ID에 맞춰
-`CHROME_EXTENSION_ORIGIN`을 수정합니다. 실제 credential은 commit하지 않습니다.
+Chrome `chrome://extensions`에서 Developer mode를 켜고 **Load unpacked**로
+`extension/dist`를 선택합니다. 표시된 32자 extension ID를 복사한 뒤 private environment
+file을 만듭니다. Script는 기존 파일을 덮어쓰지 않으며 POSIX에서는 mode `0600`을 강제합니다.
 
 ```bash
-cp .env.example .env.local
+uv run --frozen python -m scripts.init_local_env
 ```
 
-## Local API 실행
-
-외부 API 호출 없이 개발할 때는 explicit development mode의 deterministic fake generator로
-현재 API contract와 persistence를 검증할 수 있습니다. Production mode는 OpenAI adapter를 사용합니다.
+Repository가 WSL의 `/mnt/e` 같은 DrvFs에 있어 `0600`을 보장하지 못하면 Linux filesystem의
+XDG config directory를 사용합니다.
 
 ```bash
-uv run --env-file .env.local naver-blog-api
+ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env"
+uv run --frozen python -m scripts.init_local_env --target "$ENV_FILE"
 ```
 
-`.env.local`에는 개발 단계에서 다음 값이 필요합니다.
+생성한 file에서 `CHROME_EXTENSION_ORIGIN`을
+`chrome-extension://<복사한-extension-id>`로 바꿉니다. 첫 실행은 다음 설정을 유지하세요.
 
 ```dotenv
 APP_ENV=development
 COMMENT_GENERATOR_MODE=fake
-CHROME_EXTENSION_ORIGIN=chrome-extension://<unpacked-extension-id>
+API_HOST=127.0.0.1
+API_PORT=8765
 ```
 
-서버는 `http://127.0.0.1:8765`에만 bind하고 시작할 때 Alembic migration을 적용합니다.
-`.env.local`은 application이 암묵적으로 읽는 파일이 아니므로 `uv run --env-file`을 생략하지
-않습니다. OpenAI adapter는 server에서 `gpt-5.6-terra`, low reasoning,
-`store=false`를 기본값으로 사용하며 API key를 extension으로 전달하지 않습니다.
-
-## Extension 개발
-
-Side Panel extension을 build하려면 다음 명령을 사용합니다.
+Default `.env.local`을 사용한다면 setup을 검증하고 API를 시작합니다. Application은 `.env`를
+암묵적으로 읽지 않으므로 `--env-file`을 생략하지 않습니다.
 
 ```bash
-npm --prefix extension run build
+uv run --frozen --env-file .env.local python -m scripts.check_local_setup
+uv run --frozen --env-file .env.local naver-blog-api
 ```
 
-Chrome의 `chrome://extensions`에서 Developer mode를 켜고 `extension/dist`를 unpacked
-extension으로 load합니다. Naver Blog 글을 연 뒤 toolbar action을 누르면 Side Panel이 열리고
-현재 글의 extraction preview를 표시합니다. 추천 생성 button은 아직 비활성화되어 있으며,
-현재 extension은 OpenAI 또는 local API에 요청을 보내지 않습니다. 후속 integrated workflow는
-[`delivery-plan.md`](docs/delivery-plan.md)에 추적합니다.
+XDG fallback을 사용했다면 다음처럼 setup tool에도 선택한 path를 알려 줍니다.
+
+```bash
+uv run --frozen --env-file "$ENV_FILE" \
+  python -m scripts.check_local_setup --env-file "$ENV_FILE"
+uv run --frozen --env-file "$ENV_FILE" naver-blog-api
+```
+
+API 시작 후 별도 terminal에서 CORS까지 확인할 수 있습니다.
+
+```bash
+uv run --frozen --env-file .env.local \
+  python -m scripts.check_local_setup --require-api
+```
+
+## 사용 순서
+
+1. 지원되는 HTTPS Naver Blog 글을 현재 tab에 엽니다.
+2. Extension toolbar action을 눌러 Side Panel을 엽니다.
+3. 추출된 title과 bounded body preview가 맞는지 확인합니다.
+4. **댓글 추천 생성**을 눌러 세 후보를 생성합니다.
+5. 후보를 선택하거나 내용을 편집한 뒤 승인합니다.
+6. 승인한 댓글을 복사해 네이버 댓글 입력란에 직접 붙여넣고 등록합니다.
+7. 실제 수동 절차를 마친 경우에만 **수동 등록 완료로 표시**를 누릅니다.
+
+복사와 완료 표시는 댓글을 게시하지 않습니다. Tab 이동이나 navigation 뒤에는 toolbar action을
+다시 눌러 `activeTab` 권한을 갱신하세요.
+
+## OpenAI Opt-in
+
+Fake workflow를 먼저 확인한 후에만 private env file을 다음처럼 변경하고 API를 재시작합니다.
+
+```dotenv
+APP_ENV=production
+COMMENT_GENERATOR_MODE=openai
+OPENAI_API_KEY=<private-key>
+```
+
+기본 adapter는 `gpt-5.6-terra`, low reasoning, `store=false`를 사용합니다. 생성 버튼을 누르면
+현재 글의 title, URL, body가 OpenAI API로 전송될 수 있습니다. Key를 extension file, shell
+history, screenshot, log 또는 commit에 남기지 마세요.
 
 ## 품질 검사
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run ty check
-uv run pytest
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen ty check
+uv run --frozen pytest
 npm --prefix extension run check
+npm --prefix extension exec -- playwright install chromium
+npm --prefix extension run test:e2e
 ```
 
-실제 OpenAI 호출 smoke test는 기본 test/CI에서 skip됩니다. 비용과 외부 전송을 확인한 뒤에만
-`RUN_LIVE_OPENAI=1 uv run pytest -m live_openai tests/live -s`로 명시적으로 실행하세요.
+Pytest는 85% branch coverage를 강제합니다. System E2E는 synthetic fixture와 fake generator만
+사용하며 build된 production Side Panel을 실제 loopback API에 연결합니다. 자세한 운영,
+troubleshooting, data cleanup과 opt-in smoke 절차는
+[Local Operations](docs/local-operations.md)에 있습니다.
 
-Pytest는 `naver_blog_assistant` branch coverage 85%를 강제합니다.
-`uv run pytest --cov-report=html`로 `htmlcov/index.html` 상세 보고서를 만들 수 있습니다.
-Extension CI도 format, lint, typecheck, Vitest coverage, production build를 독립적으로
-검증합니다. 테스트 fixture에는 synthetic content만 사용합니다.
+## 범위와 Privacy
 
-## Privacy와 운영 범위
+- 지원 범위는 현재 사용자가 연 Naver Blog 글의 추출, 추천, review와 copy입니다.
+- Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 입력·등록, unattended browsing은 제외합니다.
+- Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다.
+- SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다.
+- Private/unpublished content, 실제 account identifier나 secret을 test fixture·artifact에 넣지 않습니다.
 
-- `OPENAI_API_KEY`, browser cookie, login credential, 별도 account profile, 원문 전체를 저장하거나
-  log하지 않습니다.
-- SQLite에는 URL, title, content hash, bounded excerpt, summary와 review 결과가 남습니다. 공개
-  blog/account identifier가 source URL에 포함된 경우 그 URL의 일부로 함께 저장될 수 있습니다.
-- 현재 Side Panel은 extension storage를 사용하지 않습니다. 후속 integrated retry workflow에서도
-  digest와 opaque ID만 제한적으로 보관합니다.
-- Monitoring, automatic likes, comment publishing, sign-in automation은 MVP 범위가 아닙니다.
-- Live Naver/OpenAI smoke test는 opt-in이며 source text나 secret을 CI artifact에 남기지 않습니다.
-
-## 기여 및 PR 작업 흐름
-
-작업별 branch를 만들고 `main` 대상의 review-ready PR을 엽니다. `Commit convention`,
-`Python quality`, `TypeScript quality`가 모두 성공한 뒤 merge합니다. Conventional Commit과
-branch 규칙은 [`AGENTS.md`](AGENTS.md)를 따릅니다.
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Local hook은 `main` 직접 push와 잘못된 commit message를 차단합니다. GitHub server-side
-branch protection을 사용할 수 없는 환경에서도 PR 검토와 required checks를 유지합니다.
+작업 branch와 Conventional Commit, review-ready PR 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다.

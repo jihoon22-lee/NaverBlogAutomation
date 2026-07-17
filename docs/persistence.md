@@ -7,6 +7,9 @@
 `indeterminate` fence가 있으면 해당 downgrade는 명시적으로 거부되며 데이터와 현재
 schema를 그대로 유지합니다.
 
+운영 환경의 정확한 retention 범위, extension retry registry와 안전한 dry-run/confirmed cleanup
+명령은 [`local-operations.md`](local-operations.md#data-retention-and-cleanup)를 참고하세요.
+
 ## 원자성과 멱등성
 
 추천 본문과 세 후보, 멱등성 완료 상태, 최초 응답 스냅샷은 하나의 `BEGIN IMMEDIATE`
