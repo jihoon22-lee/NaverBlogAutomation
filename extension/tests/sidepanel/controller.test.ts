@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BrowserCaptureError,
@@ -7,7 +7,7 @@ import {
 } from "../../src/browser/tab-capture-gateway";
 import type { ActiveTab, FrameExecution } from "../../src/extraction/types";
 import { SidePanelController } from "../../src/sidepanel/controller";
-import type { PanelState, PanelView } from "../../src/sidepanel/state";
+import type { PanelActions, PanelState, PanelView } from "../../src/sidepanel/state";
 
 const activeTab: ActiveTab = {
   id: 11,
@@ -31,12 +31,29 @@ const frames: readonly FrameExecution[] = [
   },
 ];
 
+beforeEach(() => {
+  vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn(async () => undefined),
+      },
+    },
+  });
+});
+
 class RecordingView implements PanelView {
-  retry: (() => void) | null = null;
+  actions: PanelActions | null = null;
   readonly states: PanelState[] = [];
 
-  onRetry(listener: () => void): void {
-    this.retry = listener;
+  bind(actions: PanelActions): void {
+    this.actions = actions;
+  }
+
+  clearSensitiveContent(): void {}
+
+  async copyText(_value: string): Promise<boolean> {
+    return true;
   }
 
   render(state: PanelState): void {
@@ -151,13 +168,34 @@ describe("SidePanelController", () => {
     expect(gateway.unsubscribed).toBe(true);
   });
 
+  it("ignores a delayed capture rejection after the page becomes stale", async () => {
+    const pending: { reject?: (error: unknown) => void } = {};
+    const gateway = new FakeGateway();
+    gateway.captureAllFrames = vi.fn(
+      () =>
+        new Promise<readonly FrameExecution[]>((_resolve, reject) => {
+          pending.reject = reject;
+        }),
+    );
+    const view = new RecordingView();
+    const controller = new SidePanelController(gateway, view);
+
+    controller.start();
+    await vi.waitFor(() => expect(pending.reject).toBeDefined());
+    gateway.invalidation?.({ kind: "updated", tabId: activeTab.id });
+    pending.reject?.(new BrowserCaptureError("permission_denied"));
+    await Promise.resolve();
+
+    expect(view.states.at(-1)).toEqual({ failure: { code: "stale_page" }, kind: "error" });
+  });
+
   it("lets the retry control start another capture", async () => {
     const gateway = new FakeGateway();
     gateway.activeTabs = [activeTab, activeTab];
     const view = new RecordingView();
     new SidePanelController(gateway, view);
 
-    view.retry?.();
+    view.actions?.retry();
     await vi.waitFor(() => expect(view.states.at(-1)?.kind).toBe("preview"));
   });
 
@@ -218,7 +256,7 @@ describe("SidePanelController", () => {
     controller.start();
     await vi.waitFor(() => expect(firstQuery.resolve).toBeDefined());
     gateway.invalidation?.({ kind: "activated", tabId: nextTab.id });
-    view.retry?.();
+    view.actions?.retry();
     await vi.waitFor(() => expect(view.states.at(-1)?.kind).toBe("preview"));
 
     firstQuery.resolve?.(activeTab);

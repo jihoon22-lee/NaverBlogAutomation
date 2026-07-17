@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  CanonicalPayloadError,
+  canonicalRequestJson,
+  normalizePythonWhitespace,
+  requestDigest,
+} from "../../src/idempotency/canonical";
+
+describe("canonical request identity", () => {
+  it.each([
+    {
+      expected: "822c3c39d1f9934a7c2f54a7b2eb01eb2e9985f1f2b33c3ae9ae597f81b60603",
+      payload: {
+        body: "푸른\u00a0조각과 😀 작품을\n 자세히 소개한 합성 본문입니다.",
+        source_url: " https://blog.naver.com/example/1 ",
+        title: " 주말\n전시\t후기 ",
+      },
+    },
+    {
+      expected: "7874c875551b748d65819f09b8cff429326d7f164fe5d56d2f9669f8209ba932",
+      payload: {
+        body: "\ufeff앞뒤 FEFF는 Python에서 유지되는 충분히 긴 합성 본문입니다.\ufeff",
+        source_url: "https://m.blog.naver.com/example/2",
+        title: "\ufeff제목\ufeff",
+      },
+    },
+    {
+      expected: "3cbb31fae5eb30b4a084c67cefbd91f7bf7da6a686afb78d30d47828f351cb95",
+      payload: {
+        body: "A\u001cB\u0085C\u2028D\u3000E 문자를 포함한 충분히 긴 합성 본문입니다.",
+        source_url: "https://blog.naver.com/example/3",
+        title: "Unicode 공백",
+      },
+    },
+  ])("matches the Python 3.14 SHA-256 vector $expected", async ({ expected, payload }) => {
+    expect(await requestDigest(payload)).toBe(expected);
+  });
+
+  it("serializes normalized keys in Python sort order", () => {
+    expect(
+      canonicalRequestJson({
+        body: " 충분히 긴 합성 본문 내용을 작성합니다. ",
+        source_url: " https://blog.naver.com/example/4 ",
+        title: " 합성 제목 ",
+      }),
+    ).toBe(
+      '{"body":"충분히 긴 합성 본문 내용을 작성합니다.","source_url":"https://blog.naver.com/example/4","title":"합성 제목"}',
+    );
+    expect(normalizePythonWhitespace("\ufeff 제목 \ufeff")).toBe("\ufeff 제목 \ufeff");
+  });
+
+  it("rejects lone surrogates and invalid normalized lengths", async () => {
+    const base = {
+      body: "충분히 긴 합성 본문 내용을 작성합니다.",
+      source_url: "https://blog.naver.com/example/5",
+      title: "합성 제목",
+    };
+    await expect(requestDigest({ ...base, body: `${base.body}\ud800` })).rejects.toBeInstanceOf(
+      CanonicalPayloadError,
+    );
+    expect(() => canonicalRequestJson({ ...base, body: " 짧음 " })).toThrow(CanonicalPayloadError);
+  });
+});
