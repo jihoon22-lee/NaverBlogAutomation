@@ -3,8 +3,9 @@ info:
   title: Naver Blog Assistant Local API
   version: 1.0.0
   description: >-
-    Loopback-only API used by the browser extension and local review UI to create and
-    review human-approved comment recommendations.
+    Loopback-only API used by the browser extension Side Panel to create and review
+    human-approved comment recommendations. Full article text is accepted only after preview
+    confirmation and is not retained in full.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -36,7 +37,11 @@ paths:
     post:
       operationId: createRecommendation
       tags: [Recommendations]
-      summary: Generate three comment recommendations for one active blog post
+      summary: Generate three comment recommendations for the previewed active blog post
+      description: >-
+        The Side Panel persists one idempotency key before its first attempt and reuses it for
+        duplicate clicks, interrupted responses, timeouts, and in-progress retries whenever the
+        exact normalized payload remains available.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -99,7 +104,11 @@ paths:
     patch:
       operationId: reviewRecommendation
       tags: [Recommendations]
-      summary: Record the user's review decision
+      summary: Record the user's explicit Side Panel review decision
+      description: >-
+        Review remains human controlled. Copying a comment does not itself mark the recommendation
+        completed. On a review conflict, the client fetches the latest representation before
+        retrying.
       requestBody:
         required: true
         content:
