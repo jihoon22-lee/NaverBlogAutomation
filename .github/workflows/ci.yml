@@ -80,6 +80,18 @@ jobs:
             --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY" \
             | tee reports/pytest-output.txt
 
+      - name: Build and smoke-test installed wheel
+        id: package
+        continue-on-error: true
+        shell: bash
+        run: |
+          wheel_dir="$RUNNER_TEMP/wheel"
+          uv build --wheel --out-dir "$wheel_dir"
+          wheel="$(find "$wheel_dir" -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          uv run --isolated --no-project --with "$wheel" \
+            python scripts/smoke_installed_wheel.py
+
       - name: Upload Python reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -100,6 +112,7 @@ jobs:
           FORMAT_RESULT: ${{ steps.formatting.outcome }}
           TY_RESULT: ${{ steps.ty.outcome }}
           PYTEST_RESULT: ${{ steps.pytest.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
         run: |
           echo "## Python quality gate" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
@@ -108,6 +121,7 @@ jobs:
           echo "| Ruff format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| ty | $TY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| pytest + coverage | $PYTEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Wheel install smoke | $PACKAGE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ -f reports/pytest-output.txt ]]; then
             echo "### Pytest summary" >> "$GITHUB_STEP_SUMMARY"
@@ -119,7 +133,8 @@ jobs:
           if [[ "$RUFF_RESULT" != "success" \
             || "$FORMAT_RESULT" != "success" \
             || "$TY_RESULT" != "success" \
-            || "$PYTEST_RESULT" != "success" ]]; then
+            || "$PYTEST_RESULT" != "success" \
+            || "$PACKAGE_RESULT" != "success" ]]; then
             echo "One or more Python checks failed." >&2
             exit 1
           fi

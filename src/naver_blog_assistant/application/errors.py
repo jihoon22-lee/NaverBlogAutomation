@@ -27,3 +27,19 @@ class GenerationInProgressError(ApplicationError):
 
 class ConcurrentReviewError(ApplicationError):
     """Raised when a review was based on an outdated recommendation version."""
+
+
+class GenerationRateLimitedError(ApplicationError):
+    """Raised when a configured generator reports temporary rate limiting."""
+
+    def __init__(self, retry_after: int | None = None) -> None:
+        super().__init__("comment generation was rate limited")
+        self.retry_after = retry_after
+
+
+class GenerationRefusedError(ApplicationError):
+    """Raised when a provider safely refuses the requested generation."""
+
+
+class GenerationUnavailableError(ApplicationError):
+    """Raised when a required provider dependency is temporarily unavailable."""

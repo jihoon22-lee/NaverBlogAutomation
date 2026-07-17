@@ -94,6 +94,8 @@ paths:
                 $ref: "#/components/schemas/RecommendationResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
     patch:
       operationId: reviewRecommendation
       tags: [Recommendations]

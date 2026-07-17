@@ -82,7 +82,7 @@ class CapturedPost:
     @property
     def excerpt(self) -> str:
         """Return a bounded preview that can never reconstruct the complete body."""
-        preview_length = min(MAX_EXCERPT_LENGTH, len(self.body) - 1)
+        preview_length = min(MAX_EXCERPT_LENGTH, len(self.body) // 2)
         return self.body[:preview_length]
 
 

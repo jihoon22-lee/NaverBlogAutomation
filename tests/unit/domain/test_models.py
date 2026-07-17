@@ -69,8 +69,8 @@ def test_captured_post_hashes_content_without_exposing_body_in_repr() -> None:
     ("body", "expected_excerpt"),
     [
         ("가", ""),
-        ("짧은 본문", "짧은 본"),
-        ("가" * 600, "가" * 500),
+        ("짧은 본문", "짧은"),
+        ("가" * 600, "가" * 300),
     ],
 )
 def test_captured_post_excerpt_is_always_incomplete(body: str, expected_excerpt: str) -> None:

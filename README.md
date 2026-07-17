@@ -8,7 +8,7 @@
 - CPython 3.14(표준 GIL 빌드)
 - `uv`
 - Node.js 24 LTS와 npm 11
-- 프로세스 환경변수에 설정된 `OPENAI_API_KEY`
+- OpenAI generator 사용 시 프로세스 환경변수에 설정된 `OPENAI_API_KEY`
 
 ## 설치 및 실행
 
@@ -20,6 +20,23 @@ uv run streamlit run src/naver_blog_assistant/app.py
 
 애플리케이션은 환경변수에서 `OPENAI_API_KEY`를 읽으며 키 값을 저장하지 않습니다. 로컬
 데이터베이스 파일은 `data/` 아래에 생성되고 Git 추적에서 제외됩니다.
+
+### 로컬 API 실행
+
+브라우저 확장 개발 전에는 명시적인 개발 모드의 결정론적 fake generator로 API 흐름을
+검증할 수 있습니다. `.env.example`을 참고해 환경변수를 설정한 뒤 실행합니다.
+
+```bash
+APP_ENV=development \
+COMMENT_GENERATOR_MODE=fake \
+CHROME_EXTENSION_ORIGIN=chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+uv run naver-blog-api
+```
+
+서버는 `http://127.0.0.1:8765`에만 바인딩되고 시작할 때 Alembic migration을 적용합니다.
+확장 프로그램을 unpacked 상태로 로드한 뒤 예시 origin의 ID를 실제 확장 ID로 교체해야
+CORS 요청이 허용됩니다. fake generator는 production 환경에서 거부되며, OpenAI adapter가
+구현되기 전까지 API 키를 외부로 전송하지 않습니다.
 
 ## 설계 문서
 
