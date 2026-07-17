@@ -64,9 +64,9 @@ associated idempotency key before transmission. It reuses that key after a dupli
 network interruption, `504`, or `generation_in_progress` response when the same payload remains
 available. Current successful replays return `Idempotency-Replayed: true`.
 
-### Target Failure Semantics
+### Implemented Failure Semantics
 
-PR 6 extends v1 without changing endpoint or success schemas. A failure known to occur before the
+PR 6 extended v1 without changing endpoint or success schemas. A failure known to occur before the
 provider call releases the reservation for a safe same-key retry. A terminal refusal or invalid
 result persists only a safe `status`, `code`, `title`, and `detail` snapshot and replays it without
 another provider call; each HTTP response still receives a fresh `request_id`. Once provider
@@ -80,7 +80,7 @@ submission may have occurred but no result is known, the outcome is persisted as
 | Terminal invalid output | `502 generation_invalid` | replay safe failure | explicit new attempt only |
 | Indeterminate provider outcome | `409 generation_indeterminate` | replay indeterminate state | explicit confirmation required |
 
-The target CORS response exposes `Idempotency-Replayed` and `Retry-After` to the configured
+The CORS response exposes `Idempotency-Replayed` and `Retry-After` to the configured
 extension origin. Failure replay also sets `Idempotency-Replayed: true`; error responses carry a
 fresh `request_id` in the problem body. The client must not silently replace an indeterminate
 attempt with a new key.
@@ -116,12 +116,12 @@ rather than human-readable `detail`.
 }
 ```
 
-The implemented PR 3 service maps provider failures to `generation_rate_limited`,
-`generation_timeout`, `generation_refused`, `generation_invalid`, or `generation_unavailable`.
-PR 6 adds `generation_indeterminate` and terminal failure replay as specified above. Responses
-never include API keys, source text, provider request bodies, stack traces, or raw provider errors.
+The service maps provider failures to `generation_rate_limited`, `generation_timeout`,
+`generation_refused`, `generation_invalid`, `generation_unavailable`, or
+`generation_indeterminate`, and replays terminal failures as specified above. Responses never
+include API keys, source text, provider request bodies, stack traces, or raw provider errors.
 
-The planned OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`.
+The OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`.
 Those are server-side generation settings and do not change this transport schema.
 
 ## Compatibility Rules

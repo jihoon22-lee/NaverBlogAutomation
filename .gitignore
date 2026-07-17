@@ -11,7 +11,6 @@ reports/
 !.env.example
 data/*.db
 data/*.sqlite*
-.streamlit/secrets.toml
 extension/coverage/
 extension/dist/
 extension/node_modules/

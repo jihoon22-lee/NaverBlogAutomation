@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Preview the active Naver Blog post for human-reviewed comment recommendations.",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
   "host_permissions": ["http://127.0.0.1:8765/*"],
   "background": {
     "service_worker": "background.js",

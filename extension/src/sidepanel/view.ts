@@ -1,6 +1,6 @@
 import { PREVIEW_CODE_POINTS, boundCodePoints } from "../extraction/normalize";
 import type { CaptureFailureCode } from "../extraction/types";
-import type { PanelState, PanelView } from "./state";
+import type { PanelActions, PanelState, PanelView, ReviewPresentation } from "./state";
 
 const FAILURE_MESSAGES: Record<CaptureFailureCode, string> = {
   empty_article: "본문 영역을 찾지 못했습니다. 페이지 로딩을 확인한 뒤 다시 시도해 주세요.",
@@ -9,8 +9,7 @@ const FAILURE_MESSAGES: Record<CaptureFailureCode, string> = {
   permission_denied:
     "이 페이지를 읽을 권한이 없습니다. 네이버 블로그 탭에서 확장 아이콘을 다시 눌러 주세요.",
   short_article: "추출된 본문이 너무 짧습니다. 글이 완전히 로드되었는지 확인해 주세요.",
-  stale_page:
-    "탭 또는 페이지가 변경되었습니다. 현재 네이버 블로그 탭에서 확장 아이콘을 다시 눌러 주세요.",
+  stale_page: "탭 또는 페이지가 변경되었습니다. 현재 글을 다시 읽어 주세요.",
   unsupported_url: "지원되는 HTTPS 네이버 블로그 글에서만 본문을 읽을 수 있습니다.",
 };
 
@@ -24,76 +23,295 @@ function requireElement<T extends Element>(document: Document, selector: string)
 
 export class DomPanelView implements PanelView {
   readonly #app: HTMLElement;
+  readonly #approveButton: HTMLButtonElement;
   readonly #bodyPreview: HTMLElement;
+  readonly #cancelButton: HTMLButtonElement;
+  readonly #candidateList: HTMLFieldSetElement;
   readonly #characterCount: HTMLElement;
+  readonly #cleanupButton: HTMLButtonElement;
+  readonly #completeButton: HTMLButtonElement;
+  readonly #copyButton: HTMLButtonElement;
   readonly #document: Document;
+  readonly #editCount: HTMLElement;
+  readonly #editedComment: HTMLTextAreaElement;
   readonly #errorMessage: HTMLElement;
   readonly #errorPanel: HTMLElement;
   readonly #errorTitle: HTMLElement;
+  readonly #generateButton: HTMLButtonElement;
   readonly #postTitle: HTMLElement;
   readonly #postUrl: HTMLElement;
   readonly #previewPanel: HTMLElement;
   readonly #previewTitle: HTMLElement;
+  readonly #progressMessage: HTMLElement;
+  readonly #progressPanel: HTMLElement;
+  readonly #replaceButton: HTMLButtonElement;
+  readonly #resultTitle: HTMLElement;
   readonly #retryButton: HTMLButtonElement;
+  readonly #reviewNotice: HTMLElement;
+  readonly #reviewPanel: HTMLElement;
+  readonly #reviewStatus: HTMLElement;
   readonly #status: HTMLElement;
+  readonly #summary: HTMLElement;
+  readonly #topics: HTMLElement;
   readonly #truncationNotice: HTMLElement;
+  #currentKind: PanelState["kind"] | null = null;
 
   constructor(document: Document) {
     this.#document = document;
     this.#app = requireElement(document, "#app");
+    this.#approveButton = requireElement(document, "#approve-button");
     this.#bodyPreview = requireElement(document, "#body-preview");
+    this.#cancelButton = requireElement(document, "#cancel-button");
+    this.#candidateList = requireElement(document, "#candidate-list");
     this.#characterCount = requireElement(document, "#character-count");
+    this.#cleanupButton = requireElement(document, "#cleanup-button");
+    this.#completeButton = requireElement(document, "#complete-button");
+    this.#copyButton = requireElement(document, "#copy-button");
+    this.#editCount = requireElement(document, "#edit-count");
+    this.#editedComment = requireElement(document, "#edited-comment");
     this.#errorMessage = requireElement(document, "#error-message");
     this.#errorPanel = requireElement(document, "#error-panel");
     this.#errorTitle = requireElement(document, "#error-title");
+    this.#generateButton = requireElement(document, "#generate-button");
     this.#postTitle = requireElement(document, "#post-title");
     this.#postUrl = requireElement(document, "#post-url");
     this.#previewPanel = requireElement(document, "#preview-panel");
     this.#previewTitle = requireElement(document, "#preview-title");
+    this.#progressMessage = requireElement(document, "#progress-message");
+    this.#progressPanel = requireElement(document, "#progress-panel");
+    this.#replaceButton = requireElement(document, "#replace-button");
+    this.#resultTitle = requireElement(document, "#result-title");
     this.#retryButton = requireElement(document, "#retry-button");
+    this.#reviewNotice = requireElement(document, "#review-notice");
+    this.#reviewPanel = requireElement(document, "#review-panel");
+    this.#reviewStatus = requireElement(document, "#review-status");
     this.#status = requireElement(document, "#status");
+    this.#summary = requireElement(document, "#summary");
+    this.#topics = requireElement(document, "#topics");
     this.#truncationNotice = requireElement(document, "#truncation-notice");
   }
 
-  onRetry(listener: () => void): void {
-    this.#retryButton.addEventListener("click", listener);
+  bind(actions: PanelActions): void {
+    this.#retryButton.addEventListener("click", actions.retry);
+    this.#generateButton.addEventListener("click", actions.generate);
+    this.#cancelButton.addEventListener("click", actions.cancel);
+    this.#approveButton.addEventListener("click", actions.approve);
+    this.#copyButton.addEventListener("click", actions.copy);
+    this.#completeButton.addEventListener("click", actions.complete);
+    this.#editedComment.addEventListener("input", () => {
+      this.#editCount.textContent = `${Array.from(this.#editedComment.value).length.toLocaleString("ko-KR")} / 500자`;
+      actions.edit(this.#editedComment.value);
+    });
+    this.#candidateList.addEventListener("change", (event) => {
+      const input = event.target;
+      const Input = this.#document.defaultView?.HTMLInputElement;
+      if (Input !== undefined && input instanceof Input && input.name === "candidate") {
+        actions.select(input.value);
+      }
+    });
+    this.#replaceButton.addEventListener("click", () => {
+      if (
+        this.#document.defaultView?.confirm(
+          "이전 provider 결과가 존재할 수 있습니다. 중복 생성 가능성을 이해하고 새 key로 시도할까요?",
+        ) === true
+      ) {
+        actions.replace();
+      }
+    });
+    this.#cleanupButton.addEventListener("click", () => {
+      if (
+        this.#document.defaultView?.confirm(
+          "저장된 retry metadata를 삭제하면 이전 작업을 자동 복구할 수 없습니다. 정리할까요?",
+        ) === true
+      ) {
+        actions.cleanup();
+      }
+    });
+  }
+
+  async copyText(value: string): Promise<boolean> {
+    try {
+      const clipboard = this.#document.defaultView?.navigator.clipboard;
+      if (clipboard === undefined) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await clipboard.writeText(value);
+      return true;
+    } catch {
+      this.#editedComment.focus();
+      this.#editedComment.select();
+      return false;
+    }
+  }
+
+  clearSensitiveContent(): void {
+    this.#clearSensitiveDom();
   }
 
   render(state: PanelState): void {
-    this.#app.setAttribute("aria-busy", String(state.kind === "extracting"));
+    const previousKind = this.#currentKind;
+    this.#currentKind = state.kind;
+    const busy =
+      state.kind === "extracting" || state.kind === "generating" || state.kind === "saving";
+    this.#app.setAttribute("aria-busy", String(busy));
     this.#errorPanel.hidden = state.kind !== "error";
     this.#previewPanel.hidden = state.kind !== "preview";
+    this.#progressPanel.hidden = state.kind !== "generating";
+    this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
+    if (state.kind === "extracting" || state.kind === "error" || state.kind === "generating") {
+      this.#clearSensitiveDom();
+    }
 
     if (state.kind === "extracting") {
       this.#status.textContent = "현재 글의 본문을 확인하고 있습니다.";
       return;
     }
     if (state.kind === "error") {
-      this.#status.textContent = "본문 확인이 중단되었습니다.";
-      this.#errorMessage.textContent = FAILURE_MESSAGES[state.failure.code];
-      this.#focus(this.#errorTitle);
+      this.#renderError(state.failure);
       return;
     }
+    if (state.kind === "generating") {
+      this.#status.textContent = state.message;
+      this.#progressMessage.textContent = state.message;
+      this.#cancelButton.hidden = !state.canCancel;
+      return;
+    }
+    if (state.kind === "preview") {
+      this.#renderPreview(state.preview);
+      return;
+    }
+    this.#renderRecommendation(
+      state,
+      state.kind,
+      previousKind === null ||
+        !["approved", "completed", "review", "saving"].includes(previousKind),
+    );
+  }
 
-    const { preview } = state;
-    this.#status.textContent = "본문 preview를 확인했습니다. 아직 외부로 전송하지 않았습니다.";
+  #renderError(failure: Extract<PanelState, { kind: "error" }>["failure"]): void {
+    this.#status.textContent = "작업이 중단되었습니다.";
+    const workflow = "action" in failure ? failure : null;
+    this.#errorTitle.textContent = workflow?.title ?? "본문을 읽지 못했습니다";
+    this.#errorMessage.textContent =
+      workflow?.message ?? FAILURE_MESSAGES[failure.code as CaptureFailureCode];
+    this.#retryButton.hidden = workflow !== null && workflow.action !== "retry";
+    this.#replaceButton.hidden = workflow?.action !== "replace";
+    this.#cleanupButton.hidden = workflow?.action !== "cleanup";
+    this.#focus(this.#errorTitle);
+  }
+
+  #renderPreview(preview: Extract<PanelState, { kind: "preview" }>["preview"]): void {
+    this.#status.textContent = "본문 preview를 확인했습니다. 아직 local API로 전송하지 않았습니다.";
     this.#postTitle.textContent = preview.title;
     this.#postUrl.textContent = preview.sourceUrl;
     this.#characterCount.textContent = preview.truncated
       ? `${preview.transmittedLength.toLocaleString("ko-KR")}자 전송 예정 / ${preview.originalLength.toLocaleString("ko-KR")}자 추출`
       : `${preview.transmittedLength.toLocaleString("ko-KR")}자`;
-    const boundedPreview = boundCodePoints(preview.body, PREVIEW_CODE_POINTS);
-    this.#bodyPreview.textContent = boundedPreview.truncated
-      ? `${boundedPreview.text}\n…`
-      : boundedPreview.text;
+    const bounded = boundCodePoints(preview.body, PREVIEW_CODE_POINTS);
+    this.#bodyPreview.textContent = bounded.truncated ? `${bounded.text}\n…` : bounded.text;
     this.#truncationNotice.hidden = !preview.truncated;
     this.#truncationNotice.textContent = preview.truncated
-      ? `API 제한에 맞춰 앞 ${preview.transmittedLength.toLocaleString("ko-KR")}자만 전송될 예정입니다.`
+      ? `API 제한에 맞춰 앞 ${preview.transmittedLength.toLocaleString("ko-KR")}자만 전송됩니다.`
       : "";
+    this.#generateButton.disabled = false;
     this.#focus(this.#previewTitle);
+  }
+
+  #renderRecommendation(
+    presentation: ReviewPresentation,
+    kind: "approved" | "completed" | "review" | "saving",
+    focusHeading: boolean,
+  ): void {
+    const { recommendation } = presentation;
+    this.#status.textContent =
+      kind === "saving"
+        ? "검토 상태를 저장하고 있습니다."
+        : kind === "completed"
+          ? "수동 등록 완료로 표시했습니다."
+          : "추천 댓글을 직접 검토해 주세요.";
+    this.#reviewStatus.textContent =
+      kind === "saving"
+        ? "저장 중"
+        : kind === "completed"
+          ? "수동 workflow 완료"
+          : kind === "approved"
+            ? "승인됨"
+            : "검토 중";
+    this.#summary.textContent = recommendation.summary;
+    this.#topics.replaceChildren(
+      ...recommendation.topics.map((topic) => {
+        const item = this.#document.createElement("li");
+        item.textContent = topic;
+        return item;
+      }),
+    );
+    const activeElement = this.#document.activeElement;
+    const Input = this.#document.defaultView?.HTMLInputElement;
+    const focusedCandidateId =
+      Input !== undefined && activeElement instanceof Input && activeElement.name === "candidate"
+        ? activeElement.value
+        : null;
+    const legend = this.#document.createElement("legend");
+    legend.textContent = "댓글 후보 선택";
+    this.#candidateList.replaceChildren(legend);
+    for (const candidate of recommendation.candidates) {
+      const label = this.#document.createElement("label");
+      label.className = "candidate";
+      const input = this.#document.createElement("input");
+      input.type = "radio";
+      input.name = "candidate";
+      input.value = candidate.id;
+      input.checked = candidate.id === presentation.selectedCandidateId;
+      input.disabled = kind !== "review";
+      const content = this.#document.createElement("span");
+      const tone = this.#document.createElement("strong");
+      tone.textContent = toneLabel(candidate.tone);
+      const comment = this.#document.createElement("span");
+      comment.textContent = candidate.comment;
+      const detail = this.#document.createElement("small");
+      detail.textContent = `본문 근거: ${candidate.referencedDetail}`;
+      content.append(tone, comment, detail);
+      label.append(input, content);
+      this.#candidateList.append(label);
+    }
+    if (this.#editedComment.value !== presentation.editedComment) {
+      this.#editedComment.value = presentation.editedComment;
+    }
+    this.#editedComment.readOnly = kind !== "review";
+    this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
+    this.#approveButton.hidden = kind !== "review";
+    this.#approveButton.disabled = kind === "saving";
+    this.#copyButton.hidden = kind === "review" || kind === "saving";
+    this.#completeButton.hidden = kind !== "approved";
+    this.#reviewNotice.hidden = presentation.notice === undefined;
+    this.#reviewNotice.textContent = presentation.notice ?? "";
+    if (focusedCandidateId !== null) {
+      const focusedCandidate = Array.from(
+        this.#candidateList.querySelectorAll<HTMLInputElement>('input[name="candidate"]'),
+      ).find((input) => input.value === focusedCandidateId);
+      focusedCandidate?.focus();
+    } else if (kind !== "saving" && focusHeading) {
+      this.#focus(this.#resultTitle);
+    }
   }
 
   #focus(element: HTMLElement): void {
     this.#document.defaultView?.requestAnimationFrame(() => element.focus());
   }
+
+  #clearSensitiveDom(): void {
+    this.#bodyPreview.textContent = "";
+    this.#postTitle.textContent = "";
+    this.#postUrl.textContent = "";
+    this.#summary.textContent = "";
+    this.#topics.replaceChildren();
+    this.#candidateList.replaceChildren();
+    this.#editedComment.value = "";
+    this.#editCount.textContent = "";
+    this.#reviewNotice.textContent = "";
+  }
+}
+
+function toneLabel(tone: string): string {
+  return { curious: "궁금한 점", supportive: "응원", warm: "따뜻한 공감" }[tone] ?? tone;
 }

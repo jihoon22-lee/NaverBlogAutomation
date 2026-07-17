@@ -2,10 +2,10 @@
 
 Status: Accepted target architecture on 2026-07-17
 
-This decision supersedes the popup + FastAPI + Streamlit review architecture accepted on
-2026-07-16. PR 1~3 implemented the domain, SQLite persistence, and local API. The Side Panel,
-Naver extraction, OpenAI adapter, and integrated review workflow are target-state work tracked in
-[`delivery-plan.md`](delivery-plan.md); this document does not claim that they are implemented yet.
+This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
+PR 1~7 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
+and integrated recommendation/review workflow. Release hardening remains tracked in
+[`delivery-plan.md`](delivery-plan.md).
 
 ## Purpose and Boundaries
 
@@ -32,15 +32,14 @@ flowchart LR
     P -->|edit and copy| U
 ```
 
-FastAPI listens only on `127.0.0.1:8765`. The Side Panel is the only end-user UI; Streamlit is no
-longer part of the target runtime. Removing it does not discard an existing workflow because the
-current Streamlit file is an unconnected placeholder.
+FastAPI listens only on `127.0.0.1:8765`. The Side Panel is the only end-user UI. The Python
+package provides the loopback service and contains no second presentation layer.
 
 ## Component Responsibilities
 
 ### Side Panel and Browser Boundary
 
-The final Manifest V3 TypeScript extension requests only `activeTab`, `scripting`, `sidePanel`,
+The Manifest V3 TypeScript extension requests only `activeTab`, `scripting`, `sidePanel`,
 `storage`, and the loopback API host permission. `storage` is added only when the retry registry
 lands; it holds no article or comment text. The service worker configures toolbar clicks to open
 the panel and performs only short browser-API orchestration. It never owns a model request because
@@ -150,8 +149,8 @@ automatic publishing, or multi-user hosted deployment requires a fresh policy an
 ## Runtime and Quality Strategy
 
 Python 3.14 with `uv` runs FastAPI, the OpenAI adapter, SQLAlchemy, Alembic, and SQLite. The
-extension uses Node.js 24 LTS, TypeScript, esbuild, Biome, and Vitest. Streamlit and its tests are
-removed when the integrated Side Panel workflow lands.
+extension uses Node.js 24 LTS, TypeScript, esbuild, Biome, and Vitest. The Side Panel owns all
+end-user presentation and review interaction.
 
 PR CI runs Ruff, ty, pytest with at least 85% branch coverage, TypeScript checking, Biome, Vitest
 coverage, an extension production build, and installed-wheel smoke tests. Fixtures contain only
@@ -163,8 +162,8 @@ or secrets into artifacts.
 - The review flow stays beside the source post without exposing the API key to the extension.
 - Existing domain, persistence, and API work remains usable; only the presentation decision is
   replaced.
-- One local background service is still required, but a second Streamlit process and duplicated UI
-  are eliminated.
+- One local background service is still required, without a second UI process or duplicated
+  presentation layer.
 - The extension must manage stale-tab detection, retry identity, and accessible long-lived UI.
 - OpenAPI remains the extension-to-service source of truth; incompatible changes require a new API
   version.
