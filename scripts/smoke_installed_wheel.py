@@ -7,9 +7,13 @@ from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import yaml
+
 from naver_blog_assistant.api import ApiSettings, create_app
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+EXPECTED_MIGRATION_HEAD = "20260717_0002"
+CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
 def main() -> None:
@@ -25,8 +29,8 @@ def main() -> None:
         app = create_app(settings)
         try:
             contract = app.openapi()
-            assert contract["openapi"] == "3.1.0"
-            assert "/api/v1/recommendations" in contract["paths"]
+            checked_in_contract = yaml.safe_load(CHECKED_IN_CONTRACT.read_text(encoding="utf-8"))
+            assert contract == checked_in_contract
             with closing(sqlite3.connect(database_path)) as connection:
                 tables = {
                     row[0]
@@ -34,7 +38,11 @@ def main() -> None:
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     )
                 }
+                migration_head = connection.execute(
+                    "SELECT version_num FROM alembic_version"
+                ).fetchone()
             assert {"recommendations", "comment_candidates", "idempotency_records"} <= tables
+            assert migration_head == (EXPECTED_MIGRATION_HEAD,)
         finally:
             app.state.database_engine.dispose()
 

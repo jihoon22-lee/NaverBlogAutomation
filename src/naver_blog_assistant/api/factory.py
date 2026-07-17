@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 from collections.abc import AsyncIterator
@@ -20,6 +21,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy.engine import make_url
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from naver_blog_assistant.api.errors import (
@@ -79,6 +81,20 @@ IDEMPOTENCY_REPLAYED_HEADER: Final = {
     "description": "True when returning a stored result for a repeated request.",
     "schema": {"type": "boolean"},
 }
+
+
+def _environment_int(name: str, default: str) -> int:
+    try:
+        return int(os.getenv(name, default))
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
+
+
+def _environment_float(name: str, default: str) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except ValueError:
+        raise ValueError(f"{name} must be a number") from None
 
 
 def _problem_metadata(
@@ -152,27 +168,56 @@ class ApiSettings:
     rate_limit_window_seconds: float = 60.0
 
     def __post_init__(self) -> None:
+        try:
+            database_backend = make_url(self.database_url).get_backend_name()
+        except Exception:
+            raise ValueError("DATABASE_URL must be a valid SQLite URL") from None
+        if database_backend != "sqlite":
+            raise ValueError("DATABASE_URL must use the local SQLite adapter")
         if not EXTENSION_ORIGIN_PATTERN.fullmatch(self.extension_origin):
             raise ValueError("CHROME_EXTENSION_ORIGIN must contain one valid Chrome extension ID")
         if self.generator_mode == "fake" and self.app_environment == "production":
             raise ValueError("the fake generator is forbidden in production")
         if self.generator_mode == "openai" and not self.openai_api_key.strip():
             raise ValueError("OPENAI_API_KEY is required for the openai generator")
-        if self.max_request_bytes < 1 or self.generation_timeout_seconds <= 0:
+        if (
+            self.max_request_bytes < 1
+            or not math.isfinite(self.generation_timeout_seconds)
+            or self.generation_timeout_seconds <= 0
+        ):
             raise ValueError("request and timeout limits must be positive")
+        if not math.isfinite(self.openai_timeout_seconds) or self.openai_timeout_seconds <= 0:
+            raise ValueError("OPENAI_TIMEOUT_SECONDS must be a positive finite number")
         if (
             self.generator_mode == "openai"
-            and not 0 < self.openai_timeout_seconds < self.generation_timeout_seconds
+            and self.openai_timeout_seconds >= self.generation_timeout_seconds
         ):
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be below GENERATION_TIMEOUT_SECONDS")
         if self.openai_max_output_tokens < 1 or not self.openai_model.strip():
             raise ValueError("OpenAI model and output token settings must be valid")
         if self.openai_reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("OPENAI_REASONING_EFFORT must be low, medium, or high")
+        if (
+            self.rate_limit_requests < 1
+            or not math.isfinite(self.rate_limit_window_seconds)
+            or self.rate_limit_window_seconds <= 0
+        ):
+            raise ValueError("RATE_LIMIT_REQUESTS and RATE_LIMIT_WINDOW_SECONDS must be positive")
 
     @classmethod
     def from_environment(cls) -> ApiSettings:
         """Load API settings without silently enabling the fake generator."""
+        return cls._from_environment(openai_api_key=os.getenv("OPENAI_API_KEY", "").strip())
+
+    @classmethod
+    def validate_environment_without_secrets(cls) -> None:
+        """Validate setup while reducing the API key immediately to a configured flag."""
+        configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
+        placeholder = "configured" if configured else ""
+        cls._from_environment(openai_api_key=placeholder)
+
+    @classmethod
+    def _from_environment(cls, *, openai_api_key: str) -> ApiSettings:
         mode = os.getenv("COMMENT_GENERATOR_MODE", "openai").strip().lower()
         environment = os.getenv("APP_ENV", "production").strip().lower()
         if mode not in {"openai", "fake"}:
@@ -184,18 +229,18 @@ class ApiSettings:
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL).strip(),
             generator_mode=cast(Literal["openai", "fake"], mode),
             app_environment=cast(Literal["production", "development", "test"], environment),
-            openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-            max_request_bytes=int(os.getenv("MAX_REQUEST_BYTES", "512000")),
-            generation_timeout_seconds=float(os.getenv("GENERATION_TIMEOUT_SECONDS", "45")),
+            openai_api_key=openai_api_key,
+            max_request_bytes=_environment_int("MAX_REQUEST_BYTES", "512000"),
+            generation_timeout_seconds=_environment_float("GENERATION_TIMEOUT_SECONDS", "45"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra").strip(),
             openai_reasoning_effort=cast(
                 Literal["low", "medium", "high"],
                 os.getenv("OPENAI_REASONING_EFFORT", "low").strip().lower(),
             ),
-            openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "35")),
-            openai_max_output_tokens=int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "1200")),
-            rate_limit_requests=int(os.getenv("RATE_LIMIT_REQUESTS", "10")),
-            rate_limit_window_seconds=float(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")),
+            openai_timeout_seconds=_environment_float("OPENAI_TIMEOUT_SECONDS", "35"),
+            openai_max_output_tokens=_environment_int("OPENAI_MAX_OUTPUT_TOKENS", "1200"),
+            rate_limit_requests=_environment_int("RATE_LIMIT_REQUESTS", "10"),
+            rate_limit_window_seconds=_environment_float("RATE_LIMIT_WINDOW_SECONDS", "60"),
         )
 
 
