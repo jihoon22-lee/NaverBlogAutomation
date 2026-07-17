@@ -2,15 +2,18 @@
   "manifest_version": 3,
   "name": "Naver Blog Comment Assistant",
   "version": "0.1.0",
-  "description": "Send the active Naver Blog post to the local comment recommendation service.",
-  "permissions": ["activeTab", "scripting"],
+  "description": "Preview the active Naver Blog post for human-reviewed comment recommendations.",
+  "minimum_chrome_version": "120",
+  "permissions": ["activeTab", "scripting", "sidePanel"],
   "host_permissions": ["http://127.0.0.1:8765/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "댓글 추천"
+    "default_title": "댓글 추천 Side Panel 열기"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   }
 }

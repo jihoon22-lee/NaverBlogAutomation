@@ -1,17 +1,19 @@
 # 네이버 블로그 댓글 작성 보조 도구
 
 사람의 최종 검토를 전제로 현재 보고 있는 네이버 블로그 글을 분석하고 댓글 후보를 생성하는
-local-first 애플리케이션입니다. Chrome Side Panel에서 본문 preview, 추천, 편집, 복사를 처리하고
-FastAPI가 OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요와 댓글 등록은
-항상 사용자가 직접 수행합니다.
+local-first 애플리케이션입니다. 현재 Chrome Side Panel은 활성 글의 본문을 추출해 preview하며,
+후속 integrated workflow에서는 추천, 편집, 복사까지 같은 화면에서 처리합니다. FastAPI는
+OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요와 댓글 등록은 항상
+사용자가 직접 수행합니다.
 
 ## 현재 상태와 Target Architecture
 
 PR 1~3에서 framework-independent domain, SQLite persistence, local FastAPI v1 API를
-구현했습니다. 현재 extension은 아직 popup scaffold이고 OpenAI adapter도 구현 전입니다.
-PR 5~8에서 Side Panel extraction, OpenAI Responses adapter, integrated review workflow,
-release hardening을 순서대로 구현합니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며
-target runtime에 포함되지 않습니다.
+구현했습니다. Extension은 popup을 대체한 Side Panel에서 지원되는 Naver URL을 검증하고, 활성
+글의 title, URL, character count, truncation 상태와 bounded body preview를 표시합니다. OpenAI
+Responses adapter와 Side Panel–FastAPI integrated recommendation/review workflow는 후속
+작업입니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며 target runtime에 포함되지
+않습니다.
 
 자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
 
@@ -67,15 +69,16 @@ CHROME_EXTENSION_ORIGIN=chrome-extension://<unpacked-extension-id>
 
 ## Extension 개발
 
-현재 scaffold를 build하려면 다음 명령을 사용합니다.
+Side Panel extension을 build하려면 다음 명령을 사용합니다.
 
 ```bash
 npm --prefix extension run build
 ```
 
 Chrome의 `chrome://extensions`에서 Developer mode를 켜고 `extension/dist`를 unpacked
-extension으로 load합니다. PR 5가 merge되기 전 build는 popup scaffold를 표시하며, 이후에는
-toolbar action으로 Side Panel을 엽니다. 현재 구현과 target behavior가 다른 점은
+extension으로 load합니다. Naver Blog 글을 연 뒤 toolbar action을 누르면 Side Panel이 열리고
+현재 글의 extraction preview를 표시합니다. 추천 생성 button은 아직 비활성화되어 있으며,
+현재 extension은 OpenAI 또는 local API에 요청을 보내지 않습니다. 후속 integrated workflow는
 [`delivery-plan.md`](docs/delivery-plan.md)에 추적합니다.
 
 ## 품질 검사
@@ -99,7 +102,8 @@ Extension CI도 format, lint, typecheck, Vitest coverage, production build를 �
   log하지 않습니다.
 - SQLite에는 URL, title, content hash, bounded excerpt, summary와 review 결과가 남습니다. 공개
   blog/account identifier가 source URL에 포함된 경우 그 URL의 일부로 함께 저장될 수 있습니다.
-- Extension storage에는 retry에 필요한 digest와 opaque ID만 제한적으로 보관합니다.
+- 현재 Side Panel은 extension storage를 사용하지 않습니다. 후속 integrated retry workflow에서도
+  digest와 opaque ID만 제한적으로 보관합니다.
 - Monitoring, automatic likes, comment publishing, sign-in automation은 MVP 범위가 아닙니다.
 - Live Naver/OpenAI smoke test는 opt-in이며 source text나 secret을 CI artifact에 남기지 않습니다.
 
