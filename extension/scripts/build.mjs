@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 
+import { validateDist } from "./validate-dist.mjs";
+
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = resolve(extensionRoot, "dist");
 
@@ -15,7 +17,7 @@ await build({
   bundle: true,
   entryPoints: {
     background: resolve(extensionRoot, "src/background.ts"),
-    popup: resolve(extensionRoot, "src/popup.ts"),
+    sidepanel: resolve(extensionRoot, "src/sidepanel/main.ts"),
   },
   format: "esm",
   logLevel: "info",
@@ -24,3 +26,5 @@ await build({
   sourcemap: true,
   target: "chrome120",
 });
+
+await validateDist(outputDirectory);

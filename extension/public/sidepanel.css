@@ -1,0 +1,169 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #17211b;
+  background: #f5f8f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+}
+
+main {
+  display: grid;
+  gap: 16px;
+  padding: 20px 16px 28px;
+}
+
+.page-header,
+.card {
+  max-width: 680px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #17673a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+}
+
+.purpose,
+.status,
+.help,
+.privacy-note {
+  color: #46524b;
+}
+
+.purpose,
+.help,
+.privacy-note {
+  margin-bottom: 0;
+  line-height: 1.55;
+}
+
+.status {
+  margin: 0;
+  min-height: 24px;
+  font-weight: 600;
+}
+
+.card {
+  padding: 16px;
+  border: 1px solid #cdd8d1;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgb(25 55 37 / 8%);
+}
+
+.error {
+  border-color: #c83d3d;
+}
+
+.metadata {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.metadata div {
+  display: grid;
+  gap: 3px;
+}
+
+dt {
+  color: #526159;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.notice {
+  padding: 10px 12px;
+  border-left: 4px solid #b66c00;
+  background: #fff6e7;
+  color: #663c00;
+  line-height: 1.5;
+}
+
+details {
+  margin: 12px 0;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.body-preview {
+  max-height: 240px;
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #f0f4f1;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:focus-visible,
+summary:focus-visible,
+[tabindex="-1"]:focus-visible {
+  outline: 3px solid #075ca8;
+  outline-offset: 3px;
+}
+
+.primary {
+  width: 100%;
+  background: #167746;
+  color: #ffffff;
+}
+
+.secondary {
+  background: #ffffff;
+  border-color: #506159;
+  color: #26342c;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  background: #d4dcd7;
+  color: #536159;
+}
