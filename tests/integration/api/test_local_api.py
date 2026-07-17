@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
+from threading import Event
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -335,10 +336,21 @@ def test_local_rate_limit_returns_retry_after(database_path: Path) -> None:
     assert int(response.headers["Retry-After"]) >= 1
 
 
-class SlowGenerator:
+class BlockingGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.started = Event()
+        self.release = Event()
+        self.generation_returned = Event()
+
     def generate(self, post: CapturedPost) -> GenerationOutput:
-        time.sleep(0.05)
-        return DeterministicFakeGenerator().generate(post)
+        self.calls += 1
+        self.started.set()
+        if not self.release.wait(timeout=5):
+            raise TimeoutError("test did not release the blocking generator")
+        output = DeterministicFakeGenerator().generate(post)
+        self.generation_returned.set()
+        return output
 
 
 def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
@@ -349,7 +361,8 @@ def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
         app_environment="test",
         generation_timeout_seconds=0.001,
     )
-    with TestClient(create_app(settings, generator=SlowGenerator())) as slow:
+    generator = BlockingGenerator()
+    with TestClient(create_app(settings, generator=generator)) as slow:
         key = uuid4()
         response = slow.post(
             "/api/v1/recommendations",
@@ -357,14 +370,35 @@ def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
             headers={"Idempotency-Key": str(key)},
         )
         assert_problem(response, status=504, code="generation_timeout")
-        time.sleep(0.08)
-        replay = slow.post(
-            "/api/v1/recommendations",
-            json=request_payload(),
-            headers={"Idempotency-Key": str(key)},
-        )
-        assert replay.status_code == 200
+        assert generator.started.wait(timeout=5)
+        assert generator.calls == 1
+        generator.release.set()
+        assert generator.generation_returned.wait(timeout=5)
+
+        replay: Response | None = None
+        observed_statuses: list[int] = []
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            candidate = slow.post(
+                "/api/v1/recommendations",
+                json=request_payload(),
+                headers={"Idempotency-Key": str(key)},
+            )
+            observed_statuses.append(candidate.status_code)
+            if candidate.status_code == 200:
+                replay = candidate
+                break
+            assert candidate.status_code in {409, 504}
+            assert candidate.json()["code"] in {
+                "generation_in_progress",
+                "generation_timeout",
+            }
+            assert generator.calls == 1
+            time.sleep(0.01)
+
+        assert replay is not None, f"generation did not complete; statuses={observed_statuses}"
         assert replay.headers["Idempotency-Replayed"] == "true"
+        assert generator.calls == 1
 
 
 def test_provider_timeout_precedes_outer_timeout_and_blocks_duplicate(
