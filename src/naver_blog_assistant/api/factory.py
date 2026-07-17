@@ -44,7 +44,9 @@ from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.application import (
     ConcurrentReviewError,
     GenerateRecommendation,
+    GenerationIndeterminateError,
     GenerationInProgressError,
+    GenerationInvalidError,
     GenerationRateLimitedError,
     GenerationRefusedError,
     GenerationResult,
@@ -52,6 +54,7 @@ from naver_blog_assistant.application import (
     GetRecommendation,
     IdempotencyConflictError,
     RecommendationNotFoundError,
+    ReplayedGenerationFailure,
     ReviewRecommendation,
 )
 from naver_blog_assistant.domain import (
@@ -78,14 +81,30 @@ IDEMPOTENCY_REPLAYED_HEADER: Final = {
 }
 
 
-def _problem_metadata(description: str) -> dict[str, Any]:
-    return {
+def _problem_metadata(
+    description: str,
+    *,
+    idempotency_replayed: bool = False,
+    retry_after: bool = False,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
         "model": ProblemDetails,
         "description": description,
         "content": {
             "application/problem+json": {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}
         },
     }
+    headers: dict[str, Any] = {}
+    if idempotency_replayed:
+        headers["Idempotency-Replayed"] = IDEMPOTENCY_REPLAYED_HEADER
+    if retry_after:
+        headers["Retry-After"] = {
+            "description": "Seconds before a definitely rejected request may be retried.",
+            "schema": {"type": "integer", "minimum": 0},
+        }
+    if headers:
+        metadata["headers"] = headers
+    return metadata
 
 
 def _recommendation_metadata(description: str) -> dict[str, Any]:
@@ -125,6 +144,10 @@ class ApiSettings:
     openai_api_key: str = field(default="", repr=False)
     max_request_bytes: int = 512_000
     generation_timeout_seconds: float = 45.0
+    openai_model: str = "gpt-5.6-terra"
+    openai_reasoning_effort: Literal["low", "medium", "high"] = "low"
+    openai_timeout_seconds: float = 35.0
+    openai_max_output_tokens: int = 1_200
     rate_limit_requests: int = 10
     rate_limit_window_seconds: float = 60.0
 
@@ -137,6 +160,15 @@ class ApiSettings:
             raise ValueError("OPENAI_API_KEY is required for the openai generator")
         if self.max_request_bytes < 1 or self.generation_timeout_seconds <= 0:
             raise ValueError("request and timeout limits must be positive")
+        if (
+            self.generator_mode == "openai"
+            and not 0 < self.openai_timeout_seconds < self.generation_timeout_seconds
+        ):
+            raise ValueError("OPENAI_TIMEOUT_SECONDS must be below GENERATION_TIMEOUT_SECONDS")
+        if self.openai_max_output_tokens < 1 or not self.openai_model.strip():
+            raise ValueError("OpenAI model and output token settings must be valid")
+        if self.openai_reasoning_effort not in {"low", "medium", "high"}:
+            raise ValueError("OPENAI_REASONING_EFFORT must be low, medium, or high")
 
     @classmethod
     def from_environment(cls) -> ApiSettings:
@@ -155,6 +187,13 @@ class ApiSettings:
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             max_request_bytes=int(os.getenv("MAX_REQUEST_BYTES", "512000")),
             generation_timeout_seconds=float(os.getenv("GENERATION_TIMEOUT_SECONDS", "45")),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra").strip(),
+            openai_reasoning_effort=cast(
+                Literal["low", "medium", "high"],
+                os.getenv("OPENAI_REASONING_EFFORT", "low").strip().lower(),
+            ),
+            openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "35")),
+            openai_max_output_tokens=int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "1200")),
             rate_limit_requests=int(os.getenv("RATE_LIMIT_REQUESTS", "10")),
             rate_limit_window_seconds=float(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")),
         )
@@ -194,6 +233,9 @@ def create_app(
         finally:
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
+            close = getattr(selected_generator, "close", None)
+            if close is not None:
+                close()
             engine.dispose()
 
     app = ContractFastAPI(
@@ -274,12 +316,16 @@ def create_app(
         responses={
             200: _recommendation_metadata("Stored response replayed."),
             201: _recommendation_metadata("Recommendation generated and stored."),
-            409: _problem_metadata("Idempotency or processing conflict."),
+            409: _problem_metadata(
+                "Idempotency or processing conflict.", idempotency_replayed=True
+            ),
             413: _problem_metadata("Request body is too large."),
             422: _problem_metadata("Request validation failed."),
-            429: _problem_metadata("Generation was rate limited."),
-            502: _problem_metadata("Generation was refused or invalid."),
-            503: _problem_metadata("Generation dependency is unavailable."),
+            429: _problem_metadata("Generation was rate limited.", retry_after=True),
+            502: _problem_metadata("Generation was refused or invalid.", idempotency_replayed=True),
+            503: _problem_metadata(
+                "Generation dependency is unavailable.", idempotency_replayed=True
+            ),
             504: _problem_metadata("Generation timed out."),
         },
         tags=["Recommendations"],
@@ -343,6 +389,29 @@ def create_app(
                 "generation_refused",
                 "Generation refused",
                 "The generator could not safely create comment candidates.",
+            ) from error
+        except GenerationInvalidError as error:
+            raise ApiError(
+                502,
+                "generation_invalid",
+                "Invalid generation result",
+                "The generator returned candidates that did not satisfy the contract.",
+            ) from error
+        except GenerationIndeterminateError as error:
+            raise ApiError(
+                409,
+                "generation_indeterminate",
+                "Generation outcome indeterminate",
+                "The provider attempt may have started, so this key cannot be retried safely.",
+            ) from error
+        except ReplayedGenerationFailure as error:
+            failure = error.failure
+            raise ApiError(
+                failure.status,
+                failure.code,
+                failure.title,
+                failure.detail,
+                idempotency_replayed=True,
             ) from error
         except GenerationUnavailableError as error:
             raise ApiError(
@@ -458,9 +527,14 @@ def upgrade_database(database_url: str) -> None:
 def _configured_generator(settings: ApiSettings) -> CommentGenerator:
     if settings.generator_mode == "fake":
         return DeterministicFakeGenerator()
-    raise RuntimeError(
-        "The OpenAI generator is not implemented yet; set COMMENT_GENERATOR_MODE=fake "
-        "with APP_ENV=development for local API development."
+    from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
+
+    return OpenAICommentGenerator(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        reasoning_effort=settings.openai_reasoning_effort,
+        timeout_seconds=settings.openai_timeout_seconds,
+        max_output_tokens=settings.openai_max_output_tokens,
     )
 
 

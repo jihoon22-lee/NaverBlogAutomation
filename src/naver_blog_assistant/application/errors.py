@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from naver_blog_assistant.ports import GenerationFailureSnapshot
+
 
 class ApplicationError(RuntimeError):
     """Base class for use-case failures handled by an outer adapter."""
@@ -43,3 +45,19 @@ class GenerationRefusedError(ApplicationError):
 
 class GenerationUnavailableError(ApplicationError):
     """Raised when a required provider dependency is temporarily unavailable."""
+
+
+class GenerationInvalidError(ApplicationError):
+    """Raised when the provider result cannot satisfy the output contract."""
+
+
+class GenerationIndeterminateError(ApplicationError):
+    """Raised when a provider attempt may have been accepted but its outcome is unknown."""
+
+
+class ReplayedGenerationFailure(ApplicationError):
+    """Return a persisted safe error while assigning a fresh transport request ID."""
+
+    def __init__(self, failure: GenerationFailureSnapshot) -> None:
+        super().__init__(failure.code)
+        self.failure = failure

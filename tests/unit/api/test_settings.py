@@ -18,6 +18,19 @@ def test_environment_defaults_to_real_generator_not_fake(
 
     assert settings.generator_mode == "openai"
     assert settings.app_environment == "production"
+    assert settings.openai_model == "gpt-5.6-terra"
+    assert settings.openai_reasoning_effort == "low"
+    assert settings.openai_timeout_seconds < settings.generation_timeout_seconds
+
+
+def test_provider_timeout_must_finish_before_outer_timeout() -> None:
+    with pytest.raises(ValueError, match="below GENERATION_TIMEOUT_SECONDS"):
+        ApiSettings(
+            extension_origin=ORIGIN,
+            openai_api_key="test-key",
+            generation_timeout_seconds=10,
+            openai_timeout_seconds=10,
+        )
 
 
 def test_fake_generator_requires_explicit_non_production_environment() -> None:

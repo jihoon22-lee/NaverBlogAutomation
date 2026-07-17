@@ -9,11 +9,12 @@ OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요�
 ## 현재 상태와 Target Architecture
 
 PR 1~3에서 framework-independent domain, SQLite persistence, local FastAPI v1 API를
-구현했습니다. Extension은 popup을 대체한 Side Panel에서 지원되는 Naver URL을 검증하고, 활성
-글의 title, URL, character count, truncation 상태와 bounded body preview를 표시합니다. OpenAI
-Responses adapter와 Side Panel–FastAPI integrated recommendation/review workflow는 후속
-작업입니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며 target runtime에 포함되지
-않습니다.
+구현했습니다. Extension은 popup을 대체한 Side Panel에서 지원되는 Naver URL을 검증하고,
+활성 글의 title, URL, character count, truncation 상태와 bounded body preview를 표시합니다.
+OpenAI Responses adapter와 안전한 failure replay persistence도 구현되었으며,
+Side Panel–FastAPI integrated recommendation/review workflow와 release hardening은 후속
+작업입니다. 기존 Streamlit 화면은 연결되지 않은 placeholder이며 target runtime에
+포함되지 않습니다.
 
 자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
 
@@ -47,8 +48,8 @@ cp .env.example .env.local
 
 ## Local API 실행
 
-OpenAI adapter가 구현되기 전에는 explicit development mode의 deterministic fake generator로
-현재 API를 검증할 수 있습니다.
+외부 API 호출 없이 개발할 때는 explicit development mode의 deterministic fake generator로
+현재 API contract와 persistence를 검증할 수 있습니다. Production mode는 OpenAI adapter를 사용합니다.
 
 ```bash
 uv run --env-file .env.local naver-blog-api
@@ -64,7 +65,7 @@ CHROME_EXTENSION_ORIGIN=chrome-extension://<unpacked-extension-id>
 
 서버는 `http://127.0.0.1:8765`에만 bind하고 시작할 때 Alembic migration을 적용합니다.
 `.env.local`은 application이 암묵적으로 읽는 파일이 아니므로 `uv run --env-file`을 생략하지
-않습니다. Target OpenAI adapter는 server에서 `gpt-5.6-terra`, low reasoning,
+않습니다. OpenAI adapter는 server에서 `gpt-5.6-terra`, low reasoning,
 `store=false`를 기본값으로 사용하며 API key를 extension으로 전달하지 않습니다.
 
 ## Extension 개발
@@ -90,6 +91,9 @@ uv run ty check
 uv run pytest
 npm --prefix extension run check
 ```
+
+실제 OpenAI 호출 smoke test는 기본 test/CI에서 skip됩니다. 비용과 외부 전송을 확인한 뒤에만
+`RUN_LIVE_OPENAI=1 uv run pytest -m live_openai tests/live -s`로 명시적으로 실행하세요.
 
 Pytest는 `naver_blog_assistant` branch coverage 85%를 강제합니다.
 `uv run pytest --cov-report=html`로 `htmlcov/index.html` 상세 보고서를 만들 수 있습니다.

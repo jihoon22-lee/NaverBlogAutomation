@@ -3,12 +3,15 @@
 from naver_blog_assistant.application.errors import (
     ApplicationError,
     ConcurrentReviewError,
+    GenerationIndeterminateError,
     GenerationInProgressError,
+    GenerationInvalidError,
     GenerationRateLimitedError,
     GenerationRefusedError,
     GenerationUnavailableError,
     IdempotencyConflictError,
     RecommendationNotFoundError,
+    ReplayedGenerationFailure,
 )
 from naver_blog_assistant.application.generate_recommendation import (
     GenerateRecommendation,
@@ -22,6 +25,8 @@ __all__ = [
     "ConcurrentReviewError",
     "GenerateRecommendation",
     "GenerationInProgressError",
+    "GenerationIndeterminateError",
+    "GenerationInvalidError",
     "GenerationRateLimitedError",
     "GenerationRefusedError",
     "GenerationUnavailableError",
@@ -29,5 +34,6 @@ __all__ = [
     "GetRecommendation",
     "IdempotencyConflictError",
     "RecommendationNotFoundError",
+    "ReplayedGenerationFailure",
     "ReviewRecommendation",
 ]

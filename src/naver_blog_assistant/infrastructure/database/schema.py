@@ -91,21 +91,25 @@ idempotency_records = Table(
         unique=True,
     ),
     Column("response_snapshot", Text, nullable=True),
+    Column("failure_snapshot", Text, nullable=True),
     CheckConstraint(
-        "state IN ('reserved', 'generating', 'completed')",
+        "state IN ('reserved', 'generating', 'completed', 'failed', 'indeterminate')",
         name="ck_idempotency_state",
     ),
     CheckConstraint("length(request_hash) = 64", name="ck_idempotency_request_hash"),
     CheckConstraint(
         "(state = 'reserved' AND generation_started_at IS NULL "
         "AND completed_at IS NULL AND recommendation_id IS NULL "
-        "AND response_snapshot IS NULL) OR "
+        "AND response_snapshot IS NULL AND failure_snapshot IS NULL) OR "
         "(state = 'generating' AND generation_started_at IS NOT NULL "
         "AND completed_at IS NULL AND recommendation_id IS NULL "
-        "AND response_snapshot IS NULL) OR "
+        "AND response_snapshot IS NULL AND failure_snapshot IS NULL) OR "
         "(state = 'completed' AND generation_started_at IS NOT NULL "
         "AND completed_at IS NOT NULL AND recommendation_id IS NOT NULL "
-        "AND response_snapshot IS NOT NULL)",
+        "AND response_snapshot IS NOT NULL AND failure_snapshot IS NULL) OR "
+        "(state IN ('failed', 'indeterminate') AND generation_started_at IS NOT NULL "
+        "AND completed_at IS NOT NULL AND recommendation_id IS NULL "
+        "AND response_snapshot IS NULL AND failure_snapshot IS NOT NULL)",
         name="ck_idempotency_state_payload",
     ),
 )

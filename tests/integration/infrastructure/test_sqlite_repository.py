@@ -14,8 +14,14 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, inspect, select
+from sqlalchemy.exc import IntegrityError
 
-from naver_blog_assistant.application import GenerateRecommendation, GenerationInProgressError
+from naver_blog_assistant.application import (
+    GenerateRecommendation,
+    GenerationIndeterminateError,
+    GenerationInvalidError,
+    ReplayedGenerationFailure,
+)
 from naver_blog_assistant.domain import (
     CandidateTone,
     CapturedPost,
@@ -31,7 +37,12 @@ from naver_blog_assistant.infrastructure.database import (
     create_sqlite_engine,
 )
 from naver_blog_assistant.infrastructure.database.schema import idempotency_records
-from naver_blog_assistant.ports import IdempotencyOutcome, RecommendationVersionConflictError
+from naver_blog_assistant.infrastructure.database.serialization import serialize_snapshot
+from naver_blog_assistant.ports import (
+    GenerationFailureSnapshot,
+    IdempotencyOutcome,
+    RecommendationVersionConflictError,
+)
 
 ROOT = Path(__file__).parents[3]
 KEY = UUID("00000000-0000-0000-0000-000000000001")
@@ -50,6 +61,16 @@ class MutableClock:
 class FailingRepository(SqliteRepository):
     def _before_complete(self, connection: object) -> None:
         raise RuntimeError("synthetic transaction failure")
+
+
+class FailingFailureRepository(SqliteRepository):
+    def _before_failure(self, connection: object) -> None:
+        raise RuntimeError("synthetic failure transaction error")
+
+
+class DoubleFailingRepository(FailingFailureRepository):
+    def _before_complete(self, connection: object) -> None:
+        raise RuntimeError("synthetic completion transaction error")
 
 
 class StaticGenerator:
@@ -75,6 +96,14 @@ class TimeoutGenerator:
     def generate(self, post: CapturedPost) -> GenerationOutput:
         self.calls += 1
         raise TimeoutError("synthetic provider timeout")
+
+
+class ErrorGenerator:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def generate(self, post: CapturedPost) -> GenerationOutput:
+        raise self.error
 
 
 def alembic_config(database_url: str) -> Config:
@@ -165,6 +194,136 @@ def test_migration_downgrade_handles_reviewed_rows(tmp_path: Path) -> None:
     engine.dispose()
 
 
+def test_populated_v1_to_v2_preserves_all_idempotency_states(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'populated-v1.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "20260716_0001")
+    item = recommendation()
+    completed_key = UUID(int=901)
+    reserved_key = UUID(int=902)
+    generating_key = UUID(int=903)
+    engine = create_sqlite_engine(database_url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO recommendations "
+            "(id, source_url, title, content_hash, excerpt, summary, topics_json, "
+            "review_status, selected_candidate_id, edited_comment, created_at, "
+            "updated_at, version) "
+            "VALUES (:id, :source_url, :title, :content_hash, :excerpt, :summary, :topics_json, "
+            "'drafted', NULL, NULL, :created_at, NULL, 0)",
+            {
+                "id": str(item.id),
+                "source_url": item.source_url,
+                "title": item.title,
+                "content_hash": item.content_hash,
+                "excerpt": item.excerpt,
+                "summary": item.summary,
+                "topics_json": '["전시","관람 동선"]',
+                "created_at": item.created_at.isoformat().replace("+00:00", "Z"),
+            },
+        )
+        for position, candidate in enumerate(item.candidates):
+            connection.exec_driver_sql(
+                "INSERT INTO comment_candidates "
+                "(id, recommendation_id, position, tone, comment, referenced_detail) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(candidate.id),
+                    str(item.id),
+                    position,
+                    candidate.tone.value,
+                    candidate.comment,
+                    candidate.referenced_detail,
+                ),
+            )
+        base = {
+            "request_hash": REQUEST_HASH,
+            "started_at": NOW.isoformat().replace("+00:00", "Z"),
+        }
+        connection.exec_driver_sql(
+            "INSERT INTO idempotency_records "
+            "(key, request_hash, attempt_id, state, started_at) "
+            "VALUES (:key, :request_hash, :attempt_id, 'reserved', :started_at)",
+            {**base, "key": str(reserved_key), "attempt_id": str(UUID(int=912))},
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO idempotency_records "
+            "(key, request_hash, attempt_id, state, started_at, generation_started_at) "
+            "VALUES (:key, :request_hash, :attempt_id, 'generating', :started_at, :started_at)",
+            {**base, "key": str(generating_key), "attempt_id": str(UUID(int=913))},
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO idempotency_records "
+            "(key, request_hash, attempt_id, state, started_at, generation_started_at, "
+            "completed_at, recommendation_id, response_snapshot) VALUES "
+            "(:key, :request_hash, :attempt_id, 'completed', :started_at, :started_at, "
+            ":started_at, :recommendation_id, :snapshot)",
+            {
+                **base,
+                "key": str(completed_key),
+                "attempt_id": str(UUID(int=911)),
+                "recommendation_id": str(item.id),
+                "snapshot": serialize_snapshot(item),
+            },
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    assert repository.reserve(reserved_key, REQUEST_HASH).outcome is IdempotencyOutcome.IN_PROGRESS
+    assert (
+        repository.reserve(generating_key, REQUEST_HASH).outcome is IdempotencyOutcome.IN_PROGRESS
+    )
+    replay = repository.reserve(completed_key, REQUEST_HASH)
+    assert replay.outcome is IdempotencyOutcome.REPLAY
+    assert replay.response_snapshot == item
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            idempotency_records.insert().values(
+                key=str(UUID(int=904)),
+                request_hash=REQUEST_HASH,
+                attempt_id=str(UUID(int=914)),
+                state="failed",
+                started_at=NOW.isoformat().replace("+00:00", "Z"),
+                generation_started_at=NOW.isoformat().replace("+00:00", "Z"),
+                completed_at=NOW.isoformat().replace("+00:00", "Z"),
+            )
+        )
+    engine.dispose()
+
+
+def test_downgrade_refuses_to_delete_failure_fences(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'failure-fence.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    reservation = repository.reserve(KEY, REQUEST_HASH)
+    assert reservation.attempt_id is not None
+    repository.mark_generation_started(KEY, reservation.attempt_id)
+    repository.commit_failure(
+        KEY,
+        reservation.attempt_id,
+        failure=GenerationFailureSnapshot(409, "indeterminate", "Unknown", "Safe detail"),
+        indeterminate=True,
+    )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="cannot downgrade"):
+        command.downgrade(config, "-1")
+
+    engine = create_sqlite_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(select(idempotency_records.c.state)).scalar_one() == (
+            "indeterminate"
+        )
+        assert connection.exec_driver_sql(
+            "SELECT version_num FROM alembic_version"
+        ).scalar_one() == ("20260717_0002")
+    engine.dispose()
+
+
 def test_crud_round_trip_preserves_uuid_enum_topics_and_timestamps(
     migrated_database: tuple[str, Engine],
 ) -> None:
@@ -229,6 +388,62 @@ def test_commit_failure_rolls_back_canonical_and_snapshot(
     assert row["state"] == "generating"
     assert row["response_snapshot"] is None
     assert row["recommendation_id"] is None
+
+
+def test_failure_snapshot_rollback_keeps_conservative_generating_fence(
+    migrated_database: tuple[str, Engine],
+) -> None:
+    _, engine = migrated_database
+    repository = FailingFailureRepository(engine, clock=lambda: NOW)
+    use_case = GenerateRecommendation(
+        generator=ErrorGenerator(GenerationInvalidError("private provider detail")),
+        idempotency=repository,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(GenerationIndeterminateError, match="persisted safely"):
+        use_case.execute(
+            post=CapturedPost(
+                source_url="https://blog.naver.com/example/failure",
+                title="실패 저장 테스트",
+                body="실패 snapshot rollback을 검증하는 충분히 긴 합성 본문입니다.",
+            ),
+            idempotency_key=KEY,
+        )
+
+    with engine.connect() as connection:
+        row = connection.execute(select(idempotency_records)).mappings().one()
+    assert row["state"] == "generating"
+    assert row["failure_snapshot"] is None
+
+
+def test_completion_and_failure_snapshot_double_rollback_keeps_generating_fence(
+    migrated_database: tuple[str, Engine],
+) -> None:
+    _, engine = migrated_database
+    repository = DoubleFailingRepository(engine, clock=lambda: NOW)
+    use_case = GenerateRecommendation(
+        generator=StaticGenerator(),
+        idempotency=repository,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(GenerationIndeterminateError, match="persisted safely"):
+        use_case.execute(
+            post=CapturedPost(
+                source_url="https://blog.naver.com/example/double-failure",
+                title="이중 rollback 테스트",
+                body="추천 결과와 실패 snapshot의 이중 rollback을 검증하는 합성 본문입니다.",
+            ),
+            idempotency_key=KEY,
+        )
+
+    with engine.connect() as connection:
+        row = connection.execute(select(idempotency_records)).mappings().one()
+    assert row["state"] == "generating"
+    assert row["response_snapshot"] is None
+    assert row["failure_snapshot"] is None
+    assert repository.get(recommendation().id) is None
 
 
 def test_same_key_with_different_hash_conflicts(
@@ -343,6 +558,40 @@ def test_release_allows_known_failed_generation_to_retry(
     assert repository.reserve(KEY, REQUEST_HASH).outcome is IdempotencyOutcome.STARTED
 
 
+@pytest.mark.parametrize("indeterminate", [False, True])
+def test_safe_failure_replays_after_restart_and_is_fenced(
+    migrated_database: tuple[str, Engine], indeterminate: bool
+) -> None:
+    database_url, engine = migrated_database
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    reservation = repository.reserve(KEY, REQUEST_HASH)
+    assert reservation.attempt_id is not None
+    repository.mark_generation_started(KEY, reservation.attempt_id)
+    failure = GenerationFailureSnapshot(
+        status=409 if indeterminate else 502,
+        code="generation_indeterminate" if indeterminate else "generation_invalid",
+        title="Safe title",
+        detail="Safe detail.",
+    )
+    repository.commit_failure(
+        KEY,
+        reservation.attempt_id,
+        failure=failure,
+        indeterminate=indeterminate,
+    )
+    repository.release(KEY, reservation.attempt_id)
+    engine.dispose()
+
+    restarted_engine = create_sqlite_engine(database_url)
+    restarted = SqliteRepository(restarted_engine, clock=lambda: NOW)
+    replay = restarted.reserve(KEY, REQUEST_HASH)
+    assert replay.outcome is IdempotencyOutcome.FAILURE_REPLAY
+    assert replay.failure_snapshot == failure
+    with pytest.raises(RuntimeError, match="not generating"):
+        restarted.commit_generation(KEY, reservation.attempt_id, recommendation=recommendation())
+    restarted_engine.dispose()
+
+
 def test_production_path_timeout_preserves_generating_row_and_blocks_retry(
     migrated_database: tuple[str, Engine],
 ) -> None:
@@ -360,16 +609,18 @@ def test_production_path_timeout_preserves_generating_row_and_blocks_retry(
         body="제공자 응답을 기다리는 동안 타임아웃이 발생한 본문입니다.",
     )
 
-    with pytest.raises(TimeoutError, match="provider timeout"):
+    with pytest.raises(GenerationIndeterminateError):
         use_case.execute(post=post, idempotency_key=KEY)
 
     with engine.connect() as connection:
         row = connection.execute(select(idempotency_records)).mappings().one()
-    assert row["state"] == "generating"
+    assert row["state"] == "indeterminate"
     assert row["generation_started_at"] is not None
 
-    with pytest.raises(GenerationInProgressError):
+    with pytest.raises(ReplayedGenerationFailure) as replayed:
         use_case.execute(post=post, idempotency_key=KEY)
+
+    assert replayed.value.failure.code == "generation_indeterminate"
 
     assert generator.calls == 1
 

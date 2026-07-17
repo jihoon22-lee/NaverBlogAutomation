@@ -52,6 +52,10 @@ class ExactCorsMiddleware:
                     (
                         (b"access-control-allow-origin", self.allowed_origin.encode()),
                         (b"vary", b"Origin"),
+                        (
+                            b"access-control-expose-headers",
+                            b"Idempotency-Replayed, Retry-After",
+                        ),
                     )
                 )
                 message["headers"] = mutable_headers
@@ -80,6 +84,7 @@ class ExactCorsMiddleware:
             (b"access-control-allow-origin", self.allowed_origin.encode()),
             (b"access-control-allow-methods", b"GET, POST, PATCH"),
             (b"access-control-allow-headers", b"Content-Type, Idempotency-Key"),
+            (b"access-control-expose-headers", b"Idempotency-Replayed, Retry-After"),
             (b"vary", b"Origin"),
             (b"content-length", b"0"),
         ]

@@ -2,6 +2,7 @@
 
 from naver_blog_assistant.ports.generator import CommentGenerator, GenerationNotStartedError
 from naver_blog_assistant.ports.repositories import (
+    GenerationFailureSnapshot,
     IdempotencyOutcome,
     IdempotencyRepository,
     IdempotencyReservation,
@@ -12,6 +13,7 @@ from naver_blog_assistant.ports.repositories import (
 __all__ = [
     "CommentGenerator",
     "GenerationNotStartedError",
+    "GenerationFailureSnapshot",
     "IdempotencyOutcome",
     "IdempotencyRepository",
     "IdempotencyReservation",

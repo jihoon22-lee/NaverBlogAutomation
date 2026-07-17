@@ -12,9 +12,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
+from openai import OpenAI
 
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application import (
@@ -24,6 +26,7 @@ from naver_blog_assistant.application import (
 )
 from naver_blog_assistant.domain import CapturedPost, GenerationOutput
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
+from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 from naver_blog_assistant.ports import GenerationNotStartedError
 
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -294,6 +297,7 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
 
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
+    assert allowed.headers["access-control-expose-headers"] == ("Idempotency-Replayed, Retry-After")
     assert "access-control-allow-credentials" not in allowed.headers
     assert_problem(denied, status=403, code="cors_origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
@@ -363,6 +367,51 @@ def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
         assert replay.headers["Idempotency-Replayed"] == "true"
 
 
+def test_provider_timeout_precedes_outer_timeout_and_blocks_duplicate(
+    database_path: Path,
+) -> None:
+    calls = 0
+
+    def provider_timeout(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("private timing detail", request=request)
+
+    provider_client = OpenAI(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(provider_timeout)),
+    )
+    generator = OpenAICommentGenerator(client=provider_client, timeout_seconds=0.05)
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{database_path}",
+        generator_mode="openai",
+        app_environment="test",
+        openai_api_key="test-key",
+        generation_timeout_seconds=0.2,
+        openai_timeout_seconds=0.05,
+    )
+    key = uuid4()
+    with TestClient(create_app(settings, generator=generator)) as api:
+        first = api.post(
+            "/api/v1/recommendations",
+            json=request_payload(),
+            headers={"Idempotency-Key": str(key)},
+        )
+        replay = api.post(
+            "/api/v1/recommendations",
+            json=request_payload(),
+            headers={"Idempotency-Key": str(key)},
+        )
+    provider_client.close()
+
+    assert_problem(first, status=409, code="generation_indeterminate")
+    assert_problem(replay, status=409, code="generation_indeterminate")
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert calls == 1
+
+
 class FailingGenerator:
     def __init__(self, error: Exception) -> None:
         self.error = error
@@ -415,8 +464,14 @@ def test_provider_failures_are_mapped_without_raw_details(
     if isinstance(error, GenerationNotStartedError):
         assert_problem(retry, status=status, code=code)
         assert generator.calls == 2
+    elif isinstance(error, GenerationRateLimitedError):
+        assert_problem(retry, status=409, code="generation_indeterminate")
+        assert retry.headers["Idempotency-Replayed"] == "true"
+        assert generator.calls == 1
     else:
-        assert_problem(retry, status=409, code="generation_in_progress")
+        assert_problem(retry, status=status, code=code)
+        assert retry.headers["Idempotency-Replayed"] == "true"
+        assert response.json()["request_id"] != retry.json()["request_id"]
         assert generator.calls == 1
 
 

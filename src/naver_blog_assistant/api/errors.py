@@ -23,6 +23,7 @@ class ApiError(Exception):
     title: str
     detail: str
     retry_after: int | None = None
+    idempotency_replayed: bool = False
 
 
 def request_id(request: Request) -> UUID:
@@ -59,14 +60,18 @@ def problem_response(
 
 
 async def api_error_handler(request: Request, error: ApiError) -> JSONResponse:
-    headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
+    headers: dict[str, str] = {}
+    if error.retry_after is not None:
+        headers["Retry-After"] = str(error.retry_after)
+    if error.idempotency_replayed:
+        headers["Idempotency-Replayed"] = "true"
     return problem_response(
         request,
         status=error.status,
         code=error.code,
         title=error.title,
         detail=error.detail,
-        headers=headers,
+        headers=headers or None,
     )
 
 

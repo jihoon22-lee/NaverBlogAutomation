@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
@@ -31,6 +32,7 @@ from naver_blog_assistant.infrastructure.database.serialization import (
     serialize_topics,
 )
 from naver_blog_assistant.ports import (
+    GenerationFailureSnapshot,
     IdempotencyOutcome,
     IdempotencyReservation,
     RecommendationVersionConflictError,
@@ -157,6 +159,14 @@ class SqliteRepository:
                     IdempotencyOutcome.REPLAY,
                     deserialize_snapshot(snapshot),
                 )
+            if row["state"] in {"failed", "indeterminate"}:
+                snapshot = row["failure_snapshot"]
+                if not isinstance(snapshot, str):
+                    raise RuntimeError("failed idempotency record has no snapshot")
+                return IdempotencyReservation(
+                    IdempotencyOutcome.FAILURE_REPLAY,
+                    failure_snapshot=_deserialize_failure(snapshot),
+                )
             if row["state"] == "reserved" and parse_timestamp(row["started_at"]) <= (
                 now - self._reservation_timeout
             ):
@@ -260,8 +270,40 @@ class SqliteRepository:
                 )
             )
 
+    def commit_failure(
+        self,
+        key: UUID,
+        attempt_id: UUID,
+        *,
+        failure: GenerationFailureSnapshot,
+        indeterminate: bool = False,
+    ) -> None:
+        """Persist a fenced safe failure without retaining provider payloads."""
+        now = self._now()
+        state = "indeterminate" if indeterminate else "failed"
+        with self._immediate_connection() as connection:
+            result = connection.execute(
+                update(idempotency_records)
+                .where(
+                    idempotency_records.c.key == str(key),
+                    idempotency_records.c.attempt_id == str(attempt_id),
+                    idempotency_records.c.state == "generating",
+                )
+                .values(
+                    state=state,
+                    completed_at=format_timestamp(now),
+                    failure_snapshot=_serialize_failure(failure),
+                )
+            )
+            self._before_failure(connection)
+            if result.rowcount != 1:
+                raise RuntimeError("idempotency failure was not applied")
+
     def _before_complete(self, connection: Connection) -> None:
         """Provide a transaction-failure test seam without changing production behavior."""
+
+    def _before_failure(self, connection: Connection) -> None:
+        """Provide a safe-failure rollback test seam without changing production behavior."""
 
     def _get_with_connection(
         self, connection: Connection, recommendation_id: UUID
@@ -309,6 +351,35 @@ def _validate_hash(value: str) -> None:
         int(value, 16)
     except ValueError as error:
         raise ValueError("request_hash must be a SHA-256 hex digest") from error
+
+
+def _serialize_failure(failure: GenerationFailureSnapshot) -> str:
+    return json.dumps(
+        {
+            "status": failure.status,
+            "code": failure.code,
+            "title": failure.title,
+            "detail": failure.detail,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _deserialize_failure(value: str) -> GenerationFailureSnapshot:
+    loaded = json.loads(value)
+    if not isinstance(loaded, dict):
+        raise RuntimeError("failure snapshot must be an object")
+    try:
+        return GenerationFailureSnapshot(
+            status=int(loaded["status"]),
+            code=str(loaded["code"]),
+            title=str(loaded["title"]),
+            detail=str(loaded["detail"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise RuntimeError("failure snapshot is invalid") from error
 
 
 def _recommendation_values(recommendation: Recommendation) -> dict[str, Any]:
