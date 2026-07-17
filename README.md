@@ -8,13 +8,12 @@ OpenAI API key와 generation/persistence boundary를 담당합니다. 좋아요�
 
 ## 현재 상태와 Target Architecture
 
-PR 1~6에서 framework-independent domain, SQLite persistence, local FastAPI v1 API,
+PR 1~7에서 framework-independent domain, SQLite persistence, local FastAPI v1 API,
 Side Panel extraction, OpenAI Responses adapter와 안전한 failure replay persistence를
 구현했습니다. Extension은 Side Panel에서 지원되는 Naver URL을 검증하고, 활성 글의 title,
 URL, character count, truncation 상태와 bounded body preview를 표시합니다.
-Side Panel은 유일한 end-user UI입니다. PR7에서 Side Panel–FastAPI recommendation/review
-workflow를 통합하고 있으며, 이 workflow와 release hardening은 아직 완료 상태로 간주하지
-않습니다.
+Side Panel은 유일한 end-user UI이며 FastAPI recommendation/review workflow를 제공합니다.
+Packaged system E2E와 release hardening은 후속 작업입니다.
 
 자세한 결정과 acceptance criteria는 다음 문서를 참고하세요.
 

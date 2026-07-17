@@ -3,9 +3,9 @@
 Status: Accepted target architecture on 2026-07-17
 
 This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
-PR 1~6 delivered the domain, SQLite persistence, local API, Side Panel extraction, and OpenAI
-adapter. The integrated recommendation/review workflow remains PR7 target-state work tracked in
-[`delivery-plan.md`](delivery-plan.md); this document does not claim that workflow is complete yet.
+PR 1~7 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
+and integrated recommendation/review workflow. Release hardening remains tracked in
+[`delivery-plan.md`](delivery-plan.md).
 
 ## Purpose and Boundaries
 
