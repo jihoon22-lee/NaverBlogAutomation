@@ -49,6 +49,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 addopts = "-ra --strict-markers --cov=naver_blog_assistant --cov-branch --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["live_openai: opt-in test that makes a real OpenAI API request"]
 
 [tool.coverage.run]
 branch = true

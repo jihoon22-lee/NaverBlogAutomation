@@ -125,7 +125,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/Conflict"
+          $ref: "#/components/responses/ReviewConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
 components:
@@ -147,9 +147,14 @@ components:
         format: uuid
   headers:
     IdempotencyReplayed:
-      description: True when returning a stored result for a repeated request.
+      description: True when returning a stored success or safe failure for a repeated request.
       schema:
         type: boolean
+    RetryAfter:
+      description: Seconds before a definitely rejected request may be retried.
+      schema:
+        type: integer
+        minimum: 0
   schemas:
     HealthResponse:
       type: object
@@ -339,7 +344,16 @@ components:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
     Conflict:
-      description: Idempotency content or review state conflicts with stored state.
+      description: Idempotency, review, active generation, or indeterminate state conflict.
+      headers:
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    ReviewConflict:
+      description: The requested review conflicts with the stored state.
       content:
         application/problem+json:
           schema:
@@ -360,21 +374,25 @@ components:
       description: Local or model-provider rate limiting prevented generation.
       headers:
         Retry-After:
-          schema:
-            type: integer
-            minimum: 1
+          $ref: "#/components/headers/RetryAfter"
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
     GenerationFailed:
       description: The model response was refused or could not be validated.
+      headers:
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
     Unavailable:
       description: A required local or provider dependency is unavailable.
+      headers:
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
       content:
         application/problem+json:
           schema:

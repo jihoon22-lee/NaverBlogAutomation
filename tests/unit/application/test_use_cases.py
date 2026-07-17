@@ -9,7 +9,10 @@ import pytest
 from naver_blog_assistant.application import (
     ConcurrentReviewError,
     GenerateRecommendation,
+    GenerationIndeterminateError,
     GenerationInProgressError,
+    GenerationInvalidError,
+    GenerationRefusedError,
     GetRecommendation,
     IdempotencyConflictError,
     RecommendationNotFoundError,
@@ -25,6 +28,7 @@ from naver_blog_assistant.domain import (
     ReviewStatus,
 )
 from naver_blog_assistant.ports import (
+    GenerationFailureSnapshot,
     GenerationNotStartedError,
     IdempotencyOutcome,
     IdempotencyReservation,
@@ -76,8 +80,10 @@ class FakeIdempotencyRepository:
         self.in_progress: set[UUID] = set()
         self.released: list[UUID] = []
         self.fail_commit = False
+        self.fail_failure = False
         self.fail_mark = False
         self.generation_started: set[UUID] = set()
+        self.failures: dict[UUID, GenerationFailureSnapshot] = {}
         self._attempts = iter(UUID(int=value) for value in range(500, 600))
 
     def reserve(self, key: UUID, request_hash: str) -> IdempotencyReservation:
@@ -88,6 +94,11 @@ class FakeIdempotencyRepository:
                 return IdempotencyReservation(IdempotencyOutcome.CONFLICT)
             if response_snapshot is not None:
                 return IdempotencyReservation(IdempotencyOutcome.REPLAY, response_snapshot)
+            if key in self.failures:
+                return IdempotencyReservation(
+                    IdempotencyOutcome.FAILURE_REPLAY,
+                    failure_snapshot=self.failures[key],
+                )
         if key in self.in_progress:
             return IdempotencyReservation(IdempotencyOutcome.IN_PROGRESS)
         attempt_id = next(self._attempts)
@@ -126,6 +137,23 @@ class FakeIdempotencyRepository:
         self.in_progress.discard(key)
         self.generation_started.discard(key)
         self.released.append(key)
+
+    def commit_failure(
+        self,
+        key: UUID,
+        attempt_id: UUID,
+        *,
+        failure: GenerationFailureSnapshot,
+        indeterminate: bool = False,
+    ) -> None:
+        del indeterminate
+        if self.fail_failure:
+            raise RuntimeError("synthetic failure persistence error")
+        if self.records[key][2] != attempt_id:
+            raise RuntimeError("stale attempt")
+        self.failures[key] = failure
+        self.in_progress.discard(key)
+        self.generation_started.discard(key)
 
 
 def generation_output() -> GenerationOutput:
@@ -275,11 +303,12 @@ def test_generate_cleans_up_its_attempt_when_generation_mark_fails() -> None:
 def test_generate_preserves_uncertain_provider_failure(failure: Exception) -> None:
     use_case, _, _, idempotency = build_generation_use_case(error=failure)
 
-    with pytest.raises(type(failure)):
+    with pytest.raises(GenerationIndeterminateError):
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert KEY in idempotency.records
-    assert KEY in idempotency.generation_started
+    assert KEY not in idempotency.generation_started
+    assert idempotency.failures[KEY].code == "generation_indeterminate"
     assert not idempotency.released
 
 
@@ -288,12 +317,13 @@ def test_generate_rejects_invalid_output_without_risking_duplicate_generation() 
     invalid = GenerationOutput(output.summary, output.topics, output.candidates[:2])
     use_case, _, recommendations, idempotency = build_generation_use_case(output=invalid)
 
-    with pytest.raises(ValueError, match="exactly three"):
+    with pytest.raises(GenerationInvalidError):
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert not recommendations.items
-    assert KEY in idempotency.in_progress
-    assert KEY in idempotency.generation_started
+    assert KEY not in idempotency.in_progress
+    assert KEY not in idempotency.generation_started
+    assert idempotency.failures[KEY].code == "generation_invalid"
     assert not idempotency.released
 
 
@@ -301,14 +331,46 @@ def test_generate_atomic_commit_failure_persists_neither_canonical_nor_snapshot(
     use_case, _, recommendations, idempotency = build_generation_use_case()
     idempotency.fail_commit = True
 
-    with pytest.raises(RuntimeError, match="atomic commit"):
+    with pytest.raises(GenerationIndeterminateError):
         use_case.execute(post=captured_post(), idempotency_key=KEY)
 
     assert not recommendations.items
     assert KEY in idempotency.records
+    assert KEY not in idempotency.in_progress
+    assert KEY not in idempotency.generation_started
+    assert idempotency.failures[KEY].code == "generation_indeterminate"
+    assert not idempotency.released
+
+
+@pytest.mark.parametrize(
+    "provider_error",
+    [GenerationInvalidError("invalid"), GenerationRefusedError("refused")],
+)
+def test_failure_persistence_error_is_stable_and_keeps_generating_row(
+    provider_error: Exception,
+) -> None:
+    use_case, _, _, idempotency = build_generation_use_case(error=provider_error)
+    idempotency.fail_failure = True
+
+    with pytest.raises(GenerationIndeterminateError, match="persisted safely"):
+        use_case.execute(post=captured_post(), idempotency_key=KEY)
+
     assert KEY in idempotency.in_progress
     assert KEY in idempotency.generation_started
-    assert not idempotency.released
+    assert KEY not in idempotency.failures
+
+
+def test_success_commit_and_failure_commit_double_failure_remains_generating() -> None:
+    use_case, _, recommendations, idempotency = build_generation_use_case()
+    idempotency.fail_commit = True
+    idempotency.fail_failure = True
+
+    with pytest.raises(GenerationIndeterminateError, match="persisted safely"):
+        use_case.execute(post=captured_post(), idempotency_key=KEY)
+
+    assert not recommendations.items
+    assert KEY in idempotency.in_progress
+    assert KEY in idempotency.generation_started
 
 
 def test_get_returns_existing_recommendation_and_rejects_missing_id() -> None:

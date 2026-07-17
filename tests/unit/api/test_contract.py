@@ -62,6 +62,9 @@ def test_checked_in_operations_match_fastapi_operation_ids() -> None:
             ):
                 problem = generated_response["content"]["application/problem+json"]
                 assert problem["schema"]["$ref"] == "#/components/schemas/ProblemDetails"
+            assert set(generated_response.get("headers", {})) == set(
+                documented_response.get("headers", {})
+            )
 
     post_responses = generated["paths"]["/api/v1/recommendations"]["post"]["responses"]
     for status in ("200", "201"):

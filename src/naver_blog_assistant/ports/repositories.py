@@ -15,8 +15,25 @@ class IdempotencyOutcome(StrEnum):
 
     STARTED = "started"
     REPLAY = "replay"
+    FAILURE_REPLAY = "failure_replay"
     CONFLICT = "conflict"
     IN_PROGRESS = "in_progress"
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationFailureSnapshot:
+    """Safe, provider-independent problem details stored for deterministic replay."""
+
+    status: int
+    code: str
+    title: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        if not 400 <= self.status <= 599:
+            raise ValueError("failure status must be an HTTP error status")
+        if not self.code or not self.title or not self.detail:
+            raise ValueError("failure snapshot fields must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,15 +43,35 @@ class IdempotencyReservation:
     outcome: IdempotencyOutcome
     response_snapshot: Recommendation | None = None
     attempt_id: UUID | None = None
+    failure_snapshot: GenerationFailureSnapshot | None = None
 
     def __post_init__(self) -> None:
         if self.outcome is IdempotencyOutcome.REPLAY:
-            if self.response_snapshot is None or self.attempt_id is not None:
+            if (
+                self.response_snapshot is None
+                or self.attempt_id is not None
+                or self.failure_snapshot is not None
+            ):
                 raise ValueError("replay reservations require only a response snapshot")
+        elif self.outcome is IdempotencyOutcome.FAILURE_REPLAY:
+            if (
+                self.failure_snapshot is None
+                or self.response_snapshot is not None
+                or self.attempt_id is not None
+            ):
+                raise ValueError("failure replays require only a failure snapshot")
         elif self.outcome is IdempotencyOutcome.STARTED:
-            if self.response_snapshot is not None or self.attempt_id is None:
+            if (
+                self.response_snapshot is not None
+                or self.failure_snapshot is not None
+                or self.attempt_id is None
+            ):
                 raise ValueError("started reservations require only an attempt id")
-        elif self.response_snapshot is not None or self.attempt_id is not None:
+        elif (
+            self.response_snapshot is not None
+            or self.failure_snapshot is not None
+            or self.attempt_id is not None
+        ):
             raise ValueError("conflict and in-progress reservations carry no payload")
 
 
@@ -82,4 +119,15 @@ class IdempotencyRepository(Protocol):
 
     def release(self, key: UUID, attempt_id: UUID) -> None:
         """Release a failed in-progress reservation so the request can be retried."""
+        ...
+
+    def commit_failure(
+        self,
+        key: UUID,
+        attempt_id: UUID,
+        *,
+        failure: GenerationFailureSnapshot,
+        indeterminate: bool = False,
+    ) -> None:
+        """Fence and persist a safe terminal or indeterminate failure snapshot."""
         ...

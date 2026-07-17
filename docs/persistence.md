@@ -3,7 +3,9 @@
 로컬 데이터베이스는 추천 결과의 검토 이력과 안전한 재시도에 필요한 정보만 저장합니다.
 원문 전체, OpenAI API 키, 쿠키와 인증 헤더는 테이블·스냅샷·로그에 저장하지 않습니다.
 스키마 변경은 `uv run alembic upgrade head`로 적용하고, 개발 중 되돌리기는
-`uv run alembic downgrade -1`로 수행합니다.
+`uv run alembic downgrade -1`로 수행합니다. 중복 provider 호출을 막는 `failed` 또는
+`indeterminate` fence가 있으면 해당 downgrade는 명시적으로 거부되며 데이터와 현재
+schema를 그대로 유지합니다.
 
 ## 원자성과 멱등성
 
@@ -16,13 +18,16 @@
 활성화하고 SQL 오류의 파라미터 출력을 숨깁니다.
 
 예약은 모델 호출 전 `reserved`, 호출 직전부터 `generating`, 저장 완료 후 `completed` 상태를
-사용합니다. 30초가 지난 `reserved` 행은 아직 모델을 호출하지 않았음이 보장되므로 자동
+사용합니다. 안전한 refusal/invalid 응답은 `failed`, timeout·connection·5xx처럼 결과를 알 수
+없는 호출은 `indeterminate`로 전이하고 provider 원문이 아닌 고정된 problem snapshot만
+저장합니다. 같은 키의 재요청은 이 snapshot을 replay하되 매 HTTP 요청마다 새로운
+`request_id`를 발급합니다. 30초가 지난 `reserved` 행은 아직 모델을 호출하지 않았음이 보장되므로 자동
 회수하며 매번 새로운 `attempt_id` fencing token을 발급합니다. 이후 모든 상태 변경은 키와
 token이 모두 일치해야 하므로 이전 요청의 지연된 완료나 정리가 새 요청을 변경할 수 없습니다.
 반면 `generating` 행은 오래되었더라도 제공자가 이미 결과를 만들고 과금했을 수
-있어 자동 회수하지 않습니다. 명시적으로 실패가 확인된 호출만 `release`하며, 불확실한 행은
-운영자가 원인을 확인한 뒤 처리합니다. 이 정책은 장애 복구 속도보다 중복 모델 호출 방지를
-우선합니다.
+있어 자동 회수하지 않습니다. local rate limit, provider 429 및 명확한 pre-generation HTTP
+rejection처럼 생성이 시작되지 않았음이 확인된 경우만 `release`합니다. 이 정책은 장애 복구
+속도보다 중복 모델 호출 방지를 우선합니다.
 
 추천 검토에는 0부터 시작하는 내부 `version`을 사용합니다. 업데이트는 `id + version` 비교 후
 성공할 때만 version을 증가시키는 CAS 방식이므로, 오래된 화면의 수정이 최신 승인 상태를

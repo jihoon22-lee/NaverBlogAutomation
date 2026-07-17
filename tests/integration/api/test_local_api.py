@@ -9,12 +9,15 @@ import time
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
+from threading import Event
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
+from openai import OpenAI
 
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application import (
@@ -24,6 +27,7 @@ from naver_blog_assistant.application import (
 )
 from naver_blog_assistant.domain import CapturedPost, GenerationOutput
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
+from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 from naver_blog_assistant.ports import GenerationNotStartedError
 
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -294,6 +298,7 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
 
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
+    assert allowed.headers["access-control-expose-headers"] == ("Idempotency-Replayed, Retry-After")
     assert "access-control-allow-credentials" not in allowed.headers
     assert_problem(denied, status=403, code="cors_origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
@@ -331,10 +336,21 @@ def test_local_rate_limit_returns_retry_after(database_path: Path) -> None:
     assert int(response.headers["Retry-After"]) >= 1
 
 
-class SlowGenerator:
+class BlockingGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.started = Event()
+        self.release = Event()
+        self.generation_returned = Event()
+
     def generate(self, post: CapturedPost) -> GenerationOutput:
-        time.sleep(0.05)
-        return DeterministicFakeGenerator().generate(post)
+        self.calls += 1
+        self.started.set()
+        if not self.release.wait(timeout=5):
+            raise TimeoutError("test did not release the blocking generator")
+        output = DeterministicFakeGenerator().generate(post)
+        self.generation_returned.set()
+        return output
 
 
 def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
@@ -345,7 +361,8 @@ def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
         app_environment="test",
         generation_timeout_seconds=0.001,
     )
-    with TestClient(create_app(settings, generator=SlowGenerator())) as slow:
+    generator = BlockingGenerator()
+    with TestClient(create_app(settings, generator=generator)) as slow:
         key = uuid4()
         response = slow.post(
             "/api/v1/recommendations",
@@ -353,14 +370,80 @@ def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
             headers={"Idempotency-Key": str(key)},
         )
         assert_problem(response, status=504, code="generation_timeout")
-        time.sleep(0.08)
-        replay = slow.post(
+        assert generator.started.wait(timeout=5)
+        assert generator.calls == 1
+        generator.release.set()
+        assert generator.generation_returned.wait(timeout=5)
+
+        replay: Response | None = None
+        observed_statuses: list[int] = []
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            candidate = slow.post(
+                "/api/v1/recommendations",
+                json=request_payload(),
+                headers={"Idempotency-Key": str(key)},
+            )
+            observed_statuses.append(candidate.status_code)
+            if candidate.status_code == 200:
+                replay = candidate
+                break
+            assert candidate.status_code in {409, 504}
+            assert candidate.json()["code"] in {
+                "generation_in_progress",
+                "generation_timeout",
+            }
+            assert generator.calls == 1
+            time.sleep(0.01)
+
+        assert replay is not None, f"generation did not complete; statuses={observed_statuses}"
+        assert replay.headers["Idempotency-Replayed"] == "true"
+        assert generator.calls == 1
+
+
+def test_provider_timeout_precedes_outer_timeout_and_blocks_duplicate(
+    database_path: Path,
+) -> None:
+    calls = 0
+
+    def provider_timeout(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("private timing detail", request=request)
+
+    provider_client = OpenAI(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(provider_timeout)),
+    )
+    generator = OpenAICommentGenerator(client=provider_client, timeout_seconds=0.05)
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{database_path}",
+        generator_mode="openai",
+        app_environment="test",
+        openai_api_key="test-key",
+        generation_timeout_seconds=0.2,
+        openai_timeout_seconds=0.05,
+    )
+    key = uuid4()
+    with TestClient(create_app(settings, generator=generator)) as api:
+        first = api.post(
             "/api/v1/recommendations",
             json=request_payload(),
             headers={"Idempotency-Key": str(key)},
         )
-        assert replay.status_code == 200
-        assert replay.headers["Idempotency-Replayed"] == "true"
+        replay = api.post(
+            "/api/v1/recommendations",
+            json=request_payload(),
+            headers={"Idempotency-Key": str(key)},
+        )
+    provider_client.close()
+
+    assert_problem(first, status=409, code="generation_indeterminate")
+    assert_problem(replay, status=409, code="generation_indeterminate")
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert calls == 1
 
 
 class FailingGenerator:
@@ -415,8 +498,14 @@ def test_provider_failures_are_mapped_without_raw_details(
     if isinstance(error, GenerationNotStartedError):
         assert_problem(retry, status=status, code=code)
         assert generator.calls == 2
+    elif isinstance(error, GenerationRateLimitedError):
+        assert_problem(retry, status=409, code="generation_indeterminate")
+        assert retry.headers["Idempotency-Replayed"] == "true"
+        assert generator.calls == 1
     else:
-        assert_problem(retry, status=409, code="generation_in_progress")
+        assert_problem(retry, status=status, code=code)
+        assert retry.headers["Idempotency-Replayed"] == "true"
+        assert response.json()["request_id"] != retry.json()["request_id"]
         assert generator.calls == 1
 
 
