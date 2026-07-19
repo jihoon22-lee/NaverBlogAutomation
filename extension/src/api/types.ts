@@ -1,5 +1,8 @@
 export type CandidateTone = "curious" | "supportive" | "warm";
 export type ReviewStatus = "approved" | "completed" | "drafted";
+export type RelationshipLevel = "close" | "friendly" | "new" | "polite";
+export type SpeechStyle = "banmal" | "honorific";
+export type CommentLength = "long" | "medium" | "short";
 
 export interface CommentCandidate {
   comment: string;
@@ -20,11 +23,17 @@ export interface Recommendation {
   title: string;
   topics: readonly string[];
   updatedAt: string | null;
+  relationshipLevel: RelationshipLevel;
+  speechStyle: SpeechStyle;
+  commentLength: CommentLength;
 }
 
 export interface CreateRecommendationRequest {
   body: string;
+  comment_length?: CommentLength;
+  relationship_level?: RelationshipLevel;
   source_url: string;
+  speech_style?: SpeechStyle;
   title: string;
 }
 

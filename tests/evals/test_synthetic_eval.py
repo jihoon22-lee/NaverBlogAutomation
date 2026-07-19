@@ -13,7 +13,11 @@ from openai import OpenAI
 from naver_blog_assistant.domain import (
     CandidateTone,
     CapturedPost,
+    CommentLength,
     GenerationOutput,
+    GenerationPreferences,
+    Relationship,
+    SpeechStyle,
 )
 from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 
@@ -91,7 +95,12 @@ def _run_adapter(
                 source_url="https://blog.naver.com/synthetic/eval",
                 title=case["title"],
                 body=case["body"],
-            )
+            ),
+            GenerationPreferences(
+                relationship=Relationship(case["preferences"]["relationship_level"]),
+                speech=SpeechStyle(case["preferences"]["speech_style"]),
+                length=CommentLength(case["preferences"]["comment_length"]),
+            ),
         )
     finally:
         client.close()

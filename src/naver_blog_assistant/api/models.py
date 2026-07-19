@@ -16,7 +16,14 @@ from pydantic import (
     model_validator,
 )
 
-from naver_blog_assistant.domain import Recommendation, ReviewStatus
+from naver_blog_assistant.domain import (
+    CommentLength,
+    GenerationPreferences,
+    Recommendation,
+    Relationship,
+    ReviewStatus,
+    SpeechStyle,
+)
 
 ShortText = Annotated[str, StringConstraints(min_length=1, max_length=300)]
 CommentText = Annotated[str, StringConstraints(min_length=1, max_length=500)]
@@ -41,6 +48,9 @@ class CreateRecommendationRequest(StrictModel):
     ]
     title: ShortText
     body: Annotated[str, StringConstraints(min_length=20, max_length=100_000)]
+    relationship_level: Literal["new", "polite", "friendly", "close"] = "friendly"
+    speech_style: Literal["honorific", "banmal"] = "honorific"
+    comment_length: Literal["short", "medium", "long"] = "medium"
 
     @field_validator("source_url", "title", "body", mode="before")
     @classmethod
@@ -49,6 +59,20 @@ class CreateRecommendationRequest(StrictModel):
         if isinstance(value, str):
             return re.sub(r"\s+", " ", value).strip()
         return value
+
+    @model_validator(mode="after")
+    def validate_preference_combination(self) -> Self:
+        if self.speech_style == "banmal" and self.relationship_level != "close":
+            raise ValueError("banmal is allowed only when relationship_level is close")
+        return self
+
+    def to_generation_preferences(self) -> GenerationPreferences:
+        """Map public transport names to the internal provenance value object."""
+        return GenerationPreferences(
+            relationship=Relationship(self.relationship_level),
+            speech=SpeechStyle(self.speech_style),
+            length=CommentLength(self.comment_length),
+        )
 
 
 class CommentCandidateResponse(StrictModel):
@@ -74,6 +98,9 @@ class RecommendationResponse(StrictModel):
     review_status: ReviewStatus
     created_at: datetime
     updated_at: datetime | None = None
+    relationship_level: Literal["new", "polite", "friendly", "close"]
+    speech_style: Literal["honorific", "banmal"]
+    comment_length: Literal["short", "medium", "long"]
 
     @classmethod
     def from_domain(cls, recommendation: Recommendation) -> Self:
@@ -98,6 +125,9 @@ class RecommendationResponse(StrictModel):
             review_status=recommendation.review_status,
             created_at=recommendation.created_at,
             updated_at=recommendation.updated_at,
+            relationship_level=recommendation.preferences.relationship.value,
+            speech_style=recommendation.preferences.speech.value,
+            comment_length=recommendation.preferences.length.value,
         )
 
 

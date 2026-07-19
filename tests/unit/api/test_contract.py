@@ -2,9 +2,11 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
+from pydantic import ValidationError
 
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.api.models import (
@@ -13,6 +15,7 @@ from naver_blog_assistant.api.models import (
     RecommendationResponse,
     ReviewRecommendationRequest,
 )
+from naver_blog_assistant.domain import CommentLength, Relationship, SpeechStyle
 
 ROOT = Path(__file__).parents[3]
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -98,7 +101,65 @@ def test_transport_models_preserve_contract_fields_and_limits() -> None:
     assert request_properties["title"]["maxLength"] == 300
     assert request_properties["body"]["minLength"] == 20
     assert request_properties["body"]["maxLength"] == 100_000
+    assert request_properties["relationship_level"] == {
+        "default": "friendly",
+        "enum": ["new", "polite", "friendly", "close"],
+        "title": "Relationship Level",
+        "type": "string",
+    }
+    assert request_properties["speech_style"]["default"] == "honorific"
+    assert request_properties["speech_style"]["enum"] == ["honorific", "banmal"]
+    assert request_properties["comment_length"]["default"] == "medium"
+    assert request_properties["comment_length"]["enum"] == ["short", "medium", "long"]
 
     response_properties = RecommendationResponse.model_json_schema()["properties"]
     assert response_properties["candidates"]["minItems"] == 3
     assert response_properties["candidates"]["maxItems"] == 3
+    response_required = set(RecommendationResponse.model_json_schema()["required"])
+    assert {"relationship_level", "speech_style", "comment_length"} <= response_required
+    assert "relationship_level" not in CreateRecommendationRequest.model_json_schema()["required"]
+
+
+def test_request_preferences_default_map_and_allow_partial_override() -> None:
+    base = {
+        "source_url": "https://blog.naver.com/example/1",
+        "title": "합성 제목",
+        "body": "설정 mapping을 검증하기 위한 충분히 긴 합성 본문입니다.",
+    }
+
+    defaults = CreateRecommendationRequest.model_validate(base).to_generation_preferences()
+    partial = CreateRecommendationRequest.model_validate(
+        {**base, "relationship_level": "polite", "comment_length": "long"}
+    ).to_generation_preferences()
+
+    assert defaults.relationship is Relationship.FRIENDLY
+    assert defaults.speech is SpeechStyle.HONORIFIC
+    assert defaults.length is CommentLength.MEDIUM
+    assert partial.relationship is Relationship.POLITE
+    assert partial.speech is SpeechStyle.HONORIFIC
+    assert partial.length is CommentLength.LONG
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"relationship_level": None},
+        {"speech_style": None},
+        {"comment_length": None},
+        {"relationship_level": "unknown"},
+        {"speech_style": "formal"},
+        {"comment_length": "extra-long"},
+        {"relationship_level": "friendly", "speech_style": "banmal"},
+        {"unexpected": "value"},
+    ],
+)
+def test_request_preferences_reject_null_unknown_extra_and_invalid_combinations(
+    changes: dict[str, object],
+) -> None:
+    base: dict[str, object] = {
+        "source_url": "https://blog.naver.com/example/1",
+        "title": "합성 제목",
+        "body": "설정 validation을 검증하기 위한 충분히 긴 합성 본문입니다.",
+    }
+    with pytest.raises(ValidationError):
+        CreateRecommendationRequest.model_validate({**base, **changes})

@@ -22,6 +22,7 @@ from naver_blog_assistant.domain import (
     CapturedPost,
     CommentCandidate,
     DomainValidationError,
+    GenerationPreferences,
     Recommendation,
     ReviewStatus,
 )
@@ -58,9 +59,15 @@ class GenerateRecommendation:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._id_factory = id_factory or uuid4
 
-    def execute(self, *, post: CapturedPost, idempotency_key: UUID) -> GenerationResult:
+    def execute(
+        self,
+        *,
+        post: CapturedPost,
+        idempotency_key: UUID,
+        preferences: GenerationPreferences = DEFAULT_GENERATION_PREFERENCES,
+    ) -> GenerationResult:
         """Generate once for a key and replay a matching completed request."""
-        reservation = self._idempotency.reserve(idempotency_key, post.request_hash)
+        reservation = self._idempotency.reserve(idempotency_key, post.request_hash_for(preferences))
         if reservation.outcome is IdempotencyOutcome.CONFLICT:
             raise IdempotencyConflictError("idempotency key was used for different content")
         if reservation.outcome is IdempotencyOutcome.IN_PROGRESS:
@@ -85,7 +92,7 @@ class GenerateRecommendation:
             raise
 
         try:
-            output = self._generator.generate(post)
+            output = self._generator.generate(post, preferences)
         except GenerationNotStartedError:
             self._idempotency.release(idempotency_key, attempt_id)
             raise
@@ -128,7 +135,7 @@ class GenerateRecommendation:
                 ),
                 review_status=ReviewStatus.DRAFTED,
                 created_at=self._clock(),
-                preferences=DEFAULT_GENERATION_PREFERENCES,
+                preferences=preferences,
             )
         except DomainValidationError as error:
             self._commit_failure(idempotency_key, attempt_id, _INVALID)

@@ -1,7 +1,9 @@
 """Tests for framework-independent domain invariants."""
 
+import json
 from dataclasses import MISSING, FrozenInstanceError, fields
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -28,6 +30,7 @@ from naver_blog_assistant.domain import (
 POST_ID = UUID("00000000-0000-0000-0000-000000000001")
 CANDIDATE_IDS = tuple(UUID(f"00000000-0000-0000-0000-{index:012d}") for index in range(2, 5))
 NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
+ROOT = Path(__file__).parents[3]
 
 
 def make_candidates() -> tuple[CommentCandidate, ...]:
@@ -104,7 +107,7 @@ def test_captured_post_hashes_content_without_exposing_body_in_repr() -> None:
 def test_request_hash_matches_cross_language_normalization_vectors(
     raw_payload: dict[str, str], expected_hash: str
 ) -> None:
-    payload = CreateRecommendationRequest(**raw_payload)
+    payload = CreateRecommendationRequest.model_validate(raw_payload)
     post = CapturedPost(
         source_url=payload.source_url,
         title=payload.title,
@@ -112,6 +115,25 @@ def test_request_hash_matches_cross_language_normalization_vectors(
     )
 
     assert post.request_hash == expected_hash
+
+
+def test_preference_aware_request_hash_matches_shared_contract_vectors() -> None:
+    vectors = json.loads(
+        (ROOT / "tests/contract/generation-request-hash-vectors.json").read_text(encoding="utf-8")
+    )
+    hashes: dict[str, str] = {}
+    for vector in vectors:
+        payload = CreateRecommendationRequest(**vector["request"])
+        post = CapturedPost(
+            source_url=payload.source_url,
+            title=payload.title,
+            body=payload.body,
+        )
+        hashes[vector["id"]] = post.request_hash_for(payload.to_generation_preferences())
+        assert hashes[vector["id"]] == vector["expected_hash"]
+
+    assert hashes["omitted-defaults"] == hashes["explicit-defaults"]
+    assert len(set(hashes.values())) == len(hashes) - 1
 
 
 @pytest.mark.parametrize(

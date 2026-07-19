@@ -183,6 +183,21 @@ components:
           minLength: 20
           maxLength: 100000
           description: Visible article text; processed in memory and not retained in full.
+        relationship_level:
+          type: string
+          enum: [new, polite, friendly, close]
+          default: friendly
+          description: The writer relationship used to calibrate the draft.
+        speech_style:
+          type: string
+          enum: [honorific, banmal]
+          default: honorific
+          description: Korean speech style; banmal is valid only for a close relationship.
+        comment_length:
+          type: string
+          enum: [short, medium, long]
+          default: medium
+          description: Target comment length; every generated comment remains capped at 500 characters.
     RecommendationResponse:
       type: object
       additionalProperties: false
@@ -193,6 +208,9 @@ components:
         - summary
         - topics
         - candidates
+        - relationship_level
+        - speech_style
+        - comment_length
         - review_status
         - created_at
       properties:
@@ -225,6 +243,15 @@ components:
           maxItems: 3
           items:
             $ref: "#/components/schemas/CommentCandidate"
+        relationship_level:
+          type: string
+          enum: [new, polite, friendly, close]
+        speech_style:
+          type: string
+          enum: [honorific, banmal]
+        comment_length:
+          type: string
+          enum: [short, medium, long]
         selected_candidate_id:
           oneOf:
             - type: string

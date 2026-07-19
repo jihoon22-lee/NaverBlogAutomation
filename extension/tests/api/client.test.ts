@@ -109,6 +109,11 @@ describe("LocalApiClient", () => {
     });
 
     expect(created.replayed).toBe(false);
+    expect(created.value).toMatchObject({
+      commentLength: "medium",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    });
     expect(created.value.candidates[0]?.referencedDetail).toBe("합성 본문의 전시 동선");
     expect(approved.reviewStatus).toBe("approved");
     expect(fetcher.mock.calls[1]?.[1]).toEqual(
@@ -139,6 +144,42 @@ describe("LocalApiClient", () => {
       "00000000-0000-4000-8000-000000000002",
     );
     expect(result).toMatchObject({ replayed: true, value: { id: recommendation.id } });
+  });
+
+  it("parses all preference fields when the new backend emits them", async () => {
+    const withPreferences = {
+      ...recommendation,
+      comment_length: "long",
+      relationship_level: "close",
+      speech_style: "banmal",
+    };
+    const client = new LocalApiClient(
+      vi.fn<typeof fetch>().mockResolvedValue(json(withPreferences)),
+    );
+
+    await expect(client.getRecommendation(recommendation.id)).resolves.toMatchObject({
+      commentLength: "long",
+      relationshipLevel: "close",
+      speechStyle: "banmal",
+    });
+  });
+
+  it("rejects partial, null, unknown, and invalid preference response fields", async () => {
+    const invalidPreferences = [
+      { comment_length: "long" },
+      { comment_length: "long", relationship_level: "close" },
+      { comment_length: null, relationship_level: "close", speech_style: "banmal" },
+      { comment_length: "huge", relationship_level: "close", speech_style: "banmal" },
+      { comment_length: "medium", relationship_level: "friendly", speech_style: "banmal" },
+    ];
+    for (const preferences of invalidPreferences) {
+      const client = new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(json({ ...recommendation, ...preferences })),
+      );
+      await expect(client.getRecommendation(recommendation.id)).rejects.toBeInstanceOf(
+        ApiClientError,
+      );
+    }
   });
 
   it("parses problem+json, replay, and Retry-After headers", async () => {

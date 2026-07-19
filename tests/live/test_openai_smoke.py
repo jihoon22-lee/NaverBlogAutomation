@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from naver_blog_assistant.domain import CapturedPost
+from naver_blog_assistant.domain import DEFAULT_GENERATION_PREFERENCES, CapturedPost
 from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 
 
@@ -19,7 +19,8 @@ def test_live_openai_structured_generation() -> None:
                 source_url="https://blog.naver.com/example/synthetic",
                 title="합성 전시 후기",
                 body="푸른 조각과 조용한 2층 관람 동선이 인상적이었다.",
-            )
+            ),
+            DEFAULT_GENERATION_PREFERENCES,
         )
     finally:
         generator.close()
