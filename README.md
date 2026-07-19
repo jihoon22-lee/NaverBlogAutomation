@@ -111,8 +111,8 @@ OPENAI_API_KEY=<private-key>
 ```
 
 기본 adapter는 `gpt-5.6-terra`, low reasoning, `store=false`를 사용합니다. 생성 버튼을 누르면
-현재 글의 title, URL, body가 OpenAI API로 전송될 수 있습니다. Key를 extension file, shell
-history, screenshot, log 또는 commit에 남기지 마세요.
+현재 글의 title과 body가 OpenAI API로 전송되며 source URL은 전송하지 않습니다. Key를
+extension file, shell history, screenshot, log 또는 commit에 남기지 마세요.
 
 ## 품질 검사
 
