@@ -1,5 +1,6 @@
 import type { Recommendation } from "../api/types";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
+import type { GenerationPreferences } from "../preferences/model";
 
 export type WorkflowFailureAction = "cleanup" | "replace" | "retry" | null;
 
@@ -21,7 +22,12 @@ export interface ReviewPresentation {
 export type PanelState =
   | { kind: "extracting" }
   | { failure: CaptureFailure | WorkflowFailure; kind: "error" }
-  | { kind: "preview"; preview: CapturedPostPreview }
+  | {
+      kind: "preview";
+      preferenceNotice?: string;
+      preferences: GenerationPreferences;
+      preview: CapturedPostPreview;
+    }
   | { canCancel: boolean; kind: "generating"; message: string }
   | ({ kind: "review" } & ReviewPresentation)
   | ({ kind: "saving" } & ReviewPresentation)
@@ -34,8 +40,12 @@ export interface PanelActions {
   cleanup(): void;
   complete(): void;
   copy(): void;
+  changeCommentLength(value: string): void;
+  changeRelationship(value: string): void;
+  changeSpeechStyle(value: string): void;
   edit(value: string): void;
   generate(): void;
+  regenerate(): void;
   replace(): void;
   retry(): void;
   select(candidateId: string): void;

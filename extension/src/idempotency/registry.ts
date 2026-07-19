@@ -34,6 +34,20 @@ export interface StorageArea {
   set(items: Record<string, unknown>): Promise<void>;
 }
 
+export interface RegistryMutationLock {
+  run<T>(operation: () => Promise<T>): Promise<T>;
+}
+
+class WebRegistryMutationLock implements RegistryMutationLock {
+  async run<T>(operation: () => Promise<T>): Promise<T> {
+    const locks = globalThis.navigator?.locks;
+    if (locks === undefined) {
+      throw new RegistryQuarantinedError();
+    }
+    return locks.request("naver-blog-assistant-generation-registry-v1", operation);
+  }
+}
+
 export class RegistryQuarantinedError extends Error {
   constructor() {
     super("저장된 retry registry가 손상되어 명시적인 정리가 필요합니다.");
@@ -53,13 +67,19 @@ export async function restrictStorageToTrustedContexts(
 }
 
 export class IdempotencyRegistry {
+  readonly #lock: RegistryMutationLock;
   readonly #now: () => number;
   readonly #storage: StorageArea;
   #pending: Promise<void> = Promise.resolve();
 
-  constructor(storage: StorageArea = chrome.storage.local, now: () => number = Date.now) {
+  constructor(
+    storage: StorageArea = chrome.storage.local,
+    now: () => number = Date.now,
+    lock: RegistryMutationLock = new WebRegistryMutationLock(),
+  ) {
     this.#storage = storage;
     this.#now = now;
+    this.#lock = lock;
   }
 
   async find(digest: string): Promise<RegistryEntry | null> {
@@ -85,20 +105,43 @@ export class IdempotencyRegistry {
     });
   }
 
-  async replace(digest: string): Promise<RegistryEntry> {
+  async replace(
+    digest: string,
+    expectedState: "indeterminate" | "terminal_failure",
+  ): Promise<RegistryEntry> {
     assertDigest(digest);
     return this.#exclusive(async () => {
       const registry = await this.#load();
-      const existing = registry.entries.find((entry) => entry.digest === digest);
-      if (existing === undefined) {
-        this.#makeRoom(registry);
-        const entry = newEntry(digest, this.#now());
-        registry.entries.push(entry);
-        await this.#save(registry);
-        return entry;
+      const index = registry.entries.findIndex((entry) => entry.digest === digest);
+      const existing = registry.entries[index];
+      if (existing === undefined || existing.state !== expectedState) {
+        throw new RegistryQuarantinedError();
       }
       const replacement = newEntry(digest, this.#now());
-      registry.entries.splice(registry.entries.indexOf(existing), 1, replacement);
+      registry.entries.splice(index, 1, replacement);
+      await this.#save(registry);
+      return replacement;
+    });
+  }
+
+  async regenerateKnown(digest: string, recommendationId: string): Promise<RegistryEntry> {
+    assertDigest(digest);
+    if (!UUID.test(recommendationId)) {
+      throw new RegistryQuarantinedError();
+    }
+    return this.#exclusive(async () => {
+      const registry = await this.#load();
+      const index = registry.entries.findIndex((entry) => entry.digest === digest);
+      const existing = registry.entries[index];
+      if (
+        existing === undefined ||
+        existing.recommendationId !== recommendationId ||
+        (existing.state !== "reviewing" && existing.state !== "completed")
+      ) {
+        throw new RegistryQuarantinedError();
+      }
+      const replacement = newEntry(digest, this.#now());
+      registry.entries.splice(index, 1, replacement);
       await this.#save(registry);
       return replacement;
     });
@@ -190,7 +233,8 @@ export class IdempotencyRegistry {
   }
 
   #exclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#pending.then(operation, operation);
+    const locked = (): Promise<T> => this.#lock.run(operation);
+    const result = this.#pending.then(locked, locked);
     this.#pending = result.then(
       () => undefined,
       () => undefined,

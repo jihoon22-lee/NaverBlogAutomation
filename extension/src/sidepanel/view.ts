@@ -38,6 +38,14 @@ export class DomPanelView implements PanelView {
   readonly #errorPanel: HTMLElement;
   readonly #errorTitle: HTMLElement;
   readonly #generateButton: HTMLButtonElement;
+  readonly #generatedCommentLength: HTMLElement;
+  readonly #generatedRelationship: HTMLElement;
+  readonly #generatedSpeechStyle: HTMLElement;
+  readonly #commentLengthOptions: HTMLFieldSetElement;
+  readonly #preferenceNotice: HTMLElement;
+  readonly #relationshipOptions: HTMLFieldSetElement;
+  readonly #regenerateButton: HTMLButtonElement;
+  readonly #speechStyleOptions: HTMLFieldSetElement;
   readonly #postTitle: HTMLElement;
   readonly #postUrl: HTMLElement;
   readonly #previewPanel: HTMLElement;
@@ -73,6 +81,14 @@ export class DomPanelView implements PanelView {
     this.#errorPanel = requireElement(document, "#error-panel");
     this.#errorTitle = requireElement(document, "#error-title");
     this.#generateButton = requireElement(document, "#generate-button");
+    this.#generatedCommentLength = requireElement(document, "#generated-comment-length");
+    this.#generatedRelationship = requireElement(document, "#generated-relationship");
+    this.#generatedSpeechStyle = requireElement(document, "#generated-speech-style");
+    this.#commentLengthOptions = requireElement(document, "#comment-length-options");
+    this.#preferenceNotice = requireElement(document, "#preference-notice");
+    this.#relationshipOptions = requireElement(document, "#relationship-options");
+    this.#regenerateButton = requireElement(document, "#regenerate-button");
+    this.#speechStyleOptions = requireElement(document, "#speech-style-options");
     this.#postTitle = requireElement(document, "#post-title");
     this.#postUrl = requireElement(document, "#post-url");
     this.#previewPanel = requireElement(document, "#preview-panel");
@@ -98,6 +114,27 @@ export class DomPanelView implements PanelView {
     this.#approveButton.addEventListener("click", actions.approve);
     this.#copyButton.addEventListener("click", actions.copy);
     this.#completeButton.addEventListener("click", actions.complete);
+    this.#relationshipOptions.addEventListener("change", (event) => {
+      const input = this.#radioInput(event, "relationship");
+      if (input !== null) actions.changeRelationship(input.value);
+    });
+    this.#speechStyleOptions.addEventListener("change", (event) => {
+      const input = this.#radioInput(event, "speech-style");
+      if (input !== null) actions.changeSpeechStyle(input.value);
+    });
+    this.#commentLengthOptions.addEventListener("change", (event) => {
+      const input = this.#radioInput(event, "comment-length");
+      if (input !== null) actions.changeCommentLength(input.value);
+    });
+    this.#regenerateButton.addEventListener("click", () => {
+      if (
+        this.#document.defaultView?.confirm(
+          "현재 글을 다시 읽어 Preview로 돌아갑니다. Preview 단계에서는 요청하지 않으며, 생성 버튼을 누르면 추가 OpenAI API 사용이 발생할 수 있습니다. 계속할까요?",
+        ) === true
+      ) {
+        actions.regenerate();
+      }
+    });
     this.#editedComment.addEventListener("input", () => {
       this.#editCount.textContent = `${Array.from(this.#editedComment.value).length.toLocaleString("ko-KR")} / 500자`;
       actions.edit(this.#editedComment.value);
@@ -158,6 +195,8 @@ export class DomPanelView implements PanelView {
     this.#previewPanel.hidden = state.kind !== "preview";
     this.#progressPanel.hidden = state.kind !== "generating";
     this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
+    for (const input of this.#preferenceInputs()) input.disabled = busy;
+    this.#regenerateButton.disabled = busy;
     if (state.kind === "extracting" || state.kind === "error" || state.kind === "generating") {
       this.#clearSensitiveDom();
     }
@@ -177,7 +216,7 @@ export class DomPanelView implements PanelView {
       return;
     }
     if (state.kind === "preview") {
-      this.#renderPreview(state.preview);
+      this.#renderPreview(state, previousKind !== "preview");
       return;
     }
     this.#renderRecommendation(
@@ -200,7 +239,8 @@ export class DomPanelView implements PanelView {
     this.#focus(this.#errorTitle);
   }
 
-  #renderPreview(preview: Extract<PanelState, { kind: "preview" }>["preview"]): void {
+  #renderPreview(state: Extract<PanelState, { kind: "preview" }>, focusHeading: boolean): void {
+    const { preferences, preview } = state;
     this.#status.textContent = "본문 preview를 확인했습니다. 아직 local API로 전송하지 않았습니다.";
     this.#postTitle.textContent = preview.title;
     this.#postUrl.textContent = preview.sourceUrl;
@@ -214,7 +254,16 @@ export class DomPanelView implements PanelView {
       ? `API 제한에 맞춰 앞 ${preview.transmittedLength.toLocaleString("ko-KR")}자만 전송됩니다.`
       : "";
     this.#generateButton.disabled = false;
-    this.#focus(this.#previewTitle);
+    this.#setChecked("relationship", preferences.relationshipLevel);
+    this.#setChecked("speech-style", preferences.speechStyle);
+    this.#setChecked("comment-length", preferences.commentLength);
+    const banmal = this.#document.querySelector<HTMLInputElement>(
+      'input[name="speech-style"][value="banmal"]',
+    );
+    if (banmal !== null) banmal.disabled = preferences.relationshipLevel !== "close";
+    this.#preferenceNotice.hidden = state.preferenceNotice === undefined;
+    this.#preferenceNotice.textContent = state.preferenceNotice ?? "";
+    if (focusHeading) this.#focus(this.#previewTitle);
   }
 
   #renderRecommendation(
@@ -237,6 +286,9 @@ export class DomPanelView implements PanelView {
           : kind === "approved"
             ? "승인됨"
             : "검토 중";
+    this.#generatedRelationship.textContent = relationshipLabel(recommendation.relationshipLevel);
+    this.#generatedSpeechStyle.textContent = speechStyleLabel(recommendation.speechStyle);
+    this.#generatedCommentLength.textContent = commentLengthLabel(recommendation.commentLength);
     this.#summary.textContent = recommendation.summary;
     this.#topics.replaceChildren(
       ...recommendation.topics.map((topic) => {
@@ -283,6 +335,7 @@ export class DomPanelView implements PanelView {
     this.#approveButton.disabled = kind === "saving";
     this.#copyButton.hidden = kind === "review" || kind === "saving";
     this.#completeButton.hidden = kind !== "approved";
+    this.#regenerateButton.hidden = kind === "saving";
     this.#reviewNotice.hidden = presentation.notice === undefined;
     this.#reviewNotice.textContent = presentation.notice ?? "";
     if (focusedCandidateId !== null) {
@@ -309,9 +362,50 @@ export class DomPanelView implements PanelView {
     this.#editedComment.value = "";
     this.#editCount.textContent = "";
     this.#reviewNotice.textContent = "";
+    this.#generatedRelationship.textContent = "";
+    this.#generatedSpeechStyle.textContent = "";
+    this.#generatedCommentLength.textContent = "";
+  }
+
+  #preferenceInputs(): HTMLInputElement[] {
+    return Array.from(
+      this.#document.querySelectorAll<HTMLInputElement>(
+        'input[name="relationship"], input[name="speech-style"], input[name="comment-length"]',
+      ),
+    );
+  }
+
+  #radioInput(event: Event, name: string): HTMLInputElement | null {
+    const input = event.target;
+    const Input = this.#document.defaultView?.HTMLInputElement;
+    return Input !== undefined && input instanceof Input && input.name === name ? input : null;
+  }
+
+  #setChecked(name: string, value: string): void {
+    for (const input of this.#document.querySelectorAll<HTMLInputElement>(
+      `input[name="${name}"]`,
+    )) {
+      input.checked = input.value === value;
+    }
   }
 }
 
 function toneLabel(tone: string): string {
   return { curious: "궁금한 점", supportive: "응원", warm: "따뜻한 공감" }[tone] ?? tone;
+}
+
+function relationshipLabel(value: string): string {
+  return (
+    { close: "가까운 사이", friendly: "편한 이웃", new: "처음 교류", polite: "예의를 갖춘 사이" }[
+      value
+    ] ?? value
+  );
+}
+
+function speechStyleLabel(value: string): string {
+  return { banmal: "반말", honorific: "존댓말" }[value] ?? value;
+}
+
+function commentLengthLabel(value: string): string {
+  return { long: "길게", medium: "보통", short: "짧게" }[value] ?? value;
 }

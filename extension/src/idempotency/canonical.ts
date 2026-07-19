@@ -1,4 +1,10 @@
 import type { CreateRecommendationRequest } from "../api/types";
+import {
+  DEFAULT_GENERATION_PREFERENCES,
+  preferencesFromRequest,
+  requestPreferenceFields,
+  samePreferences,
+} from "../preferences/model";
 
 const MAX_BODY_CODE_POINTS = 100_000;
 
@@ -56,7 +62,16 @@ export function canonicalizeRequest(
   ) {
     throw new CanonicalPayloadError("정규화된 요청 값이 API 최대 길이를 초과했습니다.");
   }
-  return { body, source_url: sourceUrl, title };
+  const preferences = preferencesFromRequest(payload);
+  if (preferences === null) {
+    throw new CanonicalPayloadError("댓글 생성 옵션 조합이 올바르지 않습니다.");
+  }
+  return {
+    body,
+    ...requestPreferenceFields(preferences),
+    source_url: sourceUrl,
+    title,
+  };
 }
 
 export function canonicalRequestJson(payload: CreateRecommendationRequest): string {
@@ -69,7 +84,28 @@ export function canonicalRequestJson(payload: CreateRecommendationRequest): stri
 }
 
 export async function requestDigest(payload: CreateRecommendationRequest): Promise<string> {
-  const bytes = new TextEncoder().encode(canonicalRequestJson(payload));
+  const normalized = canonicalizeRequest(payload);
+  const postHash = await sha256(canonicalRequestJson(normalized));
+  const preferences = preferencesFromRequest(normalized);
+  if (preferences === null) {
+    throw new CanonicalPayloadError("댓글 생성 옵션 조합이 올바르지 않습니다.");
+  }
+  if (samePreferences(preferences, DEFAULT_GENERATION_PREFERENCES)) {
+    return postHash;
+  }
+  return sha256(
+    JSON.stringify({
+      comment_length: preferences.commentLength,
+      post_hash: postHash,
+      relationship_level: preferences.relationshipLevel,
+      schema: "generation-preferences-v1",
+      speech_style: preferences.speechStyle,
+    }),
+  );
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

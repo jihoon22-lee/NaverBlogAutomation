@@ -47,10 +47,14 @@ its lifecycle is ephemeral.
 
 The Side Panel owns UI and HTTP request lifecycles. On open, it extracts the active post and shows
 the URL, title, character count, truncation state, and a bounded preview. Transmission begins only
-after the user presses the generation button. The panel then supports candidate selection,
-editing, approval, clipboard copy, and an explicit completed action. Copying alone never marks a
-recommendation completed. Copy uses the user gesture Clipboard API on a best-effort basis and
-falls back to a selectable text area; the extension does not request `clipboardWrite`.
+after the user selects relationship, speech style, and comment length and presses the generation
+button. Relationship and speech style reset for each article; only comment length persists. The
+response echoes the effective options so the review UI can show provenance. Explicit regeneration
+recaptures the article and returns to Preview without an API call; a subsequent generation uses a
+fresh idempotency key. The panel then supports candidate selection, editing, approval, clipboard
+copy, and an explicit completed action. Copying alone never marks a recommendation completed. Copy
+uses the user gesture Clipboard API on a best-effort basis and falls back to a selectable text area;
+the extension does not request `clipboardWrite`.
 
 Naver-specific selectors are isolated behind an extractor adapter. A generic semantic fallback
 handles minor markup changes. Results from eligible frames are ranked, normalized, and bounded to
@@ -95,11 +99,13 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Recommendation and review status | SQLite | Until local data is removed |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
+| Comment length preference | Extension storage | Until changed or extension data is removed |
 
 The extension stores no body, title, URL, candidate, edited comment, cookie, or credential. Its
-`chrome.storage.local` registry is restricted to trusted extension contexts and contains only a
-schema version, digest, opaque IDs, state, and timestamps. It persists across browser restarts and
-holds at most 20 operations. Completed, released, or explicitly dismissed entries expire after 60
+`chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
+schema version, digest, opaque IDs, state, and timestamps; a separate versioned record contains only
+the selected comment length. It persists across browser restarts and holds at most 20 operations.
+Completed, released, or explicitly dismissed entries expire after 60
 minutes and are evicted oldest-first. Active, terminal-failure, or indeterminate entries are never
 evicted automatically; if they fill the registry, new generation is blocked until the user
 explicitly resolves, replaces, or dismisses one. Invalid records are quarantined from automatic

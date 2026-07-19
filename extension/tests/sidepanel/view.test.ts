@@ -43,8 +43,12 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     cleanup: vi.fn(),
     complete: vi.fn(),
     copy: vi.fn(),
+    changeCommentLength: vi.fn(),
+    changeRelationship: vi.fn(),
+    changeSpeechStyle: vi.fn(),
     edit: vi.fn(),
     generate: vi.fn(),
+    regenerate: vi.fn(),
     replace: vi.fn(),
     retry: vi.fn(),
     select: vi.fn(),
@@ -74,6 +78,11 @@ describe("DomPanelView", () => {
   it("renders a bounded preview and enables explicit generation", async () => {
     view.render({
       kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
       preview: {
         body: "구체적인 전시 감상과 관람 동선을 정리한 합성 본문입니다. ".repeat(40),
         documentId: "document-1",
@@ -100,6 +109,11 @@ describe("DomPanelView", () => {
   it("hides the truncation notice for content within the API limit", () => {
     view.render({
       kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
       preview: {
         body: "충분한 길이의 합성 본문 내용입니다.",
         frameId: 0,
@@ -116,6 +130,52 @@ describe("DomPanelView", () => {
     expect(document.querySelector("#body-preview")?.textContent).toBe(
       "충분한 길이의 합성 본문 내용입니다.",
     );
+  });
+
+  it("keeps radio focus while rendering valid preference changes", async () => {
+    const window = document.defaultView;
+    if (window === null) throw new Error("Synthetic window is missing");
+    const changeRelationship = vi.fn();
+    const changeSpeechStyle = vi.fn();
+    const changeCommentLength = vi.fn();
+    view.bind(actions({ changeCommentLength, changeRelationship, changeSpeechStyle }));
+    const preview = {
+      body: "충분한 길이의 합성 본문 내용입니다.",
+      frameId: 0,
+      originalLength: 20,
+      sourceUrl: "https://blog.naver.com/synthetic/options",
+      tabId: 2,
+      title: "합성 제목",
+      transmittedLength: 20,
+      truncated: false,
+    };
+    view.render({
+      kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
+      preview,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const close = document.querySelector<HTMLInputElement>(
+      'input[name="relationship"][value="close"]',
+    );
+    close?.focus();
+    close?.click();
+    expect(changeRelationship).toHaveBeenCalledWith("close");
+    view.render({
+      kind: "preview",
+      preferences: { commentLength: "long", relationshipLevel: "close", speechStyle: "banmal" },
+      preview,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(close);
+    expect(
+      document.querySelector<HTMLInputElement>('input[name="speech-style"][value="banmal"]')
+        ?.disabled,
+    ).toBe(false);
   });
 
   it("renders actionable errors and invokes retry from a keyboard-operable button", async () => {
@@ -157,6 +217,9 @@ describe("DomPanelView", () => {
     const radios = document.querySelectorAll<HTMLInputElement>('input[name="candidate"]');
     expect(radios).toHaveLength(3);
     expect(document.activeElement?.id).toBe("result-title");
+    expect(document.querySelector("#generated-relationship")?.textContent).toBe("편한 이웃");
+    expect(document.querySelector("#generated-speech-style")?.textContent).toBe("존댓말");
+    expect(document.querySelector("#generated-comment-length")?.textContent).toBe("보통");
     radios[1]?.focus();
     radios[1]?.click();
     view.render({
@@ -238,8 +301,9 @@ describe("DomPanelView", () => {
     }
     const replace = vi.fn();
     const cleanup = vi.fn();
+    const regenerate = vi.fn();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    view.bind(actions({ cleanup, replace }));
+    view.bind(actions({ cleanup, regenerate, replace }));
 
     view.render({
       failure: {
@@ -262,14 +326,24 @@ describe("DomPanelView", () => {
     });
     (document.querySelector("#cleanup-button") as HTMLButtonElement).click();
 
-    expect(confirm).toHaveBeenCalledTimes(2);
+    view.render({ kind: "review", ...recommendation });
+    (document.querySelector("#regenerate-button") as HTMLButtonElement).click();
+
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(confirm.mock.calls[2]?.[0]).toMatch(/Preview.*OpenAI API/u);
     expect(replace).toHaveBeenCalledOnce();
     expect(cleanup).toHaveBeenCalledOnce();
+    expect(regenerate).toHaveBeenCalledOnce();
   });
 
   it("clears article and comment text from hidden DOM on generation and errors", () => {
     view.render({
       kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
       preview: {
         body: "민감하지 않은 합성 본문이지만 메모리 해제를 검증할 충분한 길이입니다.",
         frameId: 0,

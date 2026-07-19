@@ -25,6 +25,11 @@ interface RunningApi {
   dispose(): Promise<void>;
 }
 
+interface CapturedRecommendationPost {
+  idempotencyKey: string | undefined;
+  payload: Record<string, unknown>;
+}
+
 test("built production Side Panel completes, replays, and restores the reviewed workflow", async () => {
   const staged = await stageExtension();
   const profile = await mkdtemp(join(tmpdir(), "naver-blog-assistant-profile-"));
@@ -64,6 +69,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     const panel = await context.newPage();
     await panel.goto(`${extensionOrigin}/sidepanel.html`);
     const apiRequests: string[] = [];
+    const recommendationPosts: CapturedRecommendationPost[] = [];
     const apiResponses: Response[] = [];
     const browserMessages: string[] = [];
     const failedRequests: string[] = [];
@@ -71,6 +77,15 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     panel.on("request", (request) => {
       if (request.url().startsWith(apiOrigin)) {
         apiRequests.push(`${request.method()} ${new URL(request.url()).pathname}`);
+        if (
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === "/api/v1/recommendations"
+        ) {
+          recommendationPosts.push({
+            idempotencyKey: request.headers()["idempotency-key"],
+            payload: request.postDataJSON() as Record<string, unknown>,
+          });
+        }
       }
     });
     panel.on("response", (response) => {
@@ -102,6 +117,9 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expectPreviewState(panel);
     await expect(panel.locator("#post-title")).toHaveText("합성 전시 후기");
     await expect(panel.locator("#body-preview")).toContainText("관람 동선");
+    await panel.locator('input[name="relationship"][value="close"]').check();
+    await panel.locator('input[name="speech-style"][value="banmal"]').check();
+    await panel.locator('input[name="comment-length"][value="long"]').check();
 
     let activeRegistry: Record<string, unknown> | null = null;
     await panel.route(`${apiOrigin}/api/v1/recommendations`, async (route) => {
@@ -113,12 +131,32 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await panel.locator("#generate-button").click();
     await expectReviewState(panel, apiRequests, failedRequests);
     expect(latestRecommendationPost(apiResponses)?.status()).toBe(201);
+    expect(recommendationPosts[0]).toMatchObject({
+      payload: {
+        comment_length: "long",
+        relationship_level: "close",
+        speech_style: "banmal",
+      },
+    });
+    expect(recommendationPosts[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/iu);
+    await expect(panel.locator("#generated-relationship")).toHaveText("가까운 사이");
+    await expect(panel.locator("#generated-speech-style")).toHaveText("반말");
+    await expect(panel.locator("#generated-comment-length")).toHaveText("길게");
     await expect(panel.locator("#candidate-list input")).toHaveCount(3);
+    for (const comment of await panel.locator(".candidate > span > span").allTextContents()) {
+      expect(Array.from(comment).length).toBeGreaterThanOrEqual(90);
+      expect(Array.from(comment).length).toBeLessThanOrEqual(150);
+    }
     expect(activeRegistry).not.toBeNull();
 
     await writeExtensionStorage(panel, activeRegistry ?? {});
     await panel.reload();
     await expect(panel.locator("#preview-panel")).toBeVisible();
+    await expect(panel.locator('input[name="comment-length"][value="long"]')).toBeChecked();
+    await expect(panel.locator('input[name="relationship"][value="friendly"]')).toBeChecked();
+    await expect(panel.locator('input[name="speech-style"][value="honorific"]')).toBeChecked();
+    await panel.locator('input[name="relationship"][value="close"]').check();
+    await panel.locator('input[name="speech-style"][value="banmal"]').check();
     await panel.locator("#generate-button").click();
     await expectReviewState(panel, apiRequests, failedRequests);
     const replayResponse = latestRecommendationPost(apiResponses);
@@ -128,7 +166,39 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     }
     expect(replayResponse.status()).toBe(200);
     expect(replayResponse.headers()["idempotency-replayed"]).toBe("true");
+    expect(recommendationPosts[1]?.payload).toEqual(recommendationPosts[0]?.payload);
+    expect(recommendationPosts[1]?.idempotencyKey).toBe(recommendationPosts[0]?.idempotencyKey);
     await expect(panel.locator("#review-panel")).toBeVisible();
+
+    const replayedId = await recommendationId(replayResponse);
+    const postCountBeforeRegeneration = recommendationPosts.length;
+    panel.once("dialog", (dialog) => dialog.accept());
+    await panel.locator("#regenerate-button").click();
+    await expectPreviewState(panel);
+    expect(recommendationPosts).toHaveLength(postCountBeforeRegeneration);
+    await panel.locator("#generate-button").click();
+    await expectReviewState(panel, apiRequests, failedRequests);
+    const regenerationResponse = latestRecommendationPost(apiResponses);
+    expect(regenerationResponse?.status()).toBe(201);
+    expect(recommendationPosts[2]?.payload).toEqual(recommendationPosts[0]?.payload);
+    expect(recommendationPosts[2]?.idempotencyKey).not.toBe(recommendationPosts[0]?.idempotencyKey);
+    expect(await recommendationId(regenerationResponse)).not.toBe(replayedId);
+
+    panel.once("dialog", (dialog) => dialog.accept());
+    await panel.locator("#regenerate-button").click();
+    await expectPreviewState(panel);
+    await panel.locator('input[name="comment-length"][value="short"]').check();
+    await panel.locator("#generate-button").click();
+    await expectReviewState(panel, apiRequests, failedRequests);
+    expect(latestRecommendationPost(apiResponses)?.status()).toBe(201);
+    expect(recommendationPosts[3]).toMatchObject({
+      payload: {
+        comment_length: "short",
+        relationship_level: "close",
+        speech_style: "banmal",
+      },
+    });
+    expect(recommendationPosts[3]?.idempotencyKey).not.toBe(recommendationPosts[2]?.idempotencyKey);
 
     const candidate = panel.locator('#candidate-list input[name="candidate"]').nth(1);
     await candidate.check();
@@ -144,7 +214,10 @@ test("built production Side Panel completes, replays, and restores the reviewed 
 
     await panel.locator("#complete-button").click();
     await expect(panel.locator("#review-status")).toHaveText("수동 workflow 완료");
-    const stored = JSON.stringify(await readExtensionStorage(panel));
+    const storedValue = await readExtensionStorage(panel);
+    expect(storedValue.commentLengthPreferenceV1).toEqual({ length: "short", schemaVersion: 1 });
+    const stored = JSON.stringify(storedValue);
+    expect(stored).not.toMatch(/relationship|speech|banmal|honorific|close|friendly|polite|new/u);
     expect(stored).not.toContain("빛과 그림자");
     expect(stored).not.toContain("합성 전시 후기");
     expect(stored).not.toContain(syntheticPostUrl);
@@ -153,6 +226,8 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     const postCountBeforeRestore = countRequests(apiRequests, "POST");
     await panel.reload();
     await expect(panel.locator("#preview-panel")).toBeVisible();
+    await panel.locator('input[name="relationship"][value="close"]').check();
+    await panel.locator('input[name="speech-style"][value="banmal"]').check();
     const restoreGet = panel.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
@@ -190,6 +265,13 @@ async function stageExtension(): Promise<StagedExtension> {
     directory,
     dispose: () => rm(directory, { force: true, recursive: true }),
   };
+}
+
+async function recommendationId(response: Response | undefined): Promise<string> {
+  if (response === undefined) throw new Error("Recommendation response is unavailable");
+  const body = (await response.json()) as { id?: unknown };
+  if (typeof body.id !== "string") throw new Error("Recommendation response ID is unavailable");
+  return body.id;
 }
 
 async function triggerExtensionAction(
