@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,22 +179,13 @@ async function stageExtension(): Promise<StagedExtension> {
     "utf8",
   );
   const productionManifest = JSON.parse(productionManifestText) as Record<string, unknown>;
-  const testManifest: Record<string, unknown> = {
-    ...productionManifest,
-    background: { service_worker: "e2e-background.js", type: "module" },
-  };
-  expect(testManifest.permissions).toEqual(productionManifest.permissions);
-  expect(testManifest.host_permissions).toEqual(productionManifest.host_permissions);
-  await writeFile(
-    resolve(directory, "e2e-background.js"),
-    "chrome.action.onClicked.addListener(() => undefined);\n",
-    "utf8",
-  );
-  await writeFile(
-    resolve(directory, "manifest.json"),
-    `${JSON.stringify(testManifest, null, 2)}\n`,
-    "utf8",
-  );
+  expect(productionManifest.permissions).toEqual([
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "storage",
+  ]);
+  expect(productionManifest.host_permissions).toEqual(["http://127.0.0.1:8765/*"]);
   return {
     directory,
     dispose: () => rm(directory, { force: true, recursive: true }),

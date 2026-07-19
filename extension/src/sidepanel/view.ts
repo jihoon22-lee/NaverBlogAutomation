@@ -5,7 +5,7 @@ import type { PanelActions, PanelState, PanelView, ReviewPresentation } from "./
 const FAILURE_MESSAGES: Record<CaptureFailureCode, string> = {
   empty_article: "본문 영역을 찾지 못했습니다. 페이지 로딩을 확인한 뒤 다시 시도해 주세요.",
   extraction_failed: "페이지 구조가 예상과 달라 본문을 확인하지 못했습니다.",
-  no_active_tab: "현재 활성화된 탭을 찾지 못했습니다.",
+  no_active_tab: "네이버 글 탭을 활성화한 뒤 확장 프로그램 toolbar 아이콘을 다시 클릭해 주세요.",
   permission_denied:
     "이 페이지를 읽을 권한이 없습니다. 네이버 블로그 탭에서 확장 아이콘을 다시 눌러 주세요.",
   short_article: "추출된 본문이 너무 짧습니다. 글이 완전히 로드되었는지 확인해 주세요.",
