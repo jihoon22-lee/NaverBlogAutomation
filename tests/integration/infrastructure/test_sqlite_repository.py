@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -23,14 +24,19 @@ from naver_blog_assistant.application import (
     ReplayedGenerationFailure,
 )
 from naver_blog_assistant.domain import (
+    DEFAULT_GENERATION_PREFERENCES,
     CandidateTone,
     CapturedPost,
     CommentCandidate,
+    CommentLength,
     GeneratedComment,
     GenerationOutput,
+    GenerationPreferences,
     Recommendation,
+    Relationship,
     ReviewPatch,
     ReviewStatus,
+    SpeechStyle,
 )
 from naver_blog_assistant.infrastructure.database import (
     SqliteRepository,
@@ -141,6 +147,7 @@ def recommendation() -> Recommendation:
         ),
         review_status=ReviewStatus.DRAFTED,
         created_at=NOW,
+        preferences=DEFAULT_GENERATION_PREFERENCES,
     )
 
 
@@ -268,7 +275,7 @@ def test_populated_v1_to_v2_preserves_all_idempotency_states(tmp_path: Path) -> 
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260717_0002")
     engine = create_sqlite_engine(database_url)
     repository = SqliteRepository(engine, clock=lambda: NOW)
     assert repository.reserve(reserved_key, REQUEST_HASH).outcome is IdempotencyOutcome.IN_PROGRESS
@@ -293,6 +300,184 @@ def test_populated_v1_to_v2_preserves_all_idempotency_states(tmp_path: Path) -> 
     engine.dispose()
 
 
+def test_populated_v2_to_v3_backfills_preferences_and_replays_legacy_snapshot(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'populated-v2.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "20260717_0002")
+    item = recommendation()
+    legacy_snapshot = json.loads(serialize_snapshot(item))
+    del legacy_snapshot["generation_preferences"]
+    selected_id = item.candidates[1].id
+    engine = create_sqlite_engine(database_url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO recommendations "
+            "(id, source_url, title, content_hash, excerpt, summary, topics_json, "
+            "review_status, selected_candidate_id, edited_comment, created_at, "
+            "updated_at, version) VALUES "
+            "(:id, :source_url, :title, :content_hash, :excerpt, :summary, :topics_json, "
+            "'drafted', NULL, NULL, :created_at, NULL, 0)",
+            {
+                "id": str(item.id),
+                "source_url": item.source_url,
+                "title": item.title,
+                "content_hash": item.content_hash,
+                "excerpt": item.excerpt,
+                "summary": item.summary,
+                "topics_json": json.dumps(item.topics, ensure_ascii=False),
+                "created_at": item.created_at.isoformat().replace("+00:00", "Z"),
+            },
+        )
+        for position, candidate in enumerate(item.candidates):
+            connection.exec_driver_sql(
+                "INSERT INTO comment_candidates "
+                "(id, recommendation_id, position, tone, comment, referenced_detail) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(candidate.id),
+                    str(item.id),
+                    position,
+                    candidate.tone.value,
+                    candidate.comment,
+                    candidate.referenced_detail,
+                ),
+            )
+        connection.exec_driver_sql(
+            "UPDATE recommendations SET review_status = 'approved', "
+            "selected_candidate_id = ?, updated_at = ?, version = 1 WHERE id = ?",
+            (
+                str(selected_id),
+                NOW.isoformat().replace("+00:00", "Z"),
+                str(item.id),
+            ),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO idempotency_records "
+            "(key, request_hash, attempt_id, state, started_at, generation_started_at, "
+            "completed_at, recommendation_id, response_snapshot, failure_snapshot) VALUES "
+            "(:key, :request_hash, :attempt_id, 'completed', :at, :at, :at, "
+            ":recommendation_id, :snapshot, NULL)",
+            {
+                "key": str(KEY),
+                "request_hash": REQUEST_HASH,
+                "attempt_id": str(UUID(int=991)),
+                "at": NOW.isoformat().replace("+00:00", "Z"),
+                "recommendation_id": str(item.id),
+                "snapshot": json.dumps(legacy_snapshot, ensure_ascii=False),
+            },
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = create_sqlite_engine(database_url)
+    preference_column = next(
+        column
+        for column in inspect(engine).get_columns("recommendations")
+        if column["name"] == "generation_preferences_json"
+    )
+    assert preference_column["nullable"] is False
+    assert preference_column["default"] is not None
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    canonical = repository.get(item.id)
+    assert canonical is not None
+    assert canonical.preferences is DEFAULT_GENERATION_PREFERENCES
+    assert canonical.review_status is ReviewStatus.APPROVED
+    assert canonical.selected_candidate_id == selected_id
+    assert canonical.version == 1
+    replay = repository.reserve(KEY, REQUEST_HASH)
+    assert replay.outcome is IdempotencyOutcome.REPLAY
+    assert replay.response_snapshot is not None
+    assert replay.response_snapshot.preferences is DEFAULT_GENERATION_PREFERENCES
+    assert replay.response_snapshot.review_status is ReviewStatus.DRAFTED
+    engine.dispose()
+
+
+def test_default_preferences_survive_v3_downgrade_and_reupgrade(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'default-preferences-downgrade.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    item = complete_generation(repository)
+    reviewed = repository.update(
+        item.apply_review(
+            ReviewPatch(selected_candidate_index=0, review_status=ReviewStatus.APPROVED),
+            reviewed_at=NOW + timedelta(minutes=1),
+        )
+    )
+    engine.dispose()
+
+    command.downgrade(config, "-1")
+    engine = create_sqlite_engine(database_url)
+    assert "generation_preferences_json" not in {
+        column["name"] for column in inspect(engine).get_columns("recommendations")
+    }
+    with engine.connect() as connection:
+        row = (
+            connection.exec_driver_sql(
+                "SELECT review_status, selected_candidate_id, version FROM recommendations"
+            )
+            .mappings()
+            .one()
+        )
+        assert (
+            connection.exec_driver_sql("SELECT count(*) FROM comment_candidates").scalar_one() == 3
+        )
+    assert row == {
+        "review_status": "approved",
+        "selected_candidate_id": str(reviewed.selected_candidate_id),
+        "version": 1,
+    }
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    restarted = SqliteRepository(engine, clock=lambda: NOW)
+    restored = restarted.get(item.id)
+    assert restored is not None
+    assert restored.preferences is DEFAULT_GENERATION_PREFERENCES
+    replay = restarted.reserve(KEY, REQUEST_HASH)
+    assert replay.response_snapshot is not None
+    assert replay.response_snapshot.preferences is DEFAULT_GENERATION_PREFERENCES
+    engine.dispose()
+
+
+def test_v3_downgrade_refuses_non_default_preference_provenance(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'non-default-preferences.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    preferences = GenerationPreferences(
+        relationship=Relationship.CLOSE,
+        speech=SpeechStyle.BANMAL,
+        length=CommentLength.LONG,
+    )
+    item = replace(recommendation(), preferences=preferences)
+    reservation = repository.reserve(KEY, REQUEST_HASH)
+    assert reservation.attempt_id is not None
+    repository.mark_generation_started(KEY, reservation.attempt_id)
+    repository.commit_generation(KEY, reservation.attempt_id, recommendation=item)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="non-default generation preferences"):
+        command.downgrade(config, "-1")
+
+    engine = create_sqlite_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
+            == "20260719_0003"
+        )
+    persisted = SqliteRepository(engine, clock=lambda: NOW).get(item.id)
+    assert persisted is not None
+    assert persisted.preferences == preferences
+    engine.dispose()
+
+
 def test_downgrade_refuses_to_delete_failure_fences(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'failure-fence.db'}"
     config = alembic_config(database_url)
@@ -311,7 +496,7 @@ def test_downgrade_refuses_to_delete_failure_fences(tmp_path: Path) -> None:
     engine.dispose()
 
     with pytest.raises(RuntimeError, match="cannot downgrade"):
-        command.downgrade(config, "-1")
+        command.downgrade(config, "20260716_0001")
 
     engine = create_sqlite_engine(database_url)
     with engine.connect() as connection:
@@ -688,6 +873,15 @@ def test_update_rejects_generated_content_replacement(
 
     with pytest.raises(ValueError, match="immutable"):
         repository.update(replace(item, summary="바뀐 생성 요약"))
+
+    changed_preferences = GenerationPreferences(
+        relationship=Relationship.NEW,
+        speech=SpeechStyle.HONORIFIC,
+        length=CommentLength.SHORT,
+    )
+    with pytest.raises(ValueError, match="immutable"):
+        repository.update(replace(item, preferences=changed_preferences))
+    assert repository.get(item.id) == item
 
 
 def test_stale_review_cannot_overwrite_or_regress_newer_state(

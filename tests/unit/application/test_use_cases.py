@@ -19,6 +19,7 @@ from naver_blog_assistant.application import (
     ReviewRecommendation,
 )
 from naver_blog_assistant.domain import (
+    DEFAULT_GENERATION_PREFERENCES,
     CandidateTone,
     CapturedPost,
     GeneratedComment,
@@ -209,6 +210,7 @@ def test_generate_creates_three_tones_and_persists_no_full_body() -> None:
 
     assert not result.replayed
     assert result.recommendation.review_status is ReviewStatus.DRAFTED
+    assert result.recommendation.preferences is DEFAULT_GENERATION_PREFERENCES
     assert {candidate.tone for candidate in result.recommendation.candidates} == set(CandidateTone)
     assert result.recommendation.content_hash == post.content_hash
     assert result.recommendation.excerpt == post.excerpt

@@ -1,6 +1,6 @@
 """Tests for framework-independent domain invariants."""
 
-from dataclasses import fields
+from dataclasses import MISSING, FrozenInstanceError, fields
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
@@ -9,15 +9,20 @@ import pytest
 
 from naver_blog_assistant.api.models import CreateRecommendationRequest
 from naver_blog_assistant.domain import (
+    DEFAULT_GENERATION_PREFERENCES,
     CandidateSelectionError,
     CandidateTone,
     CapturedPost,
     CommentCandidate,
+    CommentLength,
     DomainValidationError,
+    GenerationPreferences,
     Recommendation,
+    Relationship,
     ReviewPatch,
     ReviewStatus,
     ReviewTransitionError,
+    SpeechStyle,
 )
 
 POST_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -49,6 +54,7 @@ def make_recommendation(**changes: object) -> Recommendation:
         "candidates": make_candidates(),
         "review_status": ReviewStatus.DRAFTED,
         "created_at": NOW,
+        "preferences": DEFAULT_GENERATION_PREFERENCES,
     }
     values.update(changes)
     return Recommendation(**cast(Any, values))
@@ -127,6 +133,84 @@ def test_recommendation_has_no_body_field() -> None:
     assert "body" not in {model_field.name for model_field in fields(Recommendation)}
 
 
+def test_generation_preferences_have_one_named_legacy_default() -> None:
+    assert (
+        GenerationPreferences(
+            relationship=Relationship.FRIENDLY,
+            speech=SpeechStyle.HONORIFIC,
+            length=CommentLength.MEDIUM,
+        )
+        == DEFAULT_GENERATION_PREFERENCES
+    )
+    preference_field = next(
+        model_field for model_field in fields(Recommendation) if model_field.name == "preferences"
+    )
+    assert preference_field.default is MISSING
+    assert preference_field.default_factory is MISSING
+
+
+def test_generation_preferences_are_immutable() -> None:
+    attribute = "length"
+    with pytest.raises(FrozenInstanceError):
+        setattr(DEFAULT_GENERATION_PREFERENCES, attribute, CommentLength.LONG)
+
+
+@pytest.mark.parametrize(
+    ("relationship", "speech"),
+    [
+        (Relationship.NEW, SpeechStyle.HONORIFIC),
+        (Relationship.POLITE, SpeechStyle.HONORIFIC),
+        (Relationship.FRIENDLY, SpeechStyle.HONORIFIC),
+        (Relationship.CLOSE, SpeechStyle.HONORIFIC),
+        (Relationship.CLOSE, SpeechStyle.BANMAL),
+    ],
+)
+def test_generation_preferences_accept_supported_combinations(
+    relationship: Relationship, speech: SpeechStyle
+) -> None:
+    assert (
+        GenerationPreferences(
+            relationship=relationship,
+            speech=speech,
+            length=CommentLength.SHORT,
+        ).relationship
+        is relationship
+    )
+
+
+@pytest.mark.parametrize("relationship", list(Relationship)[:-1])
+def test_generation_preferences_allow_banmal_only_for_close(
+    relationship: Relationship,
+) -> None:
+    with pytest.raises(DomainValidationError, match="banmal"):
+        GenerationPreferences(
+            relationship=relationship,
+            speech=SpeechStyle.BANMAL,
+            length=CommentLength.MEDIUM,
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"relationship": "friendly"}, "relationship"),
+        ({"speech": "honorific"}, "speech"),
+        ({"length": "medium"}, "length"),
+    ],
+)
+def test_generation_preferences_reject_raw_or_unknown_enum_values(
+    changes: dict[str, object], message: str
+) -> None:
+    values: dict[str, object] = {
+        "relationship": Relationship.FRIENDLY,
+        "speech": SpeechStyle.HONORIFIC,
+        "length": CommentLength.MEDIUM,
+    }
+    values.update(changes)
+    with pytest.raises(DomainValidationError, match=message):
+        GenerationPreferences(**cast(Any, values))
+
+
 def test_recommendation_version_starts_at_zero_and_cannot_be_negative() -> None:
     assert make_recommendation().version == 0
     with pytest.raises(DomainValidationError, match="version"):
@@ -192,6 +276,7 @@ def test_recommendation_rejects_duplicate_candidate_ids() -> None:
         ({"topics": ()}, "between one and five"),
         ({"topics": ("중복", "중복")}, "unique"),
         ({"topics": ("가" * 81,)}, "maximum"),
+        ({"preferences": {}}, "preferences"),
         ({"created_at": datetime(2026, 7, 16)}, "timezone-aware"),
         ({"updated_at": datetime(2026, 7, 16)}, "timezone-aware"),
     ],

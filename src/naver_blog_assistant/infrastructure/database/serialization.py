@@ -9,11 +9,61 @@ from typing import Any
 from uuid import UUID
 
 from naver_blog_assistant.domain import (
+    DEFAULT_GENERATION_PREFERENCES,
     CandidateTone,
     CommentCandidate,
+    CommentLength,
+    GenerationPreferences,
     Recommendation,
+    Relationship,
     ReviewStatus,
+    SpeechStyle,
 )
+
+
+def serialize_generation_preferences(preferences: GenerationPreferences) -> str:
+    """Serialize generation provenance in one canonical JSON representation."""
+    return json.dumps(
+        {
+            "relationship": preferences.relationship.value,
+            "speech": preferences.speech.value,
+            "length": preferences.length.value,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+DEFAULT_GENERATION_PREFERENCES_JSON = serialize_generation_preferences(
+    DEFAULT_GENERATION_PREFERENCES
+)
+
+
+def deserialize_generation_preferences(value: str) -> GenerationPreferences:
+    """Restore and validate generation provenance from canonical JSON."""
+    data: Any = json.loads(value)
+    if not isinstance(data, dict):
+        raise ValueError("generation preferences must be an object")
+    try:
+        relationship = data["relationship"]
+        speech = data["speech"]
+        length = data["length"]
+    except KeyError as error:
+        raise ValueError("generation preferences are incomplete") from error
+    if set(data) != {"relationship", "speech", "length"}:
+        raise ValueError("generation preferences contain unknown fields")
+    try:
+        preferences = GenerationPreferences(
+            relationship=Relationship(relationship),
+            speech=SpeechStyle(speech),
+            length=CommentLength(length),
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("generation preferences are invalid") from error
+    if preferences == DEFAULT_GENERATION_PREFERENCES:
+        return DEFAULT_GENERATION_PREFERENCES
+    return preferences
 
 
 def format_timestamp(value: datetime) -> str:
@@ -62,6 +112,9 @@ def serialize_snapshot(recommendation: Recommendation) -> str:
         ],
         "review_status": recommendation.review_status.value,
         "created_at": format_timestamp(recommendation.created_at),
+        "generation_preferences": json.loads(
+            serialize_generation_preferences(recommendation.preferences)
+        ),
         "selected_candidate_id": (
             str(recommendation.selected_candidate_id)
             if recommendation.selected_candidate_id is not None
@@ -93,6 +146,17 @@ def _recommendation_from_mapping(data: Mapping[str, Any]) -> Recommendation:
         raise ValueError("snapshot candidates must be a list")
     if not isinstance(topics_data, Sequence) or isinstance(topics_data, str):
         raise ValueError("snapshot topics must be a list")
+    if "generation_preferences" in data:
+        preferences = deserialize_generation_preferences(
+            json.dumps(
+                data["generation_preferences"],
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+    else:
+        preferences = DEFAULT_GENERATION_PREFERENCES
     return Recommendation(
         id=UUID(str(data["id"])),
         source_url=str(data["source_url"]),
@@ -112,6 +176,7 @@ def _recommendation_from_mapping(data: Mapping[str, Any]) -> Recommendation:
         ),
         review_status=ReviewStatus(str(data["review_status"])),
         created_at=parse_timestamp(str(data["created_at"])),
+        preferences=preferences,
         selected_candidate_id=(
             UUID(str(data["selected_candidate_id"]))
             if data.get("selected_candidate_id") is not None

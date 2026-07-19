@@ -24,10 +24,12 @@ from naver_blog_assistant.infrastructure.database.schema import (
     recommendations,
 )
 from naver_blog_assistant.infrastructure.database.serialization import (
+    deserialize_generation_preferences,
     deserialize_snapshot,
     deserialize_topics,
     format_timestamp,
     parse_timestamp,
+    serialize_generation_preferences,
     serialize_snapshot,
     serialize_topics,
 )
@@ -405,6 +407,7 @@ def _recommendation_values(recommendation: Recommendation) -> dict[str, Any]:
             else None
         ),
         "version": recommendation.version,
+        "generation_preferences_json": serialize_generation_preferences(recommendation.preferences),
     }
 
 
@@ -431,6 +434,7 @@ def _map_recommendation(
         ),
         review_status=ReviewStatus(row["review_status"]),
         created_at=parse_timestamp(row["created_at"]),
+        preferences=deserialize_generation_preferences(row["generation_preferences_json"]),
         selected_candidate_id=(
             UUID(row["selected_candidate_id"]) if row["selected_candidate_id"] is not None else None
         ),
@@ -451,4 +455,5 @@ def _generated_fields(recommendation: Recommendation) -> tuple[Any, ...]:
         recommendation.topics,
         recommendation.candidates,
         recommendation.created_at,
+        recommendation.preferences,
     )

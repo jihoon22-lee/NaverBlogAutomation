@@ -43,6 +43,56 @@ class ReviewStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class Relationship(StrEnum):
+    """Writer relationship used to calibrate a generated comment."""
+
+    NEW = "new"
+    POLITE = "polite"
+    FRIENDLY = "friendly"
+    CLOSE = "close"
+
+
+class SpeechStyle(StrEnum):
+    """Requested Korean speech level for a generated comment."""
+
+    HONORIFIC = "honorific"
+    BANMAL = "banmal"
+
+
+class CommentLength(StrEnum):
+    """Requested relative length of a generated comment."""
+
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationPreferences:
+    """Immutable generation provenance attached to a recommendation."""
+
+    relationship: Relationship
+    speech: SpeechStyle
+    length: CommentLength
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.relationship, Relationship):
+            raise DomainValidationError("relationship must be a Relationship")
+        if not isinstance(self.speech, SpeechStyle):
+            raise DomainValidationError("speech must be a SpeechStyle")
+        if not isinstance(self.length, CommentLength):
+            raise DomainValidationError("length must be a CommentLength")
+        if self.speech is SpeechStyle.BANMAL and self.relationship is not Relationship.CLOSE:
+            raise DomainValidationError("banmal is allowed only for a close relationship")
+
+
+DEFAULT_GENERATION_PREFERENCES: Final = GenerationPreferences(
+    relationship=Relationship.FRIENDLY,
+    speech=SpeechStyle.HONORIFIC,
+    length=CommentLength.MEDIUM,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class CapturedPost:
     """Article content held only for the duration of generation."""
@@ -177,6 +227,7 @@ class Recommendation:
     candidates: tuple[CommentCandidate, ...]
     review_status: ReviewStatus
     created_at: datetime
+    preferences: GenerationPreferences
     selected_candidate_id: UUID | None = None
     edited_comment: str | None = None
     updated_at: datetime | None = None
@@ -216,6 +267,8 @@ class Recommendation:
             raise CandidateSelectionError("selected candidate does not belong to recommendation")
         if self.edited_comment is not None:
             _require_bounded_text("edited_comment", self.edited_comment, MAX_COMMENT_LENGTH)
+        if not isinstance(self.preferences, GenerationPreferences):
+            raise DomainValidationError("preferences must be GenerationPreferences")
         if self.created_at.tzinfo is None:
             raise DomainValidationError("created_at must be timezone-aware")
         if self.updated_at is not None and self.updated_at.tzinfo is None:

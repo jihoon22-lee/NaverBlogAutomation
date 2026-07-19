@@ -18,6 +18,7 @@ from naver_blog_assistant.application.errors import (
     ReplayedGenerationFailure,
 )
 from naver_blog_assistant.domain import (
+    DEFAULT_GENERATION_PREFERENCES,
     CapturedPost,
     CommentCandidate,
     DomainValidationError,
@@ -127,6 +128,7 @@ class GenerateRecommendation:
                 ),
                 review_status=ReviewStatus.DRAFTED,
                 created_at=self._clock(),
+                preferences=DEFAULT_GENERATION_PREFERENCES,
             )
         except DomainValidationError as error:
             self._commit_failure(idempotency_key, attempt_id, _INVALID)

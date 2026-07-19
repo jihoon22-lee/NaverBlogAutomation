@@ -13,6 +13,10 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
+from naver_blog_assistant.infrastructure.database.serialization import (
+    DEFAULT_GENERATION_PREFERENCES_JSON,
+)
+
 metadata = MetaData()
 
 recommendations = Table(
@@ -31,6 +35,12 @@ recommendations = Table(
     Column("created_at", String(32), nullable=False),
     Column("updated_at", String(32), nullable=True),
     Column("version", Integer, nullable=False),
+    Column(
+        "generation_preferences_json",
+        Text,
+        nullable=False,
+        server_default=DEFAULT_GENERATION_PREFERENCES_JSON,
+    ),
     CheckConstraint(
         "review_status IN ('drafted', 'approved', 'completed')",
         name="ck_recommendations_review_status",
