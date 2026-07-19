@@ -12,7 +12,7 @@ import yaml
 from naver_blog_assistant.api import ApiSettings, create_app
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_MIGRATION_HEAD = "20260717_0002"
+EXPECTED_MIGRATION_HEAD = "20260719_0003"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
