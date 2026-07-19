@@ -44,6 +44,29 @@
           <summary>추출된 본문 미리보기</summary>
           <p id="body-preview" class="body-preview"></p>
         </details>
+        <section class="preference-section" aria-labelledby="preferences-title">
+          <h3 id="preferences-title">댓글 생성 옵션</h3>
+          <fieldset id="relationship-options" class="preference-options">
+            <legend>서로의 관계</legend>
+            <label class="option"><input type="radio" name="relationship" value="new" /> 처음 교류</label>
+            <label class="option"><input type="radio" name="relationship" value="polite" /> 예의를 갖춘 사이</label>
+            <label class="option"><input type="radio" name="relationship" value="friendly" /> 편한 이웃</label>
+            <label class="option"><input type="radio" name="relationship" value="close" /> 가까운 사이</label>
+          </fieldset>
+          <fieldset id="speech-style-options" class="preference-options">
+            <legend>말투</legend>
+            <label class="option"><input type="radio" name="speech-style" value="honorific" /> 존댓말</label>
+            <label class="option"><input type="radio" name="speech-style" value="banmal" aria-describedby="banmal-help" /> 반말</label>
+          </fieldset>
+          <p id="banmal-help" class="help">반말은 ‘가까운 사이’를 선택했을 때만 사용할 수 있습니다.</p>
+          <fieldset id="comment-length-options" class="preference-options">
+            <legend>댓글 길이</legend>
+            <label class="option"><input type="radio" name="comment-length" value="short" /> 짧게</label>
+            <label class="option"><input type="radio" name="comment-length" value="medium" /> 보통</label>
+            <label class="option"><input type="radio" name="comment-length" value="long" /> 길게</label>
+          </fieldset>
+          <p id="preference-notice" class="notice" role="status" aria-live="polite" hidden></p>
+        </section>
         <p class="privacy-note">
           전체 본문은 browser storage에 저장되지 않습니다. 추천 요청은 아래 버튼을 누른 뒤에만
           시작됩니다.
@@ -55,6 +78,11 @@
         <h2 id="result-title" tabindex="-1">추천 댓글 검토</h2>
         <p id="review-status" class="badge"></p>
         <p id="review-notice" class="notice" role="status" aria-live="polite" hidden></p>
+        <dl class="metadata generated-preferences" aria-label="생성에 적용된 옵션">
+          <div><dt>관계</dt><dd id="generated-relationship"></dd></div>
+          <div><dt>말투</dt><dd id="generated-speech-style"></dd></div>
+          <div><dt>길이</dt><dd id="generated-comment-length"></dd></div>
+        </dl>
         <h3>글 요약</h3>
         <p id="summary"></p>
         <ul id="topics" class="topics" aria-label="주요 주제"></ul>
@@ -68,6 +96,7 @@
           <button id="approve-button" class="primary" type="button">선택한 댓글 승인</button>
           <button id="copy-button" class="secondary" type="button">승인한 댓글 복사</button>
           <button id="complete-button" class="primary" type="button">수동 등록 완료로 표시</button>
+          <button id="regenerate-button" class="secondary" type="button">옵션을 바꿔 다시 생성</button>
         </div>
         <p class="privacy-note">복사와 완료 표시는 댓글을 자동으로 등록하지 않습니다.</p>
       </section>

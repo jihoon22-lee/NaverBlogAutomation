@@ -27,8 +27,10 @@ SQLite `data/naver_blog_assistant.db`에는 source URL, title, bounded excerpt, 
 candidate, edited comment, review state와 idempotency/failure metadata가 명시적 cleanup 전까지
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
-Extension의 trusted `chrome.storage.local`에는 digest, opaque id, state와 timestamp만 최대 20개
-저장됩니다. Completed, released, dismissed entry는 60분 후 만료됩니다. Active,
+Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
+최대 20개 저장하고, 별도 versioned record에는 댓글 길이(`short`, `medium`, `long`)만 저장합니다.
+본문, URL, 관계와 말투는 저장하지 않습니다. Completed, released, dismissed entry는 60분 후
+만료됩니다. Active,
 terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해 자동 삭제되지
 않습니다. Registry가 invalid 또는 full이면 Side Panel이 확인 dialog와 함께 cleanup action을
 제공합니다. Cleanup은 retry 복구 정보를 잃게 하므로 pending 결과를 확인한 뒤 실행하세요.

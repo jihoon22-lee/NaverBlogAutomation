@@ -114,6 +114,65 @@ dd {
   line-height: 1.5;
 }
 
+legend,
+label {
+  font-weight: 700;
+}
+
+.preference-section {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid #d6dfd9;
+  border-radius: 10px;
+  background: #f8faf9;
+}
+
+.preference-section h3 {
+  margin: 0 0 8px;
+}
+
+.preference-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.preference-options legend {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.option {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #cdd8d1;
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.option:has(input:checked) {
+  border-color: #167746;
+  background: #e9f5ed;
+}
+
+.option:has(input:disabled) {
+  color: #69766f;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.generated-preferences {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f0f4f1;
+}
+
 details {
   margin: 12px 0;
 }
@@ -211,11 +270,6 @@ fieldset {
   margin: 16px 0;
   padding: 0;
   border: 0;
-}
-
-legend,
-label {
-  font-weight: 700;
 }
 
 .candidate {

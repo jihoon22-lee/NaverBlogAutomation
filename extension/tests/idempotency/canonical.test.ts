@@ -1,4 +1,8 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
+
+import type { CreateRecommendationRequest } from "../../src/api/types";
 
 import {
   CanonicalPayloadError,
@@ -8,6 +12,22 @@ import {
 } from "../../src/idempotency/canonical";
 
 describe("canonical request identity", () => {
+  it("matches every shared Python preference-aware hash vector", async () => {
+    const path = new URL(
+      "../../../tests/contract/generation-request-hash-vectors.json",
+      import.meta.url,
+    );
+    const vectors = JSON.parse(await readFile(path, "utf8")) as Array<{
+      expected_hash: string;
+      id: string;
+      request: CreateRecommendationRequest;
+    }>;
+
+    for (const vector of vectors) {
+      await expect(requestDigest(vector.request), vector.id).resolves.toBe(vector.expected_hash);
+    }
+  });
+
   it.each([
     {
       expected: "822c3c39d1f9934a7c2f54a7b2eb01eb2e9985f1f2b33c3ae9ae597f81b60603",
@@ -61,4 +81,30 @@ describe("canonical request identity", () => {
     );
     expect(() => canonicalRequestJson({ ...base, body: " 짧음 " })).toThrow(CanonicalPayloadError);
   });
+
+  it("rejects banmal outside a close relationship before hashing", async () => {
+    await expect(
+      requestDigest({
+        body: "충분한 길이의 합성 본문 내용을 여기에 작성했습니다.",
+        relationship_level: "friendly",
+        source_url: "https://blog.naver.com/example/6",
+        speech_style: "banmal",
+        title: "합성 제목",
+      }),
+    ).rejects.toBeInstanceOf(CanonicalPayloadError);
+  });
+
+  it.each(["comment_length", "relationship_level", "speech_style"] as const)(
+    "rejects explicit null for %s instead of applying a default",
+    async (field) => {
+      const payload = {
+        body: "충분한 길이의 합성 본문 내용을 여기에 작성했습니다.",
+        source_url: "https://blog.naver.com/example/7",
+        title: "합성 제목",
+        [field]: null,
+      } as unknown as CreateRecommendationRequest;
+
+      await expect(requestDigest(payload)).rejects.toBeInstanceOf(CanonicalPayloadError);
+    },
+  );
 });

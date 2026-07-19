@@ -9,7 +9,12 @@ import type {
 } from "../../src/api/types";
 import type { TabCaptureGateway, TabInvalidation } from "../../src/browser/tab-capture-gateway";
 import type { ActiveTab, FrameExecution } from "../../src/extraction/types";
-import { IdempotencyRegistry, type StorageArea } from "../../src/idempotency/registry";
+import {
+  IdempotencyRegistry,
+  type RegistryMutationLock,
+  type StorageArea,
+} from "../../src/idempotency/registry";
+import { CommentLengthPreferenceStore } from "../../src/preferences/store";
 import { SidePanelController } from "../../src/sidepanel/controller";
 import type { PanelActions, PanelState, PanelView } from "../../src/sidepanel/state";
 
@@ -96,7 +101,20 @@ class MemoryStorage implements StorageArea {
       });
       return;
     }
-    this.value = structuredClone(items);
+    this.value = { ...this.value, ...structuredClone(items) };
+  }
+}
+
+class MemoryLock implements RegistryMutationLock {
+  #pending: Promise<void> = Promise.resolve();
+
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#pending.then(operation, operation);
+    this.#pending = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }
 
@@ -195,11 +213,18 @@ function problem(
 }
 
 function setup(
-  options: { api?: Api; gateway?: Gateway; now?: () => number; wait?: () => Promise<void> } = {},
+  options: {
+    api?: Api;
+    digest?: (payload: CreateRecommendationRequest) => Promise<string>;
+    gateway?: Gateway;
+    lengthStore?: CommentLengthPreferenceStore;
+    now?: () => number;
+    wait?: () => Promise<void>;
+  } = {},
 ) {
   const order: string[] = [];
   const storage = new MemoryStorage(order);
-  const registry = new IdempotencyRegistry(storage, options.now ?? (() => 1_000));
+  const registry = new IdempotencyRegistry(storage, options.now ?? (() => 1_000), new MemoryLock());
   const api = options.api ?? new Api();
   api.create.mockImplementation(async () => {
     order.push("post");
@@ -209,7 +234,8 @@ function setup(
   const view = new View();
   const controller = new SidePanelController(gateway, view, {
     api: api.asClient(),
-    digest: vi.fn(async () => DIGEST),
+    digest: options.digest ?? vi.fn(async () => DIGEST),
+    lengthStore: options.lengthStore ?? new CommentLengthPreferenceStore(storage),
     now: options.now ?? (() => 1_000),
     registry,
     wait: options.wait ?? (async () => undefined),
@@ -231,12 +257,83 @@ describe("integrated Side Panel workflow", () => {
     await extractAndGenerate(first.view, first.controller);
     expect(first.order.indexOf("storage")).toBeLessThan(first.order.indexOf("post"));
     expect(first.api.create).toHaveBeenCalledOnce();
+    expect(first.api.create.mock.calls[0]?.[0]).toEqual({
+      body: frames[0]?.result?.body,
+      comment_length: "medium",
+      relationship_level: "friendly",
+      source_url: tab.url,
+      speech_style: "honorific",
+      title: tab.title,
+    });
     expect(JSON.stringify(first.storage.value)).not.toMatch(/본문|제목|blog\.naver|comment|body/u);
 
     const replay = setup();
     replay.api.create.mockImplementation(async () => ({ replayed: true, value: drafted }));
     await extractAndGenerate(replay.view, replay.controller);
     expect(replay.view.states.at(-1)?.kind).toBe("review");
+  });
+
+  it("sends close, banmal, and long preferences as one validated snapshot", async () => {
+    const fixture = setup();
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changeRelationship("close");
+    fixture.view.actions?.changeSpeechStyle("banmal");
+    fixture.view.actions?.changeCommentLength("long");
+    fixture.api.create.mockResolvedValue({
+      replayed: false,
+      value: {
+        ...drafted,
+        commentLength: "long",
+        relationshipLevel: "close",
+        speechStyle: "banmal",
+      },
+    });
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+
+    expect(fixture.api.create.mock.calls[0]?.[0]).toMatchObject({
+      comment_length: "long",
+      relationship_level: "close",
+      speech_style: "banmal",
+    });
+  });
+
+  it("resets banmal synchronously when the relationship is no longer close", async () => {
+    const fixture = setup();
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changeRelationship("close");
+    fixture.view.actions?.changeSpeechStyle("banmal");
+    fixture.view.actions?.changeRelationship("polite");
+
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "preview",
+      preferences: { relationshipLevel: "polite", speechStyle: "honorific" },
+    });
+  });
+
+  it("retains only persisted length when reading a new article", async () => {
+    const fixture = setup();
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changeRelationship("close");
+    fixture.view.actions?.changeSpeechStyle("banmal");
+    fixture.view.actions?.changeCommentLength("long");
+    await vi.waitFor(() =>
+      expect(fixture.storage.value.commentLengthPreferenceV1).toEqual({
+        length: "long",
+        schemaVersion: 1,
+      }),
+    );
+
+    await fixture.controller.captureActivePost();
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "preview",
+      preferences: {
+        commentLength: "long",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
+    });
+    expect(fixture.storage.value.generationRegistryV1).toBeUndefined();
   });
 
   it("disables duplicate generation synchronously", async () => {
@@ -278,6 +375,38 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.create.mock.calls[0]?.[1]).toBe(fixture.api.create.mock.calls[1]?.[1]);
   });
 
+  it("retains click-time preferences while polling", async () => {
+    let fixture: ReturnType<typeof setup>;
+    fixture = setup({
+      wait: async () => {
+        fixture.view.actions?.changeRelationship("friendly");
+        fixture.view.actions?.changeCommentLength("short");
+      },
+    });
+    const custom = {
+      ...drafted,
+      commentLength: "long" as const,
+      relationshipLevel: "close" as const,
+      speechStyle: "banmal" as const,
+    };
+    fixture.api.create
+      .mockRejectedValueOnce(problem("generation_in_progress", 409))
+      .mockResolvedValueOnce({ replayed: true, value: custom });
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changeRelationship("close");
+    fixture.view.actions?.changeSpeechStyle("banmal");
+    fixture.view.actions?.changeCommentLength("long");
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+
+    expect(fixture.api.create.mock.calls).toHaveLength(2);
+    expect(fixture.api.create.mock.calls[1]?.[0]).toMatchObject({
+      comment_length: "long",
+      relationship_level: "close",
+      speech_style: "banmal",
+    });
+  });
+
   it("reopens a known recommendation with GET and restores approved review state", async () => {
     const fixture = setup();
     const approved: Recommendation = {
@@ -314,6 +443,36 @@ describe("integrated Side Panel workflow", () => {
     expect((await fixture.registry.find(DIGEST))?.state).toBe("reviewing");
   });
 
+  it("quarantines a restored recommendation with mismatched preference provenance", async () => {
+    const fixture = setup();
+    await fixture.registry.getOrCreate(DIGEST);
+    await fixture.registry.transition(DIGEST, "reviewing", drafted.id);
+    fixture.api.get.mockResolvedValue({ ...drafted, commentLength: "long" });
+
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("error"));
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      failure: { action: "cleanup", code: "registry_invalid" },
+    });
+    expect((await fixture.registry.find(DIGEST))?.state).toBe("reviewing");
+  });
+
+  it("marks a submitted result indeterminate when preference provenance mismatches", async () => {
+    const fixture = setup();
+    fixture.api.create.mockResolvedValue({
+      replayed: false,
+      value: { ...drafted, relationshipLevel: "polite" },
+    });
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("error"));
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      failure: { action: "replace", code: "generation_indeterminate" },
+    });
+    expect((await fixture.registry.find(DIGEST))?.state).toBe("indeterminate");
+  });
+
   it("honors an over-deadline Retry-After without issuing a second POST", async () => {
     const fixture = setup();
     fixture.api.create.mockRejectedValue(problem("generation_rate_limited", 429, { retry: 61 }));
@@ -346,6 +505,79 @@ describe("integrated Side Panel workflow", () => {
     fixture.view.actions?.generate();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
     expect(fixture.api.create.mock.calls[1]?.[1]).not.toBe(firstKey);
+  });
+
+  it("returns to Preview without an API call, then regenerates with a fresh key", async () => {
+    const fixture = setup();
+    await extractAndGenerate(fixture.view, fixture.controller);
+    const firstKey = fixture.api.create.mock.calls[0]?.[1];
+    const regenerated: Recommendation = {
+      ...drafted,
+      id: "00000000-0000-4000-8000-000000000080",
+    };
+    fixture.api.create.mockResolvedValueOnce({ replayed: false, value: regenerated });
+
+    fixture.view.actions?.regenerate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
+    expect(fixture.api.create).toHaveBeenCalledTimes(1);
+    fixture.view.actions?.generate();
+    await vi.waitFor(() =>
+      expect(
+        fixture.view.states.at(-1)?.kind === "review" &&
+          "recommendation" in (fixture.view.states.at(-1) ?? {})
+          ? (fixture.view.states.at(-1) as Extract<PanelState, { kind: "review" }>).recommendation
+              .id
+          : null,
+      ).toBe(regenerated.id),
+    );
+    expect(fixture.api.create).toHaveBeenCalledTimes(2);
+    expect(fixture.api.create.mock.calls[1]?.[0]).toEqual(fixture.api.create.mock.calls[0]?.[0]);
+    expect(fixture.api.create.mock.calls[1]?.[1]).not.toBe(firstKey);
+  });
+
+  it("preserves the original registry entry when regenerated preferences change digest", async () => {
+    const otherDigest = "b".repeat(64);
+    const fixture = setup({
+      digest: vi.fn(async (payload) => (payload.comment_length === "long" ? otherDigest : DIGEST)),
+    });
+    await extractAndGenerate(fixture.view, fixture.controller);
+    fixture.api.create.mockResolvedValueOnce({
+      replayed: false,
+      value: { ...drafted, commentLength: "long", id: "00000000-0000-4000-8000-000000000081" },
+    });
+
+    fixture.view.actions?.regenerate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
+    fixture.view.actions?.changeCommentLength("long");
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+
+    expect(await fixture.registry.find(DIGEST)).toMatchObject({
+      recommendationId: drafted.id,
+      state: "reviewing",
+    });
+    expect(await fixture.registry.find(otherDigest)).toMatchObject({
+      recommendationId: "00000000-0000-4000-8000-000000000081",
+      state: "reviewing",
+    });
+  });
+
+  it("clears regeneration intent on navigation and restores without a fresh POST", async () => {
+    const fixture = setup();
+    fixture.controller.start();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    fixture.view.actions?.regenerate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
+    fixture.gateway.invalidation?.({ kind: "updated", tabId: tab.id });
+    expect(fixture.view.states.at(-1)).toEqual({ failure: { code: "stale_page" }, kind: "error" });
+
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    expect(fixture.api.create).toHaveBeenCalledOnce();
+    expect(fixture.api.get).toHaveBeenCalledWith(drafted.id, expect.any(AbortSignal));
   });
 
   it("selects, edits, approves, copies, and separately completes", async () => {
@@ -423,7 +655,6 @@ describe("integrated Side Panel workflow", () => {
     fixture.api.create.mockImplementation(
       () => new Promise<ApiResult<Recommendation>>((resolve) => (pending.resolve = resolve)),
     );
-    await fixture.controller.captureActivePost();
     fixture.controller.start();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
     fixture.view.actions?.generate();
@@ -507,5 +738,40 @@ describe("integrated Side Panel workflow", () => {
     );
     expect((await fixture.registry.find(DIGEST))?.state).toBe("indeterminate");
     pending.resolve?.({ replayed: false, value: drafted });
+  });
+
+  it("does not resume initialization after navigation while length storage is pending", async () => {
+    let resolveLoad: ((value: Record<string, unknown>) => void) | undefined;
+    const lengthStore = new CommentLengthPreferenceStore({
+      get: () => new Promise((resolve) => (resolveLoad = resolve)),
+      set: async () => undefined,
+    });
+    const fixture = setup({ lengthStore });
+    fixture.controller.start();
+    fixture.gateway.invalidation?.({ kind: "activated", tabId: 99 });
+    resolveLoad?.({});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fixture.view.states.at(-1)).toEqual({
+      failure: { code: "stale_page" },
+      kind: "error",
+    });
+  });
+
+  it("does not render or capture after disposal while length storage is pending", async () => {
+    let resolveLoad: ((value: Record<string, unknown>) => void) | undefined;
+    const lengthStore = new CommentLengthPreferenceStore({
+      get: () => new Promise((resolve) => (resolveLoad = resolve)),
+      set: async () => undefined,
+    });
+    const fixture = setup({ lengthStore });
+    fixture.controller.start();
+    fixture.controller.dispose();
+    resolveLoad?.({});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fixture.view.states).toEqual([]);
   });
 });

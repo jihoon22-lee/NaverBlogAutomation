@@ -15,6 +15,16 @@ import {
   RegistryQuarantinedError,
   type RegistryEntry,
 } from "../idempotency/registry";
+import {
+  DEFAULT_GENERATION_PREFERENCES,
+  isCommentLength,
+  isRelationshipLevel,
+  isSpeechStyle,
+  requestPreferenceFields,
+  samePreferences,
+  type GenerationPreferences,
+} from "../preferences/model";
+import { CommentLengthPreferenceStore } from "../preferences/store";
 import type { PanelView, ReviewPresentation, WorkflowFailure } from "./state";
 import {
   apiFailure,
@@ -31,17 +41,33 @@ export interface WorkflowDependencies {
   digest?: typeof requestDigest;
   now?: () => number;
   registry?: IdempotencyRegistry;
+  lengthStore?: CommentLengthPreferenceStore;
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
 class StaleOperation extends Error {}
 class PollingStopped extends Error {}
+class ResponseProvenanceMismatch extends Error {}
 type GenerationPhase = "preflight" | "restore" | "submission";
+
+interface ReplacementIntent {
+  digest: string;
+  state: "indeterminate" | "terminal_failure";
+}
+
+interface RegenerationIntent {
+  activeTabId: number | null;
+  digest: string;
+  preferences: GenerationPreferences;
+  recommendationId: string;
+  sourceUrl: string;
+}
 
 export class SidePanelController {
   readonly #api: LocalApiClient;
   readonly #digest: typeof requestDigest;
   readonly #gateway: TabCaptureGateway;
+  readonly #lengthStore: CommentLengthPreferenceStore;
   readonly #now: () => number;
   readonly #registry: IdempotencyRegistry;
   readonly #view: PanelView;
@@ -54,8 +80,11 @@ export class SidePanelController {
   #editedComment = "";
   #operation = 0;
   #preview: CapturedPostPreview | null = null;
+  #preferenceNotice: string | undefined;
+  #preferences: GenerationPreferences = { ...DEFAULT_GENERATION_PREFERENCES };
   #recommendation: Recommendation | null = null;
-  #replacementDigest: string | null = null;
+  #regenerationIntent: RegenerationIntent | null = null;
+  #replacementIntent: ReplacementIntent | null = null;
   #selectedCandidateId: string | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -65,6 +94,7 @@ export class SidePanelController {
     dependencies: WorkflowDependencies = {},
   ) {
     this.#gateway = gateway;
+    this.#lengthStore = dependencies.lengthStore ?? new CommentLengthPreferenceStore();
     this.#view = view;
     this.#api = dependencies.api ?? new LocalApiClient();
     this.#digest = dependencies.digest ?? requestDigest;
@@ -77,8 +107,12 @@ export class SidePanelController {
       cleanup: () => void this.cleanupRegistry(),
       complete: () => void this.complete(),
       copy: () => void this.copy(),
+      changeCommentLength: (value) => this.changeCommentLength(value),
+      changeRelationship: (value) => this.changeRelationship(value),
+      changeSpeechStyle: (value) => this.changeSpeechStyle(value),
       edit: (value) => this.edit(value),
       generate: () => void this.generate(),
+      regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
       retry: () => void this.captureActivePost(),
       select: (candidateId) => this.select(candidateId),
@@ -96,7 +130,7 @@ export class SidePanelController {
       }
       this.#renderFailure(captureFailure("stale_page"));
     });
-    void this.captureActivePost();
+    void this.#initialize();
   }
 
   dispose(): void {
@@ -106,6 +140,17 @@ export class SidePanelController {
   }
 
   async captureActivePost(): Promise<void> {
+    this.#replacementIntent = null;
+    this.#regenerationIntent = null;
+    this.#preferences = {
+      ...DEFAULT_GENERATION_PREFERENCES,
+      commentLength: this.#preferences.commentLength,
+    };
+    this.#preferenceNotice = undefined;
+    await this.#captureActivePost();
+  }
+
+  async #captureActivePost(): Promise<void> {
     const operation = this.#beginOperation();
     this.#view.render({ kind: "extracting" });
     try {
@@ -121,7 +166,7 @@ export class SidePanelController {
       this.#digestValue = null;
       this.#selectedCandidateId = null;
       this.#editedComment = "";
-      this.#view.render({ kind: "preview", preview: result.preview });
+      this.#renderPreview();
     } catch (error) {
       if (operation !== this.#operation || error instanceof StaleOperation) {
         return;
@@ -130,6 +175,42 @@ export class SidePanelController {
       const code = error instanceof BrowserCaptureError ? error.code : "extraction_failed";
       this.#renderFailure(captureFailure(code));
     }
+  }
+
+  changeRelationship(value: string): void {
+    if (this.#busy || this.#preview === null || !isRelationshipLevel(value)) return;
+    this.#preferences = {
+      ...this.#preferences,
+      relationshipLevel: value,
+      ...(value === "close" ? {} : { speechStyle: "honorific" }),
+    };
+    this.#renderPreview();
+  }
+
+  changeSpeechStyle(value: string): void {
+    if (
+      this.#busy ||
+      this.#preview === null ||
+      !isSpeechStyle(value) ||
+      (value === "banmal" && this.#preferences.relationshipLevel !== "close")
+    ) {
+      return;
+    }
+    this.#preferences = { ...this.#preferences, speechStyle: value };
+    this.#renderPreview();
+  }
+
+  changeCommentLength(value: string): void {
+    if (this.#busy || this.#preview === null || !isCommentLength(value)) return;
+    this.#preferences = { ...this.#preferences, commentLength: value };
+    this.#preferenceNotice = undefined;
+    this.#renderPreview();
+    void this.#lengthStore.save(value).catch(() => {
+      if (this.#preview === null || this.#preferences.commentLength !== value) return;
+      this.#preferenceNotice =
+        "댓글 길이 설정을 저장하지 못했지만, 이번 추천 요청에는 선택한 값을 적용합니다.";
+      this.#renderPreview();
+    });
   }
 
   async generate(): Promise<void> {
@@ -144,10 +225,12 @@ export class SidePanelController {
       message: "로컬 API를 확인하고 있습니다.",
     });
     let payload: CreateRecommendationRequest | null = null;
+    const preferences: GenerationPreferences = Object.freeze({ ...this.#preferences });
     let phase: GenerationPhase = "preflight";
     try {
       payload = canonicalizeRequest({
         body: this.#preview.body,
+        ...requestPreferenceFields(preferences),
         source_url: this.#preview.sourceUrl,
         title: this.#preview.title,
       });
@@ -157,18 +240,25 @@ export class SidePanelController {
       const digest = await this.#digest(payload);
       this.#assertCurrent(operation);
       this.#digestValue = digest;
+      const replacement = this.#replacementIntent;
+      const regeneration = this.#regenerationIntent;
       const entry =
-        this.#replacementDigest === digest
-          ? await this.#registry.replace(digest)
-          : await this.#registry.getOrCreate(digest);
+        replacement?.digest === digest
+          ? await this.#registry.replace(digest, replacement.state)
+          : regeneration?.digest === digest &&
+              samePreferences(regeneration.preferences, preferences)
+            ? await this.#registry.regenerateKnown(digest, regeneration.recommendationId)
+            : await this.#registry.getOrCreate(digest);
       this.#assertCurrent(operation);
-      this.#replacementDigest = null;
+      this.#replacementIntent = null;
+      this.#regenerationIntent = null;
 
       if (entry.recommendationId !== undefined) {
         phase = "restore";
         payload = null;
         const existing = await this.#api.getRecommendation(entry.recommendationId, this.#signal());
         this.#assertCurrent(operation);
+        this.#assertRecommendationPreferences(existing, preferences, true);
         await this.#registry.transition(
           digest,
           existing.reviewStatus === "completed" ? "completed" : "reviewing",
@@ -180,6 +270,7 @@ export class SidePanelController {
       }
       if (entry.state === "indeterminate" || entry.state === "terminal_failure") {
         payload = null;
+        this.#replacementIntent = { digest, state: entry.state };
         this.#renderFailure(replacementFailure(entry.state));
         return;
       }
@@ -190,9 +281,10 @@ export class SidePanelController {
         message: "추천 댓글을 만들고 있습니다. 이 작업은 자동으로 게시하지 않습니다.",
       });
       phase = "submission";
-      const result = await this.#createWithPolling(payload, digest, entry, operation);
+      const result = await this.#createWithPolling(payload, digest, entry, operation, preferences);
       payload = null;
       this.#assertCurrent(operation);
+      this.#assertRecommendationPreferences(result.value, preferences, false);
       await this.#registry.transition(digest, "reviewing", result.value.id);
       this.#assertCurrent(operation);
       this.#showRecommendation(result.value);
@@ -370,8 +462,65 @@ export class SidePanelController {
     if (this.#digestValue === null) {
       return;
     }
-    this.#replacementDigest = this.#digestValue;
-    await this.captureActivePost();
+    const existing = await this.#registry.find(this.#digestValue).catch(() => null);
+    if (
+      existing === null ||
+      (existing.state !== "indeterminate" && existing.state !== "terminal_failure")
+    ) {
+      this.#renderFailure(registryFailure());
+      return;
+    }
+    this.#replacementIntent = { digest: this.#digestValue, state: existing.state };
+    await this.#captureActivePost();
+  }
+
+  async regenerate(): Promise<void> {
+    const recommendation = this.#recommendation;
+    const digest = this.#digestValue;
+    if (this.#busy || recommendation === null || digest === null) return;
+    const preferences: GenerationPreferences = Object.freeze({
+      commentLength: recommendation.commentLength,
+      relationshipLevel: recommendation.relationshipLevel,
+      speechStyle: recommendation.speechStyle,
+    });
+    const intent: RegenerationIntent = {
+      activeTabId: this.#activeTabId,
+      digest,
+      preferences,
+      recommendationId: recommendation.id,
+      sourceUrl: recommendation.sourceUrl,
+    };
+    this.#regenerationIntent = intent;
+    const operation = this.#beginOperation();
+    this.#busy = true;
+    this.#view.render({ kind: "extracting" });
+    try {
+      const result = await this.#extract(operation);
+      this.#assertCurrent(operation);
+      if (
+        "failure" in result ||
+        result.preview.sourceUrl !== intent.sourceUrl ||
+        this.#activeTabId !== intent.activeTabId
+      ) {
+        this.#regenerationIntent = null;
+        this.#renderFailure("failure" in result ? result.failure : captureFailure("stale_page"));
+        return;
+      }
+      this.#preview = result.preview;
+      this.#recommendation = null;
+      this.#selectedCandidateId = null;
+      this.#editedComment = "";
+      this.#preferences = { ...preferences };
+      this.#preferenceNotice = undefined;
+      this.#renderPreview();
+    } catch (error) {
+      if (operation !== this.#operation || error instanceof StaleOperation) return;
+      this.#regenerationIntent = null;
+      const code = error instanceof BrowserCaptureError ? error.code : "extraction_failed";
+      this.#renderFailure(captureFailure(code));
+    } finally {
+      if (operation === this.#operation) this.#busy = false;
+    }
   }
 
   async cleanupRegistry(): Promise<void> {
@@ -400,6 +549,7 @@ export class SidePanelController {
     digest: string,
     entry: RegistryEntry,
     operation: number,
+    preferences: GenerationPreferences,
   ) {
     const deadline = this.#now() + MAX_POLL_MS;
     let payload: CreateRecommendationRequest | null = initialPayload;
@@ -435,7 +585,7 @@ export class SidePanelController {
         });
         await this.#wait(retry, this.#signal());
         this.#assertCurrent(operation);
-        payload = await this.#recaptureMatchingPayload(digest, operation);
+        payload = await this.#recaptureMatchingPayload(digest, operation, preferences);
         this.#assertCurrent(operation);
       }
     }
@@ -444,6 +594,7 @@ export class SidePanelController {
   async #recaptureMatchingPayload(
     digest: string,
     operation: number,
+    preferences: GenerationPreferences,
   ): Promise<CreateRecommendationRequest> {
     const result = await this.#extract(operation);
     this.#assertCurrent(operation);
@@ -452,6 +603,7 @@ export class SidePanelController {
     }
     const payload = canonicalizeRequest({
       body: result.preview.body,
+      ...requestPreferenceFields(preferences),
       source_url: result.preview.sourceUrl,
       title: result.preview.title,
     });
@@ -497,6 +649,26 @@ export class SidePanelController {
     phase: GenerationPhase,
   ): Promise<void> {
     this.#releaseBody();
+    if (error instanceof ResponseProvenanceMismatch) {
+      if (phase === "restore") {
+        this.#renderFailure(registryFailure());
+        return;
+      }
+      const digest = this.#digestValue;
+      if (digest !== null) {
+        try {
+          await this.#registry.transition(digest, "indeterminate");
+          this.#assertCurrent(operation);
+          this.#replacementIntent = { digest, state: "indeterminate" };
+        } catch (registryError) {
+          if (operation !== this.#operation || registryError instanceof StaleOperation) return;
+          this.#renderFailure(registryFailure());
+          return;
+        }
+      }
+      this.#renderFailure(replacementFailure("indeterminate"));
+      return;
+    }
     if (error instanceof RegistryQuarantinedError || error instanceof RegistryFullError) {
       this.#renderFailure(registryFailure(error instanceof RegistryFullError));
       return;
@@ -521,6 +693,9 @@ export class SidePanelController {
       try {
         await this.#registry.transition(digest, state);
         this.#assertCurrent(operation);
+        if (state === "indeterminate" || state === "terminal_failure") {
+          this.#replacementIntent = { digest, state };
+        }
       } catch (registryError) {
         if (operation !== this.#operation || registryError instanceof StaleOperation) {
           return;
@@ -582,6 +757,11 @@ export class SidePanelController {
 
   #showRecommendation(recommendation: Recommendation, notice?: string): void {
     this.#recommendation = recommendation;
+    this.#preferences = {
+      commentLength: recommendation.commentLength,
+      relationshipLevel: recommendation.relationshipLevel,
+      speechStyle: recommendation.speechStyle,
+    };
     this.#selectedCandidateId = recommendation.selectedCandidateId;
     const selected = recommendation.candidates.find(
       (candidate) => candidate.id === recommendation.selectedCandidateId,
@@ -625,6 +805,52 @@ export class SidePanelController {
     };
   }
 
+  async #initialize(): Promise<void> {
+    const lifecycle = this.#operation;
+    try {
+      const commentLength = await this.#lengthStore.load();
+      this.#assertCurrent(lifecycle);
+      this.#preferences = { ...DEFAULT_GENERATION_PREFERENCES, commentLength };
+      await this.#captureActivePost();
+    } catch (error) {
+      if (error instanceof StaleOperation || lifecycle !== this.#operation) return;
+      this.#renderFailure(
+        workflowFailure(
+          "storage_unavailable",
+          "댓글 길이 설정을 안전하게 초기화하지 못했습니다. Browser storage를 확인해 주세요.",
+          "Extension storage를 준비하지 못했습니다",
+          null,
+        ),
+      );
+    }
+  }
+
+  #renderPreview(): void {
+    if (this.#preview === null) return;
+    this.#view.render({
+      kind: "preview",
+      ...(this.#preferenceNotice === undefined ? {} : { preferenceNotice: this.#preferenceNotice }),
+      preferences: { ...this.#preferences },
+      preview: this.#preview,
+    });
+  }
+
+  #assertRecommendationPreferences(
+    recommendation: Recommendation,
+    expected: GenerationPreferences,
+    restored: boolean,
+  ): void {
+    const actual: GenerationPreferences = {
+      commentLength: recommendation.commentLength,
+      relationshipLevel: recommendation.relationshipLevel,
+      speechStyle: recommendation.speechStyle,
+    };
+    if (!samePreferences(actual, expected)) {
+      if (restored) throw new RegistryQuarantinedError();
+      throw new ResponseProvenanceMismatch();
+    }
+  }
+
   #beginOperation(): number {
     this.#abort?.abort();
     this.#abort = new AbortController();
@@ -636,6 +862,9 @@ export class SidePanelController {
     this.#abort?.abort();
     this.#abort = null;
     this.#busy = false;
+    this.#digestValue = null;
+    this.#replacementIntent = null;
+    this.#regenerationIntent = null;
     this.#releaseAllContent();
     this.#view.clearSensitiveContent();
   }
