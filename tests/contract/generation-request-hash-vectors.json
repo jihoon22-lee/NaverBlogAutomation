@@ -6,7 +6,7 @@
       "title": "주말 전시 후기",
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다."
     },
-    "expected_hash": "b6d22e0c074a213ee9648e57b58daa3ebd39ca38741e92db449c636eeedd21da"
+    "expected_hash": "604c6dc8f1116694c097eab2251d5622c87ae2f460d25ab224bee87fa0e93470"
   },
   {
     "id": "explicit-defaults",
@@ -16,9 +16,10 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "relationship_level": "friendly",
       "speech_style": "honorific",
-      "comment_length": "medium"
+      "comment_length": "medium",
+      "comment_mood": "warm"
     },
-    "expected_hash": "b6d22e0c074a213ee9648e57b58daa3ebd39ca38741e92db449c636eeedd21da"
+    "expected_hash": "604c6dc8f1116694c097eab2251d5622c87ae2f460d25ab224bee87fa0e93470"
   },
   {
     "id": "new-relationship",
@@ -28,7 +29,7 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "relationship_level": "new"
     },
-    "expected_hash": "636cf70511e20675e3f226f541546040beac0e81118cb8d4c80e91173490c35a"
+    "expected_hash": "7cd3f86eb9fb6efe815aa8841954a603e82f53871c7a2bd831dac45f7aaa0cc2"
   },
   {
     "id": "short-comment",
@@ -38,7 +39,7 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "comment_length": "short"
     },
-    "expected_hash": "7a0833699c4bf5d6dc3be522f59938f4744e4956766b5b7d7b5d0dcff9e8b63b"
+    "expected_hash": "757d86f502dcf1378412b21abeb1b1faea108fb679fe17b7a212fabab89e93e8"
   },
   {
     "id": "close-banmal",
@@ -49,7 +50,7 @@
       "relationship_level": "close",
       "speech_style": "banmal"
     },
-    "expected_hash": "78ea74997e0c94af9efa10c8f6458d493adf92cfa0a698114973230855aa6009"
+    "expected_hash": "4937cf009294fdd63255ef92d8b91b1f44652d5bdaa898ff878fe84fcd70bdc5"
   },
   {
     "id": "unicode-whitespace",
@@ -60,6 +61,16 @@
       "relationship_level": "polite",
       "comment_length": "long"
     },
-    "expected_hash": "aecc5ad41bfc73fb6d6c65667a4a3acbf5d1f521c11419b72c2b7cb29eb6fa89"
+    "expected_hash": "10d268be13b07ecde7ab0f2d3f938fed92914897e67ae8ad61f73818e29fcd6f"
+  },
+  {
+    "id": "lively-mood",
+    "request": {
+      "source_url": "https://blog.naver.com/example/1",
+      "title": "주말 전시 후기",
+      "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
+      "comment_mood": "lively"
+    },
+    "expected_hash": "c51d806cd252225510f2f6646df9bd26236fa9fd830486401604db3564ca5da6"
   }
 ]

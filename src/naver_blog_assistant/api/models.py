@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
+from difflib import SequenceMatcher
+from itertools import combinations
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -18,16 +21,23 @@ from pydantic import (
 
 from naver_blog_assistant.domain import (
     CommentLength,
+    CommentMood,
     GenerationPreferences,
     Recommendation,
     Relationship,
     ReviewStatus,
     SpeechStyle,
+    comment_length_bounds,
 )
 
 ShortText = Annotated[str, StringConstraints(min_length=1, max_length=300)]
 CommentText = Annotated[str, StringConstraints(min_length=1, max_length=500)]
 TopicText = Annotated[str, StringConstraints(min_length=1, max_length=80)]
+QualityWarning = Literal[
+    "length_target_missed",
+    "candidate_roles_blurred",
+    "candidates_too_similar",
+]
 
 
 class StrictModel(BaseModel):
@@ -51,6 +61,7 @@ class CreateRecommendationRequest(StrictModel):
     relationship_level: Literal["new", "polite", "friendly", "close"] = "friendly"
     speech_style: Literal["honorific", "banmal"] = "honorific"
     comment_length: Literal["short", "medium", "long"] = "medium"
+    comment_mood: Literal["calm", "warm", "lively"] = "warm"
 
     @field_validator("source_url", "title", "body", mode="before")
     @classmethod
@@ -72,6 +83,7 @@ class CreateRecommendationRequest(StrictModel):
             relationship=Relationship(self.relationship_level),
             speech=SpeechStyle(self.speech_style),
             length=CommentLength(self.comment_length),
+            mood=CommentMood(self.comment_mood),
         )
 
 
@@ -101,6 +113,10 @@ class RecommendationResponse(StrictModel):
     relationship_level: Literal["new", "polite", "friendly", "close"]
     speech_style: Literal["honorific", "banmal"]
     comment_length: Literal["short", "medium", "long"]
+    comment_mood: Literal["calm", "warm", "lively"]
+    quality_warnings: Annotated[
+        list[QualityWarning], Field(max_length=3, json_schema_extra={"uniqueItems": True})
+    ]
 
     @classmethod
     def from_domain(cls, recommendation: Recommendation) -> Self:
@@ -128,7 +144,44 @@ class RecommendationResponse(StrictModel):
             relationship_level=recommendation.preferences.relationship.value,
             speech_style=recommendation.preferences.speech.value,
             comment_length=recommendation.preferences.length.value,
+            comment_mood=recommendation.preferences.mood.value,
+            quality_warnings=_quality_warnings(recommendation),
         )
+
+
+def _quality_warnings(recommendation: Recommendation) -> list[QualityWarning]:
+    warnings: list[QualityWarning] = []
+    minimum, maximum = comment_length_bounds(recommendation.preferences.length)
+    if any(
+        not minimum <= len(candidate.comment) <= maximum for candidate in recommendation.candidates
+    ):
+        warnings.append("length_target_missed")
+
+    comments_by_tone = {
+        candidate.tone.value: candidate.comment for candidate in recommendation.candidates
+    }
+    curious = comments_by_tone["curious"]
+    if (
+        curious.count("?") + curious.count("？") != 1
+        or any(mark in comments_by_tone["warm"] for mark in ("?", "？"))
+        or any(mark in comments_by_tone["supportive"] for mark in ("?", "？"))
+    ):
+        warnings.append("candidate_roles_blurred")
+
+    normalized_comments = tuple(
+        _normalize_comment(candidate.comment) for candidate in recommendation.candidates
+    )
+    if any(
+        left and right and SequenceMatcher(None, left, right).ratio() >= 0.72
+        for left, right in combinations(normalized_comments, 2)
+    ):
+        warnings.append("candidates_too_similar")
+    return warnings
+
+
+def _normalize_comment(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return re.sub(r"[^\w]", "", normalized)
 
 
 class ReviewRecommendationRequest(StrictModel):

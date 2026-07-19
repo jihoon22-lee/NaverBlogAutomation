@@ -35,17 +35,31 @@ def _response(
 ) -> dict[str, object]:
     details = "관련 없는 일반 내용" if ungrounded else " / ".join(case["required_details"])
     forbidden = case["forbidden_claims"][0] if bad else ""
+    length = CommentLength(case["preferences"]["comment_length"])
+    target = {CommentLength.SHORT: 60, CommentLength.MEDIUM: 120, CommentLength.LONG: 240}[length]
+
+    def comment(tone: CandidateTone) -> str:
+        role_text = {
+            CandidateTone.WARM: "구체적인 장면이 인상 깊고 따뜻하게 와닿았습니다.",
+            CandidateTone.CURIOUS: "이 경험에서 가장 기억에 남은 다음 장면은 무엇인가요?",
+            CandidateTone.SUPPORTIVE: "정성스러운 기록과 앞으로 이어질 이야기를 응원합니다.",
+        }[tone]
+        value = f"{details} {forbidden} {role_text}".strip()
+        filler = " 본문에 근거한 합성 평가 문장입니다."
+        while len(value) < target:
+            value += filler
+        return value[:target]
+
     content = {
         "summary": f"{details}에 관한 글",
         "topics": [str(case["required_details"][0])],
-        "candidates": [
-            {
-                "tone": tone.value,
-                "comment": f"{details}이 인상적이네요. {forbidden}".strip(),
+        **{
+            tone.value: {
+                "comment": comment(tone),
                 "referenced_detail": details,
             }
             for tone in CandidateTone
-        ],
+        },
     }
     return {
         "id": "resp_eval",

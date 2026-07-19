@@ -17,6 +17,7 @@ from naver_blog_assistant.domain import (
     CapturedPost,
     CommentCandidate,
     CommentLength,
+    CommentMood,
     DomainValidationError,
     GenerationPreferences,
     Recommendation,
@@ -25,6 +26,7 @@ from naver_blog_assistant.domain import (
     ReviewStatus,
     ReviewTransitionError,
     SpeechStyle,
+    comment_length_bounds,
 )
 
 POST_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -133,6 +135,15 @@ def test_preference_aware_request_hash_matches_shared_contract_vectors() -> None
         assert hashes[vector["id"]] == vector["expected_hash"]
 
     assert hashes["omitted-defaults"] == hashes["explicit-defaults"]
+    assert (
+        hashes["omitted-defaults"]
+        != CapturedPost(
+            source_url="https://blog.naver.com/example/1",
+            title="주말 전시 후기",
+            body="푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
+        ).request_hash
+    )
+    assert hashes["lively-mood"] != hashes["omitted-defaults"]
     assert len(set(hashes.values())) == len(hashes) - 1
 
 
@@ -155,7 +166,7 @@ def test_recommendation_has_no_body_field() -> None:
     assert "body" not in {model_field.name for model_field in fields(Recommendation)}
 
 
-def test_generation_preferences_have_one_named_legacy_default() -> None:
+def test_generation_preferences_have_one_named_default_with_warm_mood() -> None:
     assert (
         GenerationPreferences(
             relationship=Relationship.FRIENDLY,
@@ -164,6 +175,7 @@ def test_generation_preferences_have_one_named_legacy_default() -> None:
         )
         == DEFAULT_GENERATION_PREFERENCES
     )
+    assert DEFAULT_GENERATION_PREFERENCES.mood is CommentMood.WARM
     preference_field = next(
         model_field for model_field in fields(Recommendation) if model_field.name == "preferences"
     )
@@ -195,6 +207,7 @@ def test_generation_preferences_accept_supported_combinations(
             relationship=relationship,
             speech=speech,
             length=CommentLength.SHORT,
+            mood=CommentMood.CALM,
         ).relationship
         is relationship
     )
@@ -218,6 +231,7 @@ def test_generation_preferences_allow_banmal_only_for_close(
         ({"relationship": "friendly"}, "relationship"),
         ({"speech": "honorific"}, "speech"),
         ({"length": "medium"}, "length"),
+        ({"mood": "bright"}, "mood"),
     ],
 )
 def test_generation_preferences_reject_raw_or_unknown_enum_values(
@@ -227,10 +241,25 @@ def test_generation_preferences_reject_raw_or_unknown_enum_values(
         "relationship": Relationship.FRIENDLY,
         "speech": SpeechStyle.HONORIFIC,
         "length": CommentLength.MEDIUM,
+        "mood": CommentMood.WARM,
     }
     values.update(changes)
     with pytest.raises(DomainValidationError, match=message):
         GenerationPreferences(**cast(Any, values))
+
+
+@pytest.mark.parametrize(
+    ("length", "expected"),
+    [
+        (CommentLength.SHORT, (40, 80)),
+        (CommentLength.MEDIUM, (100, 160)),
+        (CommentLength.LONG, (200, 320)),
+    ],
+)
+def test_comment_length_bounds_are_inclusive_policy_targets(
+    length: CommentLength, expected: tuple[int, int]
+) -> None:
+    assert comment_length_bounds(length) == expected
 
 
 def test_recommendation_version_starts_at_zero_and_cannot_be_negative() -> None:

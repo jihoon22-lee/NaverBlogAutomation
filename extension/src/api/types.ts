@@ -3,6 +3,11 @@ export type ReviewStatus = "approved" | "completed" | "drafted";
 export type RelationshipLevel = "close" | "friendly" | "new" | "polite";
 export type SpeechStyle = "banmal" | "honorific";
 export type CommentLength = "long" | "medium" | "short";
+export type CommentMood = "calm" | "lively" | "warm";
+export type QualityWarning =
+  | "candidate_roles_blurred"
+  | "candidates_too_similar"
+  | "length_target_missed";
 
 export interface CommentCandidate {
   comment: string;
@@ -26,11 +31,14 @@ export interface Recommendation {
   relationshipLevel: RelationshipLevel;
   speechStyle: SpeechStyle;
   commentLength: CommentLength;
+  commentMood: CommentMood;
+  qualityWarnings: readonly QualityWarning[];
 }
 
 export interface CreateRecommendationRequest {
   body: string;
   comment_length?: CommentLength;
+  comment_mood?: CommentMood;
   relationship_level?: RelationshipLevel;
   source_url: string;
   speech_style?: SpeechStyle;

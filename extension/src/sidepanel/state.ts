@@ -41,6 +41,7 @@ export interface PanelActions {
   complete(): void;
   copy(): void;
   changeCommentLength(value: string): void;
+  changeCommentMood(value: string): void;
   changeRelationship(value: string): void;
   changeSpeechStyle(value: string): void;
   edit(value: string): void;

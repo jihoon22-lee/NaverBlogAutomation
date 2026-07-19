@@ -47,9 +47,10 @@ its lifecycle is ephemeral.
 
 The Side Panel owns UI and HTTP request lifecycles. On open, it extracts the active post and shows
 the URL, title, character count, truncation state, and a bounded preview. Transmission begins only
-after the user selects relationship, speech style, and comment length and presses the generation
-button. Relationship and speech style reset for each article; only comment length persists. The
-response echoes the effective options so the review UI can show provenance. Explicit regeneration
+after the user selects relationship, speech style, comment mood, and comment length and presses the
+generation button. Relationship and speech style reset for each article; comment mood and length
+persist. The response echoes the effective options and non-blocking quality warnings so the review
+UI can show provenance and weak role separation without hiding usable candidates. Explicit regeneration
 recaptures the article and returns to Preview without an API call; a subsequent generation uses a
 fresh idempotency key. The panel then supports candidate selection, editing, approval, clipboard
 copy, and an explicit completed action. Copying alone never marks a recommendation completed. Copy
@@ -99,12 +100,13 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Recommendation and review status | SQLite | Until local data is removed |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
-| Comment length preference | Extension storage | Until changed or extension data is removed |
+| Comment length and mood preferences | Extension storage | Until changed or extension data is removed |
 
 The extension stores no body, title, URL, candidate, edited comment, cookie, or credential. Its
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
-schema version, digest, opaque IDs, state, and timestamps; a separate versioned record contains only
-the selected comment length. It persists across browser restarts and holds at most 20 operations.
+schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
+versioned record contains only the selected comment length and mood. It persists across browser
+restarts and holds at most 20 operations.
 Completed, released, or explicitly dismissed entries expire after 60
 minutes and are evicted oldest-first. Active, terminal-failure, or indeterminate entries are never
 evicted automatically; if they fill the registry, new generation is blocked until the user
@@ -117,10 +119,11 @@ or show manual recovery guidance.
 
 The extension normalizes whitespace in URL, title, and body using the shared contract, applies the
 100,000-code-point limit, serializes `{source_url,title,body}` in a canonical key order, and hashes
-its UTF-8 bytes. Default generation preferences preserve this legacy digest. A non-default request
-uses a versioned, compact canonical JSON composite of that post digest and all three effective
-preference values so the same key cannot replay a differently configured generation. It persists
-the digest and UUID before sending `POST /api/v1/recommendations`.
+its UTF-8 bytes. Every request uses a `generation-policy-v2` canonical JSON composite of that post
+digest and all four effective preference values, so an old-policy result or differently configured
+generation cannot be replayed. A non-empty legacy registry is quarantined until explicit cleanup;
+only an empty legacy registry is migrated automatically. The extension persists the new digest and
+UUID before sending `POST /api/v1/recommendations`.
 Unicode and emoji test vectors keep the TypeScript and Python identity rules aligned. Duplicate
 clicks, network interruption, or a `504` reuse that key whenever the same payload is available. A
 completed generation returns the immutable first response; an active one returns

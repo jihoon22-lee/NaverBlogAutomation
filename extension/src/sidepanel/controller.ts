@@ -18,6 +18,7 @@ import {
 import {
   DEFAULT_GENERATION_PREFERENCES,
   isCommentLength,
+  isCommentMood,
   isRelationshipLevel,
   isSpeechStyle,
   requestPreferenceFields,
@@ -108,6 +109,7 @@ export class SidePanelController {
       complete: () => void this.complete(),
       copy: () => void this.copy(),
       changeCommentLength: (value) => this.changeCommentLength(value),
+      changeCommentMood: (value) => this.changeCommentMood(value),
       changeRelationship: (value) => this.changeRelationship(value),
       changeSpeechStyle: (value) => this.changeSpeechStyle(value),
       edit: (value) => this.edit(value),
@@ -145,6 +147,7 @@ export class SidePanelController {
     this.#preferences = {
       ...DEFAULT_GENERATION_PREFERENCES,
       commentLength: this.#preferences.commentLength,
+      commentMood: this.#preferences.commentMood,
     };
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
@@ -205,10 +208,32 @@ export class SidePanelController {
     this.#preferences = { ...this.#preferences, commentLength: value };
     this.#preferenceNotice = undefined;
     this.#renderPreview();
-    void this.#lengthStore.save(value).catch(() => {
-      if (this.#preview === null || this.#preferences.commentLength !== value) return;
+    this.#persistPreferences();
+  }
+
+  changeCommentMood(value: string): void {
+    if (this.#busy || this.#preview === null || !isCommentMood(value)) return;
+    this.#preferences = { ...this.#preferences, commentMood: value };
+    this.#preferenceNotice = undefined;
+    this.#renderPreview();
+    this.#persistPreferences();
+  }
+
+  #persistPreferences(): void {
+    const snapshot = {
+      commentLength: this.#preferences.commentLength,
+      commentMood: this.#preferences.commentMood,
+    };
+    void this.#lengthStore.save(snapshot).catch(() => {
+      if (
+        this.#preview === null ||
+        this.#preferences.commentLength !== snapshot.commentLength ||
+        this.#preferences.commentMood !== snapshot.commentMood
+      ) {
+        return;
+      }
       this.#preferenceNotice =
-        "댓글 길이 설정을 저장하지 못했지만, 이번 추천 요청에는 선택한 값을 적용합니다.";
+        "댓글 길이와 분위기 설정을 저장하지 못했지만, 이번 추천 요청에는 선택한 값을 적용합니다.";
       this.#renderPreview();
     });
   }
@@ -480,6 +505,7 @@ export class SidePanelController {
     if (this.#busy || recommendation === null || digest === null) return;
     const preferences: GenerationPreferences = Object.freeze({
       commentLength: recommendation.commentLength,
+      commentMood: recommendation.commentMood,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     });
@@ -759,6 +785,7 @@ export class SidePanelController {
     this.#recommendation = recommendation;
     this.#preferences = {
       commentLength: recommendation.commentLength,
+      commentMood: recommendation.commentMood,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     };
@@ -808,16 +835,16 @@ export class SidePanelController {
   async #initialize(): Promise<void> {
     const lifecycle = this.#operation;
     try {
-      const commentLength = await this.#lengthStore.load();
+      const stored = await this.#lengthStore.load();
       this.#assertCurrent(lifecycle);
-      this.#preferences = { ...DEFAULT_GENERATION_PREFERENCES, commentLength };
+      this.#preferences = { ...DEFAULT_GENERATION_PREFERENCES, ...stored };
       await this.#captureActivePost();
     } catch (error) {
       if (error instanceof StaleOperation || lifecycle !== this.#operation) return;
       this.#renderFailure(
         workflowFailure(
           "storage_unavailable",
-          "댓글 길이 설정을 안전하게 초기화하지 못했습니다. Browser storage를 확인해 주세요.",
+          "댓글 길이와 분위기 설정을 안전하게 초기화하지 못했습니다. Browser storage를 확인해 주세요.",
           "Extension storage를 준비하지 못했습니다",
           null,
         ),
@@ -842,6 +869,7 @@ export class SidePanelController {
   ): void {
     const actual: GenerationPreferences = {
       commentLength: recommendation.commentLength,
+      commentMood: recommendation.commentMood,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     };

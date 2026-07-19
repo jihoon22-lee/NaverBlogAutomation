@@ -1,5 +1,6 @@
 const STORAGE_KEY = "generationRegistryV1";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const POLICY_VERSION = "generation-policy-v2";
 const MAX_ENTRIES = 20;
 const RETENTION_MS = 60 * 60 * 1_000;
 const DIGEST = /^[0-9a-f]{64}$/u;
@@ -26,7 +27,8 @@ export interface RegistryEntry {
 
 interface StoredRegistry {
   entries: RegistryEntry[];
-  schemaVersion: 1;
+  policyVersion: typeof POLICY_VERSION;
+  schemaVersion: 2;
 }
 
 export interface StorageArea {
@@ -50,7 +52,9 @@ class WebRegistryMutationLock implements RegistryMutationLock {
 
 export class RegistryQuarantinedError extends Error {
   constructor() {
-    super("저장된 retry registry가 손상되어 명시적인 정리가 필요합니다.");
+    super(
+      "저장된 retry registry가 현재 정책과 호환되지 않거나 손상되어 명시적인 정리가 필요합니다.",
+    );
   }
 }
 
@@ -192,21 +196,27 @@ export class IdempotencyRegistry {
     await this.#exclusive(async () => {
       const raw = await this.#storage.get(STORAGE_KEY);
       const parsed = parseRegistry(raw[STORAGE_KEY]);
-      await this.#save(parsed ?? { entries: [], schemaVersion: SCHEMA_VERSION });
+      await this.#save(parsed ?? emptyRegistry());
     });
   }
 
   async cleanupAll(): Promise<void> {
-    await this.#exclusive(() => this.#save({ entries: [], schemaVersion: SCHEMA_VERSION }));
+    await this.#exclusive(() => this.#save(emptyRegistry()));
   }
 
   async #load(): Promise<StoredRegistry> {
     const raw = await this.#storage.get(STORAGE_KEY);
     if (raw[STORAGE_KEY] === undefined) {
-      return { entries: [], schemaVersion: SCHEMA_VERSION };
+      return emptyRegistry();
     }
-    const parsed = parseRegistry(raw[STORAGE_KEY]);
+    const stored = raw[STORAGE_KEY];
+    const parsed = parseRegistry(stored);
     if (parsed === null) {
+      if (isLegacyEmptyRegistry(stored)) {
+        const migrated = emptyRegistry();
+        await this.#save(migrated);
+        return migrated;
+      }
       throw new RegistryQuarantinedError();
     }
     const now = this.#now();
@@ -257,9 +267,10 @@ function parseRegistry(value: unknown): StoredRegistry | null {
   if (
     !isRecord(value) ||
     value.schemaVersion !== SCHEMA_VERSION ||
+    value.policyVersion !== POLICY_VERSION ||
     !Array.isArray(value.entries) ||
     value.entries.length > MAX_ENTRIES ||
-    !onlyKeys(value, ["entries", "schemaVersion"])
+    !onlyKeys(value, ["entries", "policyVersion", "schemaVersion"])
   ) {
     return null;
   }
@@ -271,7 +282,29 @@ function parseRegistry(value: unknown): StoredRegistry | null {
   if (new Set(safeEntries.map((entry) => entry.digest)).size !== safeEntries.length) {
     return null;
   }
-  return { entries: safeEntries, schemaVersion: SCHEMA_VERSION };
+  return {
+    entries: safeEntries,
+    policyVersion: POLICY_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+  };
+}
+
+function emptyRegistry(): StoredRegistry {
+  return {
+    entries: [],
+    policyVersion: POLICY_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+  };
+}
+
+function isLegacyEmptyRegistry(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    onlyKeys(value, ["entries", "schemaVersion"]) &&
+    value.schemaVersion === 1 &&
+    Array.isArray(value.entries) &&
+    value.entries.length === 0
+  );
 }
 
 function parseEntry(value: unknown): RegistryEntry | null {

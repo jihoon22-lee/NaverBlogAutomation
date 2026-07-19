@@ -20,6 +20,7 @@ def test_environment_defaults_to_real_generator_not_fake(
     assert settings.app_environment == "production"
     assert settings.openai_model == "gpt-5.6-terra"
     assert settings.openai_reasoning_effort == "low"
+    assert settings.openai_max_output_tokens == 3_000
     assert settings.openai_timeout_seconds < settings.generation_timeout_seconds
 
 

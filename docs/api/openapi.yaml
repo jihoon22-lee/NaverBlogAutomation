@@ -197,7 +197,12 @@ components:
           type: string
           enum: [short, medium, long]
           default: medium
-          description: Target comment length; every generated comment remains capped at 500 characters.
+          description: Target comment length; short is 40-80, medium is 100-160, and long is 200-320 characters.
+        comment_mood:
+          type: string
+          enum: [calm, warm, lively]
+          default: warm
+          description: Overall expressive mood applied to all three role-specific candidates.
     RecommendationResponse:
       type: object
       additionalProperties: false
@@ -211,6 +216,8 @@ components:
         - relationship_level
         - speech_style
         - comment_length
+        - comment_mood
+        - quality_warnings
         - review_status
         - created_at
       properties:
@@ -252,6 +259,16 @@ components:
         comment_length:
           type: string
           enum: [short, medium, long]
+        comment_mood:
+          type: string
+          enum: [calm, warm, lively]
+        quality_warnings:
+          type: array
+          uniqueItems: true
+          maxItems: 3
+          items:
+            type: string
+            enum: [length_target_missed, candidate_roles_blurred, candidates_too_similar]
         selected_candidate_id:
           oneOf:
             - type: string

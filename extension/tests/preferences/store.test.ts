@@ -10,14 +10,11 @@ import {
 class MemoryStorage implements PreferenceStorageArea {
   getFailure: Error | null = null;
   setFailure: Error | null = null;
-  pending: (() => void) | null = null;
   value: Record<string, unknown> = {};
   writes: Record<string, unknown>[] = [];
 
   async get(): Promise<Record<string, unknown>> {
-    if (this.getFailure !== null) {
-      throw this.getFailure;
-    }
+    if (this.getFailure !== null) throw this.getFailure;
     return structuredClone(this.value);
   }
 
@@ -29,59 +26,73 @@ class MemoryStorage implements PreferenceStorageArea {
 }
 
 describe("CommentLengthPreferenceStore", () => {
-  it.each([
-    undefined,
-    null,
-    "long",
-    { length: "unknown", schemaVersion: 1 },
-    { length: "long", relationship: "close", schemaVersion: 1 },
-  ])("falls back to medium for absent or malformed storage: %j", async (stored) => {
-    const storage = new MemoryStorage();
-    if (stored !== undefined) {
-      storage.value[COMMENT_LENGTH_STORAGE_KEY] = stored;
-    }
-
-    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toBe("medium");
-    if (stored !== undefined) {
-      expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
-        length: "medium",
-        schemaVersion: 1,
-      });
-    }
+  it("uses medium and warm when storage is absent or unreadable", async () => {
+    await expect(new CommentLengthPreferenceStore(new MemoryStorage()).load()).resolves.toEqual({
+      commentLength: "medium",
+      commentMood: "warm",
+    });
+    const unreadable = new MemoryStorage();
+    unreadable.getFailure = new Error("synthetic read failure");
+    await expect(new CommentLengthPreferenceStore(unreadable).load()).resolves.toEqual({
+      commentLength: "medium",
+      commentMood: "warm",
+    });
   });
 
-  it("falls back to medium when storage cannot be read", async () => {
+  it("migrates the version 1 length record and defaults mood to warm", async () => {
     const storage = new MemoryStorage();
-    storage.getFailure = new Error("synthetic read failure");
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = { length: "long", schemaVersion: 1 };
 
-    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toBe("medium");
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      commentLength: "long",
+      commentMood: "warm",
+    });
+    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      length: "long",
+      mood: "warm",
+      schemaVersion: 2,
+    });
   });
 
-  it("fails closed when malformed storage cannot be sanitized", async () => {
+  it("sanitizes malformed records and fails closed if sanitization cannot persist", async () => {
     const storage = new MemoryStorage();
-    storage.value[COMMENT_LENGTH_STORAGE_KEY] = { length: "unknown", schemaVersion: 1 };
-    storage.setFailure = new Error("synthetic write failure");
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = { mood: "unknown", schemaVersion: 2 };
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      commentLength: "medium",
+      commentMood: "warm",
+    });
+    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      length: "medium",
+      mood: "warm",
+      schemaVersion: 2,
+    });
 
-    await expect(new CommentLengthPreferenceStore(storage).load()).rejects.toThrow(
+    const blocked = new MemoryStorage();
+    blocked.value[COMMENT_LENGTH_STORAGE_KEY] = null;
+    blocked.setFailure = new Error("synthetic write failure");
+    await expect(new CommentLengthPreferenceStore(blocked).load()).rejects.toThrow(
       "synthetic write failure",
     );
   });
 
-  it("persists only length and preserves unrelated registry metadata", async () => {
+  it("persists only length and mood while preserving registry metadata", async () => {
     const storage = new MemoryStorage();
     storage.value.generationRegistryV1 = { entries: [], schemaVersion: 1 };
     const store = new CommentLengthPreferenceStore(storage);
-
-    await store.save("long");
+    await store.save({ commentLength: "short", commentMood: "calm" });
 
     expect(storage.value.generationRegistryV1).toEqual({ entries: [], schemaVersion: 1 });
-    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({ length: "long", schemaVersion: 1 });
+    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      length: "short",
+      mood: "calm",
+      schemaVersion: 2,
+    });
     expect(JSON.stringify(storage.value[COMMENT_LENGTH_STORAGE_KEY])).not.toMatch(
       /relationship|speech|banmal|honorific|close|friendly|polite|new/u,
     );
   });
 
-  it("serializes rapid writes so the last selected length wins", async () => {
+  it("serializes rapid writes so the last selected values win", async () => {
     const storage = new MemoryStorage();
     let release: (() => void) | undefined;
     storage.set = async (items): Promise<void> => {
@@ -91,17 +102,19 @@ describe("CommentLengthPreferenceStore", () => {
           release = resolve;
         });
       }
-      storage.writes.push(structuredClone(items));
       storage.value = { ...storage.value, ...structuredClone(items) };
     };
     const store = new CommentLengthPreferenceStore(storage);
-
-    const first = store.save("short");
-    const second = store.save("long");
+    const first = store.save({ commentLength: "short", commentMood: "calm" });
+    const second = store.save({ commentLength: "long", commentMood: "lively" });
     await Promise.resolve();
     release?.();
     await Promise.all([first, second]);
 
-    expect((storage.value[COMMENT_LENGTH_STORAGE_KEY] as { length: string }).length).toBe("long");
+    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      length: "long",
+      mood: "lively",
+      schemaVersion: 2,
+    });
   });
 });

@@ -111,6 +111,8 @@ describe("LocalApiClient", () => {
     expect(created.replayed).toBe(false);
     expect(created.value).toMatchObject({
       commentLength: "medium",
+      commentMood: "warm",
+      qualityWarnings: [],
       relationshipLevel: "friendly",
       speechStyle: "honorific",
     });
@@ -150,6 +152,8 @@ describe("LocalApiClient", () => {
     const withPreferences = {
       ...recommendation,
       comment_length: "long",
+      comment_mood: "lively",
+      quality_warnings: ["length_target_missed", "candidates_too_similar"],
       relationship_level: "close",
       speech_style: "banmal",
     };
@@ -159,6 +163,8 @@ describe("LocalApiClient", () => {
 
     await expect(client.getRecommendation(recommendation.id)).resolves.toMatchObject({
       commentLength: "long",
+      commentMood: "lively",
+      qualityWarnings: ["length_target_missed", "candidates_too_similar"],
       relationshipLevel: "close",
       speechStyle: "banmal",
     });
@@ -171,6 +177,21 @@ describe("LocalApiClient", () => {
       { comment_length: null, relationship_level: "close", speech_style: "banmal" },
       { comment_length: "huge", relationship_level: "close", speech_style: "banmal" },
       { comment_length: "medium", relationship_level: "friendly", speech_style: "banmal" },
+      {
+        comment_length: "medium",
+        comment_mood: null,
+        relationship_level: "friendly",
+        speech_style: "honorific",
+      },
+      {
+        comment_length: "medium",
+        comment_mood: "dramatic",
+        relationship_level: "friendly",
+        speech_style: "honorific",
+      },
+      { quality_warnings: ["unknown_warning"] },
+      { quality_warnings: ["length_target_missed", "length_target_missed"] },
+      { quality_warnings: null },
     ];
     for (const preferences of invalidPreferences) {
       const client = new LocalApiClient(

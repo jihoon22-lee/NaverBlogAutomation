@@ -1,10 +1,5 @@
 import type { CreateRecommendationRequest } from "../api/types";
-import {
-  DEFAULT_GENERATION_PREFERENCES,
-  preferencesFromRequest,
-  requestPreferenceFields,
-  samePreferences,
-} from "../preferences/model";
+import { preferencesFromRequest, requestPreferenceFields } from "../preferences/model";
 
 const MAX_BODY_CODE_POINTS = 100_000;
 
@@ -90,15 +85,13 @@ export async function requestDigest(payload: CreateRecommendationRequest): Promi
   if (preferences === null) {
     throw new CanonicalPayloadError("댓글 생성 옵션 조합이 올바르지 않습니다.");
   }
-  if (samePreferences(preferences, DEFAULT_GENERATION_PREFERENCES)) {
-    return postHash;
-  }
   return sha256(
     JSON.stringify({
       comment_length: preferences.commentLength,
+      comment_mood: preferences.commentMood,
       post_hash: postHash,
       relationship_level: preferences.relationshipLevel,
-      schema: "generation-preferences-v1",
+      schema: "generation-policy-v2",
       speech_style: preferences.speechStyle,
     }),
   );

@@ -30,7 +30,7 @@ describe("canonical request identity", () => {
 
   it.each([
     {
-      expected: "822c3c39d1f9934a7c2f54a7b2eb01eb2e9985f1f2b33c3ae9ae597f81b60603",
+      expected: "99bfe628b0289e61defb587e9fa3ef471216604da10cb9a368a22042cc17528a",
       payload: {
         body: "푸른\u00a0조각과 😀 작품을\n 자세히 소개한 합성 본문입니다.",
         source_url: " https://blog.naver.com/example/1 ",
@@ -38,7 +38,7 @@ describe("canonical request identity", () => {
       },
     },
     {
-      expected: "7874c875551b748d65819f09b8cff429326d7f164fe5d56d2f9669f8209ba932",
+      expected: "1f4da43775747f13b1883f21b9a47492ad5dc082cd25044f2b660a04e62fbfd3",
       payload: {
         body: "\ufeff앞뒤 FEFF는 Python에서 유지되는 충분히 긴 합성 본문입니다.\ufeff",
         source_url: "https://m.blog.naver.com/example/2",
@@ -46,7 +46,7 @@ describe("canonical request identity", () => {
       },
     },
     {
-      expected: "3cbb31fae5eb30b4a084c67cefbd91f7bf7da6a686afb78d30d47828f351cb95",
+      expected: "c268c1bf3008310e0ae78101fa42620b11afadf2fc2a290829f5a1c73fe987f0",
       payload: {
         body: "A\u001cB\u0085C\u2028D\u3000E 문자를 포함한 충분히 긴 합성 본문입니다.",
         source_url: "https://blog.naver.com/example/3",
@@ -94,7 +94,7 @@ describe("canonical request identity", () => {
     ).rejects.toBeInstanceOf(CanonicalPayloadError);
   });
 
-  it.each(["comment_length", "relationship_level", "speech_style"] as const)(
+  it.each(["comment_length", "comment_mood", "relationship_level", "speech_style"] as const)(
     "rejects explicit null for %s instead of applying a default",
     async (field) => {
       const payload = {

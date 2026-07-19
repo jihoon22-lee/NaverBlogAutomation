@@ -91,6 +91,8 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     assert payload["relationship_level"] == "friendly"
     assert payload["speech_style"] == "honorific"
     assert payload["comment_length"] == "medium"
+    assert payload["comment_mood"] == "warm"
+    assert payload["quality_warnings"] == []
     assert len(payload["candidates"]) == 3
     assert {item["tone"] for item in payload["candidates"]} == {
         "warm",
@@ -109,6 +111,7 @@ def test_custom_preferences_are_generated_persisted_and_echoed(client: TestClien
             "relationship_level": "close",
             "speech_style": "banmal",
             "comment_length": "long",
+            "comment_mood": "lively",
         },
         headers={"Idempotency-Key": str(uuid4())},
     )
@@ -119,12 +122,15 @@ def test_custom_preferences_are_generated_persisted_and_echoed(client: TestClien
         "relationship_level": payload["relationship_level"],
         "speech_style": payload["speech_style"],
         "comment_length": payload["comment_length"],
+        "comment_mood": payload["comment_mood"],
     } == {
         "relationship_level": "close",
         "speech_style": "banmal",
         "comment_length": "long",
+        "comment_mood": "lively",
     }
-    assert all(90 <= len(candidate["comment"]) <= 150 for candidate in payload["candidates"])
+    assert all(200 <= len(candidate["comment"]) <= 320 for candidate in payload["candidates"])
+    assert payload["quality_warnings"] == []
     assert client.get(f"/api/v1/recommendations/{payload['id']}").json() == payload
 
 
@@ -135,6 +141,7 @@ def test_custom_preferences_are_generated_persisted_and_echoed(client: TestClien
         {"relationship_level": None},
         {"speech_style": "formal"},
         {"comment_length": "extra-long"},
+        {"comment_mood": "electric"},
     ],
 )
 def test_invalid_preferences_return_422_problem(

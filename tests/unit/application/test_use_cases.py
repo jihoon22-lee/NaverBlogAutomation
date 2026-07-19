@@ -297,7 +297,7 @@ def test_generate_rejects_key_reuse_for_different_content() -> None:
 def test_generate_rejects_request_already_in_progress() -> None:
     use_case, generator, _, idempotency = build_generation_use_case()
     post = captured_post()
-    idempotency.reserve(KEY, post.request_hash)
+    idempotency.reserve(KEY, post.request_hash_for(DEFAULT_GENERATION_PREFERENCES))
 
     with pytest.raises(GenerationInProgressError):
         use_case.execute(post=post, idempotency_key=KEY)

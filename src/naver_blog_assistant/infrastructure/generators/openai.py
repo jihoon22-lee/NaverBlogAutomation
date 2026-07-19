@@ -26,6 +26,7 @@ from naver_blog_assistant.domain import (
     CandidateTone,
     CapturedPost,
     CommentLength,
+    CommentMood,
     GeneratedComment,
     GenerationOutput,
     GenerationPreferences,
@@ -53,36 +54,112 @@ _SPEECH_GUIDANCE = {
     SpeechStyle.BANMAL: "모든 댓글을 자연스러운 반말로 작성하세요.",
 }
 _LENGTH_GUIDANCE = {
-    CommentLength.SHORT: "댓글마다 25~50자, 1문장을 목표로 작성하세요.",
-    CommentLength.MEDIUM: "댓글마다 50~90자, 1~2문장을 목표로 작성하세요.",
-    CommentLength.LONG: "댓글마다 90~150자, 2~3문장을 목표로 작성하세요.",
+    CommentLength.SHORT: "댓글마다 40~80자를 목표로 작성하세요.",
+    CommentLength.MEDIUM: "댓글마다 100~160자를 목표로 작성하세요.",
+    CommentLength.LONG: "댓글마다 200~320자를 목표로 작성하세요.",
 }
+_MOOD_GUIDANCE = {
+    CommentMood.CALM: "전체 분위기는 차분하고 절제되게 유지하세요.",
+    CommentMood.WARM: "전체 분위기는 따뜻하고 다정하게 유지하세요.",
+    CommentMood.LIVELY: "전체 분위기는 밝고 생동감 있게 유지하세요.",
+}
+_ROLE_GUIDANCE = """각 role field의 목적을 분명히 구분하세요.
+- warm: 본문의 구체적인 한 지점에 공감하거나 인상을 표현하고 물음표를 쓰지 마세요.
+- curious: 본문 근거에서 이어지는 구체적인 질문 하나를 포함하고 물음표를 정확히 하나 쓰세요.
+- supportive: 글쓴이의 기록이나 다음 활동을 응원하고 물음표를 쓰지 마세요."""
 
 
-class _Candidate(BaseModel):
+class _ShortRoleCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tone: Literal["warm", "curious", "supportive"]
-    comment: Annotated[str, Field(min_length=1, max_length=500)]
+    comment: Annotated[str, Field(min_length=40, max_length=80)]
     referenced_detail: Annotated[str, Field(min_length=1, max_length=300)]
 
 
-class _StructuredRecommendation(BaseModel):
+class _MediumRoleCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: Annotated[str, Field(min_length=100, max_length=160)]
+    referenced_detail: Annotated[str, Field(min_length=1, max_length=300)]
+
+
+class _LongRoleCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: Annotated[str, Field(min_length=200, max_length=320)]
+    referenced_detail: Annotated[str, Field(min_length=1, max_length=300)]
+
+
+class _StructuredRecommendationBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: Annotated[str, Field(min_length=1, max_length=800)]
     topics: Annotated[
         list[Annotated[str, Field(min_length=1, max_length=80)]], Field(min_length=1, max_length=5)
     ]
-    candidates: Annotated[list[_Candidate], Field(min_length=3, max_length=3)]
 
     @model_validator(mode="after")
-    def validate_unique_values(self) -> _StructuredRecommendation:
+    def validate_unique_topics(self) -> _StructuredRecommendationBase:
         if len(set(self.topics)) != len(self.topics):
             raise ValueError("topics must be unique")
-        if {item.tone for item in self.candidates} != {"warm", "curious", "supportive"}:
-            raise ValueError("all required tones must appear exactly once")
         return self
+
+
+class _ShortStructuredRecommendation(_StructuredRecommendationBase):
+    warm: Annotated[
+        _ShortRoleCandidate,
+        Field(description="A grounded empathetic reaction without a question."),
+    ]
+    curious: Annotated[
+        _ShortRoleCandidate,
+        Field(description="One grounded follow-up question with exactly one question mark."),
+    ]
+    supportive: Annotated[
+        _ShortRoleCandidate,
+        Field(description="Grounded encouragement without a question."),
+    ]
+
+
+class _MediumStructuredRecommendation(_StructuredRecommendationBase):
+    warm: Annotated[
+        _MediumRoleCandidate,
+        Field(description="A grounded empathetic reaction without a question."),
+    ]
+    curious: Annotated[
+        _MediumRoleCandidate,
+        Field(description="One grounded follow-up question with exactly one question mark."),
+    ]
+    supportive: Annotated[
+        _MediumRoleCandidate,
+        Field(description="Grounded encouragement without a question."),
+    ]
+
+
+class _LongStructuredRecommendation(_StructuredRecommendationBase):
+    warm: Annotated[
+        _LongRoleCandidate,
+        Field(description="A grounded empathetic reaction without a question."),
+    ]
+    curious: Annotated[
+        _LongRoleCandidate,
+        Field(description="One grounded follow-up question with exactly one question mark."),
+    ]
+    supportive: Annotated[
+        _LongRoleCandidate,
+        Field(description="Grounded encouragement without a question."),
+    ]
+
+
+_STRUCTURED_FORMATS = {
+    CommentLength.SHORT: _ShortStructuredRecommendation,
+    CommentLength.MEDIUM: _MediumStructuredRecommendation,
+    CommentLength.LONG: _LongStructuredRecommendation,
+}
+_STRUCTURED_TYPES = (
+    _ShortStructuredRecommendation,
+    _MediumStructuredRecommendation,
+    _LongStructuredRecommendation,
+)
 
 
 class OpenAICommentGenerator:
@@ -96,7 +173,7 @@ class OpenAICommentGenerator:
         model: str = "gpt-5.6-terra",
         reasoning_effort: Literal["low", "medium", "high"] = "low",
         timeout_seconds: float = 35.0,
-        max_output_tokens: int = 1_200,
+        max_output_tokens: int = 3_000,
     ) -> None:
         if timeout_seconds <= 0 or max_output_tokens < 1:
             raise ValueError("provider timeout and output token limit must be positive")
@@ -123,7 +200,7 @@ class OpenAICommentGenerator:
                 model=self._model,
                 instructions=_instructions(preferences),
                 input=f"<ARTICLE_DATA>{article_data}</ARTICLE_DATA>",
-                text_format=_StructuredRecommendation,
+                text_format=_STRUCTURED_FORMATS[preferences.length],
                 reasoning={"effort": self._reasoning_effort},
                 store=False,
                 max_output_tokens=self._max_output_tokens,
@@ -154,18 +231,22 @@ class OpenAICommentGenerator:
         if response.status != "completed" or response.error is not None:
             raise GenerationUnavailableError("provider did not complete generation")
         parsed = response.output_parsed
-        if not isinstance(parsed, _StructuredRecommendation):
+        if not isinstance(parsed, _STRUCTURED_TYPES):
             raise GenerationInvalidError("provider returned no structured output")
         return GenerationOutput(
             summary=parsed.summary,
             topics=tuple(parsed.topics),
             candidates=tuple(
                 GeneratedComment(
-                    tone=CandidateTone(candidate.tone),
+                    tone=tone,
                     comment=candidate.comment,
                     referenced_detail=candidate.referenced_detail,
                 )
-                for candidate in parsed.candidates
+                for tone, candidate in (
+                    (CandidateTone.WARM, parsed.warm),
+                    (CandidateTone.CURIOUS, parsed.curious),
+                    (CandidateTone.SUPPORTIVE, parsed.supportive),
+                )
             ),
         )
 
@@ -180,6 +261,7 @@ def _instructions(preferences: GenerationPreferences) -> str:
             "relationship_level": preferences.relationship.value,
             "speech_style": preferences.speech.value,
             "comment_length": preferences.length.value,
+            "comment_mood": preferences.mood.value,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -193,6 +275,8 @@ def _instructions(preferences: GenerationPreferences) -> str:
             _RELATIONSHIP_GUIDANCE[preferences.relationship],
             _SPEECH_GUIDANCE[preferences.speech],
             _LENGTH_GUIDANCE[preferences.length],
+            _MOOD_GUIDANCE[preferences.mood],
+            _ROLE_GUIDANCE,
             "길이 범위는 목표이며, 각 댓글은 어떤 경우에도 500자를 넘기지 마세요.",
         )
     )

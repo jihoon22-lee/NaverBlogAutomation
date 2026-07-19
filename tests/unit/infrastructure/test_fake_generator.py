@@ -5,6 +5,7 @@ import pytest
 from naver_blog_assistant.domain import (
     CapturedPost,
     CommentLength,
+    CommentMood,
     GenerationPreferences,
     Relationship,
     SpeechStyle,
@@ -23,9 +24,9 @@ def _post() -> CapturedPost:
 @pytest.mark.parametrize(
     ("length", "minimum", "maximum"),
     [
-        (CommentLength.SHORT, 25, 50),
-        (CommentLength.MEDIUM, 50, 90),
-        (CommentLength.LONG, 90, 150),
+        (CommentLength.SHORT, 40, 80),
+        (CommentLength.MEDIUM, 100, 160),
+        (CommentLength.LONG, 200, 320),
     ],
 )
 def test_fake_generator_follows_length_targets(
@@ -77,3 +78,30 @@ def test_fake_generator_changes_relationship_and_speech_without_inventing_histor
     )
     assert "전에" not in combined
     assert "약속" not in combined
+
+
+@pytest.mark.parametrize(
+    ("mood", "marker"),
+    [
+        (CommentMood.CALM, "차분히"),
+        (CommentMood.WARM, "따뜻하게"),
+        (CommentMood.LIVELY, "생기 있게"),
+    ],
+)
+def test_fake_generator_applies_mood_and_fixed_role_question_policy(
+    mood: CommentMood, marker: str
+) -> None:
+    output = DeterministicFakeGenerator().generate(
+        _post(),
+        GenerationPreferences(
+            relationship=Relationship.FRIENDLY,
+            speech=SpeechStyle.HONORIFIC,
+            length=CommentLength.MEDIUM,
+            mood=mood,
+        ),
+    )
+
+    assert all(marker in candidate.comment for candidate in output.candidates)
+    by_tone = {candidate.tone.value: candidate.comment for candidate in output.candidates}
+    assert by_tone["curious"].count("?") + by_tone["curious"].count("？") == 1
+    assert not any(mark in by_tone["warm"] + by_tone["supportive"] for mark in ("?", "？"))
