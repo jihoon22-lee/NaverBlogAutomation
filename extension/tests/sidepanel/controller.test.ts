@@ -120,6 +120,19 @@ describe("SidePanelController", () => {
     });
   });
 
+  it("reports a missing active tab with a stable recovery code", async () => {
+    const gateway = new FakeGateway();
+    gateway.activeTabs = [];
+    const view = new RecordingView();
+
+    await new SidePanelController(gateway, view).captureActivePost();
+
+    expect(view.states.at(-1)).toEqual({
+      failure: { code: "no_active_tab" },
+      kind: "error",
+    });
+  });
+
   it("rejects a result when the active page changed during capture", async () => {
     const gateway = new FakeGateway();
     gateway.activeTabs = [activeTab, { ...activeTab, url: `${activeTab.url}?changed=true` }];

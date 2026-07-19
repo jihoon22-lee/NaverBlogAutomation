@@ -9,6 +9,10 @@ Local API는 `127.0.0.1:8765`만 사용하고 한 개의 정확한
 `chrome-extension://<32-character-id>` origin만 허용합니다. Extension permission도 이 주소로
 고정되므로 host나 port를 바꾸지 마세요. Environment file은 명시적으로 전달합니다.
 
+Toolbar action은 활성화된 tab의 `activeTab` 권한을 얻고 Side Panel을 엽니다. Chrome 120에서는
+두 번째 click으로 panel을 닫는 toggle을 제공하지 않으며, 닫기는 Chrome Side Panel UI에서
+직접 수행합니다.
+
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
 ```
@@ -84,9 +88,9 @@ CI의 `System E2E` job은 wheel을 temporary venv에 설치하고 그 absolute
 Chromium, temporary browser profile, temporary SQLite, fake generator와 synthetic Naver fixture만
 사용하며 worker 1개, retry 0회로 실행합니다. 실제 secret이나 E2E artifact는 업로드하지 않습니다.
 
-Headless Chromium은 native Side Panel target을 안정적으로 노출하지 않습니다. Test staging은
-permission과 host permission을 그대로 유지하되 background worker만 action gesture를 받는 no-op
-listener로 교체합니다. CDP action으로 `activeTab`을 부여하고 원본 production
-`sidepanel.html/js`, `ChromeTabCaptureGateway`, DOM extraction, API client와 storage workflow를
-실행합니다. 따라서 실제 toolbar가 native Side Panel을 여는 UX, live Naver markup, real OpenAI
-response는 이 automated test의 범위가 아니며 위 manual smoke로만 확인합니다.
+Headless Chromium은 native Side Panel surface를 안정적으로 노출하지 않습니다. Test staging은
+production manifest와 background를 그대로 load하고 CDP toolbar action으로 `activeTab` grant와
+`sidePanel.open({tabId})` 호출을 실행합니다. 이후 원본 production `sidepanel.html/js`를 browser
+page로 열어 `ChromeTabCaptureGateway`, DOM extraction, API client와 storage workflow를
+검증합니다. 따라서 native Side Panel이 실제 browser chrome에 표시되는 모습, live Naver markup,
+real OpenAI response는 이 automated test의 범위가 아니며 위 manual smoke로만 확인합니다.
