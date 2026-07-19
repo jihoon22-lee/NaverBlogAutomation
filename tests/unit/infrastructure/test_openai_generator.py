@@ -22,6 +22,7 @@ from naver_blog_assistant.domain import (
     CandidateTone,
     CapturedPost,
     CommentLength,
+    CommentMood,
     GenerationPreferences,
     Relationship,
     SpeechStyle,
@@ -38,19 +39,34 @@ def post() -> CapturedPost:
     )
 
 
-def completed_payload(content: str | None = None) -> dict[str, object]:
+def _comment(tone: CandidateTone, length: CommentLength) -> str:
+    target = {
+        CommentLength.SHORT: 60,
+        CommentLength.MEDIUM: 120,
+        CommentLength.LONG: 240,
+    }[length]
+    marker = {
+        CandidateTone.WARM: "따뜻한 공감 표현입니다. ",
+        CandidateTone.CURIOUS: "구체적인 내용이 더 궁금합니다. ",
+        CandidateTone.SUPPORTIVE: "다음 기록도 진심으로 응원합니다. ",
+    }[tone]
+    return (marker * (target // len(marker) + 1))[:target]
+
+
+def completed_payload(
+    content: str | None = None, *, length: CommentLength = CommentLength.MEDIUM
+) -> dict[str, object]:
     text = content or json.dumps(
         {
             "summary": "푸른 조각과 관람 동선을 소개한 후기",
             "topics": ["전시", "조각"],
-            "candidates": [
-                {
-                    "tone": tone.value,
-                    "comment": f"{tone.value} 댓글",
+            **{
+                tone.value: {
+                    "comment": _comment(tone, length),
                     "referenced_detail": "푸른 조각",
                 }
                 for tone in CandidateTone
-            ],
+            },
         },
         ensure_ascii=False,
     )
@@ -116,6 +132,48 @@ def test_structured_parse_uses_privacy_and_safety_controls() -> None:
     output_format = cast(dict[str, object], text_config["format"])
     assert output_format["type"] == "json_schema"
     assert output_format["strict"] is True
+    schema = cast(dict[str, object], output_format["schema"])
+    assert {"warm", "curious", "supportive"} <= set(cast(list[str], schema["required"]))
+    assert "candidates" not in cast(dict[str, object], schema["properties"])
+
+
+@pytest.mark.parametrize(
+    ("length", "minimum", "maximum"),
+    [
+        (CommentLength.SHORT, 40, 80),
+        (CommentLength.MEDIUM, 100, 160),
+        (CommentLength.LONG, 200, 320),
+    ],
+)
+def test_structured_schema_hard_codes_selected_length_band(
+    length: CommentLength, minimum: int, maximum: int
+) -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=completed_payload(length=length))
+
+    generator(handler).generate(
+        post(),
+        GenerationPreferences(
+            relationship=Relationship.FRIENDLY,
+            speech=SpeechStyle.HONORIFIC,
+            length=length,
+        ),
+    )
+
+    text_config = cast(dict[str, object], captured["text"])
+    output_format = cast(dict[str, object], text_config["format"])
+    schema = cast(dict[str, object], output_format["schema"])
+    definitions = cast(dict[str, dict[str, object]], schema["$defs"])
+    role_schema = next(iter(definitions.values()))
+    comment_schema = cast(
+        dict[str, object], cast(dict[str, object], role_schema["properties"])["comment"]
+    )
+    assert comment_schema["minLength"] == minimum
+    assert comment_schema["maxLength"] == maximum
+    assert "tone" not in cast(dict[str, object], role_schema["properties"])
 
 
 @pytest.mark.parametrize(
@@ -126,24 +184,27 @@ def test_structured_parse_uses_privacy_and_safety_controls() -> None:
                 relationship=Relationship.NEW,
                 speech=SpeechStyle.HONORIFIC,
                 length=CommentLength.SHORT,
+                mood=CommentMood.CALM,
             ),
-            ("처음 교류", "존댓말", "25~50자", '"relationship_level":"new"'),
+            ("처음 교류", "존댓말", "40~80자", "차분", '"relationship_level":"new"'),
         ),
         (
             GenerationPreferences(
                 relationship=Relationship.POLITE,
                 speech=SpeechStyle.HONORIFIC,
                 length=CommentLength.MEDIUM,
+                mood=CommentMood.WARM,
             ),
-            ("차분하고 정중", "존댓말", "50~90자", '"comment_length":"medium"'),
+            ("차분하고 정중", "존댓말", "100~160자", "따뜻", '"comment_mood":"warm"'),
         ),
         (
             GenerationPreferences(
                 relationship=Relationship.CLOSE,
                 speech=SpeechStyle.BANMAL,
                 length=CommentLength.LONG,
+                mood=CommentMood.LIVELY,
             ),
-            ("가깝게 교류", "반말", "90~150자", '"speech_style":"banmal"'),
+            ("가깝게 교류", "반말", "200~320자", "생동감", '"speech_style":"banmal"'),
         ),
     ],
 )
@@ -154,7 +215,7 @@ def test_trusted_preferences_map_to_static_instructions(
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(json.loads(request.content))
-        return httpx.Response(200, json=completed_payload())
+        return httpx.Response(200, json=completed_payload(length=preferences.length))
 
     generator(handler).generate(post(), preferences)
 
@@ -189,7 +250,7 @@ def test_literal_article_closing_tag_remains_untrusted_input() -> None:
 
 
 def test_target_length_is_prompt_guidance_but_500_is_a_hard_runtime_limit() -> None:
-    short_content = completed_payload()
+    short_content = completed_payload(length=CommentLength.LONG)
     generator(lambda _: httpx.Response(200, json=short_content)).generate(
         post(),
         GenerationPreferences(
@@ -203,14 +264,13 @@ def test_target_length_is_prompt_guidance_but_500_is_a_hard_runtime_limit() -> N
             {
                 "summary": "합성 요약",
                 "topics": ["합성 주제"],
-                "candidates": [
-                    {
-                        "tone": tone.value,
+                **{
+                    tone.value: {
                         "comment": "가" * (501 if tone is CandidateTone.WARM else 10),
                         "referenced_detail": "푸른 조각",
                     }
                     for tone in CandidateTone
-                ],
+                },
             },
             ensure_ascii=False,
         )

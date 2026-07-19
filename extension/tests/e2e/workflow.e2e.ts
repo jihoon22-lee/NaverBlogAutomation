@@ -120,6 +120,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await panel.locator('input[name="relationship"][value="close"]').check();
     await panel.locator('input[name="speech-style"][value="banmal"]').check();
     await panel.locator('input[name="comment-length"][value="long"]').check();
+    await panel.locator('input[name="comment-mood"][value="lively"]').check();
 
     let activeRegistry: Record<string, unknown> | null = null;
     await panel.route(`${apiOrigin}/api/v1/recommendations`, async (route) => {
@@ -134,6 +135,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     expect(recommendationPosts[0]).toMatchObject({
       payload: {
         comment_length: "long",
+        comment_mood: "lively",
         relationship_level: "close",
         speech_style: "banmal",
       },
@@ -141,11 +143,12 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     expect(recommendationPosts[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/iu);
     await expect(panel.locator("#generated-relationship")).toHaveText("가까운 사이");
     await expect(panel.locator("#generated-speech-style")).toHaveText("반말");
-    await expect(panel.locator("#generated-comment-length")).toHaveText("길게");
+    await expect(panel.locator("#generated-comment-length")).toHaveText("길게 (200–320자)");
+    await expect(panel.locator("#generated-comment-mood")).toHaveText("활기차게");
     await expect(panel.locator("#candidate-list input")).toHaveCount(3);
     for (const comment of await panel.locator(".candidate > span > span").allTextContents()) {
-      expect(Array.from(comment).length).toBeGreaterThanOrEqual(90);
-      expect(Array.from(comment).length).toBeLessThanOrEqual(150);
+      expect(Array.from(comment).length).toBeGreaterThanOrEqual(200);
+      expect(Array.from(comment).length).toBeLessThanOrEqual(320);
     }
     expect(activeRegistry).not.toBeNull();
 
@@ -153,6 +156,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await panel.reload();
     await expect(panel.locator("#preview-panel")).toBeVisible();
     await expect(panel.locator('input[name="comment-length"][value="long"]')).toBeChecked();
+    await expect(panel.locator('input[name="comment-mood"][value="lively"]')).toBeChecked();
     await expect(panel.locator('input[name="relationship"][value="friendly"]')).toBeChecked();
     await expect(panel.locator('input[name="speech-style"][value="honorific"]')).toBeChecked();
     await panel.locator('input[name="relationship"][value="close"]').check();
@@ -194,6 +198,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     expect(recommendationPosts[3]).toMatchObject({
       payload: {
         comment_length: "short",
+        comment_mood: "lively",
         relationship_level: "close",
         speech_style: "banmal",
       },
@@ -215,7 +220,11 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await panel.locator("#complete-button").click();
     await expect(panel.locator("#review-status")).toHaveText("수동 workflow 완료");
     const storedValue = await readExtensionStorage(panel);
-    expect(storedValue.commentLengthPreferenceV1).toEqual({ length: "short", schemaVersion: 1 });
+    expect(storedValue.commentLengthPreferenceV1).toEqual({
+      length: "short",
+      mood: "lively",
+      schemaVersion: 2,
+    });
     const stored = JSON.stringify(storedValue);
     expect(stored).not.toMatch(/relationship|speech|banmal|honorific|close|friendly|polite|new/u);
     expect(stored).not.toContain("빛과 그림자");

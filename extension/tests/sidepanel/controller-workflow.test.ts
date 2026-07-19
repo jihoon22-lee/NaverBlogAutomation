@@ -48,10 +48,12 @@ const candidates = [
 const drafted: Recommendation = {
   candidates,
   commentLength: "medium",
+  commentMood: "warm",
   createdAt: "2026-07-17T00:00:00Z",
   editedComment: null,
   id: "00000000-0000-4000-8000-000000000070",
   relationshipLevel: "friendly",
+  qualityWarnings: [],
   reviewStatus: "drafted",
   selectedCandidateId: null,
   sourceUrl: tab.url,
@@ -260,6 +262,7 @@ describe("integrated Side Panel workflow", () => {
     expect(first.api.create.mock.calls[0]?.[0]).toEqual({
       body: frames[0]?.result?.body,
       comment_length: "medium",
+      comment_mood: "warm",
       relationship_level: "friendly",
       source_url: tab.url,
       speech_style: "honorific",
@@ -273,17 +276,19 @@ describe("integrated Side Panel workflow", () => {
     expect(replay.view.states.at(-1)?.kind).toBe("review");
   });
 
-  it("sends close, banmal, and long preferences as one validated snapshot", async () => {
+  it("sends close, banmal, long, and lively preferences as one validated snapshot", async () => {
     const fixture = setup();
     await fixture.controller.captureActivePost();
     fixture.view.actions?.changeRelationship("close");
     fixture.view.actions?.changeSpeechStyle("banmal");
     fixture.view.actions?.changeCommentLength("long");
+    fixture.view.actions?.changeCommentMood("lively");
     fixture.api.create.mockResolvedValue({
       replayed: false,
       value: {
         ...drafted,
         commentLength: "long",
+        commentMood: "lively",
         relationshipLevel: "close",
         speechStyle: "banmal",
       },
@@ -293,6 +298,7 @@ describe("integrated Side Panel workflow", () => {
 
     expect(fixture.api.create.mock.calls[0]?.[0]).toMatchObject({
       comment_length: "long",
+      comment_mood: "lively",
       relationship_level: "close",
       speech_style: "banmal",
     });
@@ -311,16 +317,18 @@ describe("integrated Side Panel workflow", () => {
     });
   });
 
-  it("retains only persisted length when reading a new article", async () => {
+  it("retains persisted length and mood when reading a new article", async () => {
     const fixture = setup();
     await fixture.controller.captureActivePost();
     fixture.view.actions?.changeRelationship("close");
     fixture.view.actions?.changeSpeechStyle("banmal");
     fixture.view.actions?.changeCommentLength("long");
+    fixture.view.actions?.changeCommentMood("lively");
     await vi.waitFor(() =>
       expect(fixture.storage.value.commentLengthPreferenceV1).toEqual({
         length: "long",
-        schemaVersion: 1,
+        mood: "lively",
+        schemaVersion: 2,
       }),
     );
 
@@ -329,6 +337,7 @@ describe("integrated Side Panel workflow", () => {
       kind: "preview",
       preferences: {
         commentLength: "long",
+        commentMood: "lively",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
       },
@@ -381,11 +390,13 @@ describe("integrated Side Panel workflow", () => {
       wait: async () => {
         fixture.view.actions?.changeRelationship("friendly");
         fixture.view.actions?.changeCommentLength("short");
+        fixture.view.actions?.changeCommentMood("warm");
       },
     });
     const custom = {
       ...drafted,
       commentLength: "long" as const,
+      commentMood: "calm" as const,
       relationshipLevel: "close" as const,
       speechStyle: "banmal" as const,
     };
@@ -396,12 +407,14 @@ describe("integrated Side Panel workflow", () => {
     fixture.view.actions?.changeRelationship("close");
     fixture.view.actions?.changeSpeechStyle("banmal");
     fixture.view.actions?.changeCommentLength("long");
+    fixture.view.actions?.changeCommentMood("calm");
     fixture.view.actions?.generate();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
 
     expect(fixture.api.create.mock.calls).toHaveLength(2);
     expect(fixture.api.create.mock.calls[1]?.[0]).toMatchObject({
       comment_length: "long",
+      comment_mood: "calm",
       relationship_level: "close",
       speech_style: "banmal",
     });

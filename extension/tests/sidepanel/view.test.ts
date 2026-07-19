@@ -20,10 +20,12 @@ const recommendation: ReviewPresentation = {
       { comment: "응원 댓글", id: "3", referencedDetail: "다음 계획", tone: "supportive" },
     ],
     commentLength: "medium",
+    commentMood: "warm",
     createdAt: "2026-07-17T00:00:00Z",
     editedComment: null,
     id: "recommendation",
     relationshipLevel: "friendly",
+    qualityWarnings: [],
     reviewStatus: "drafted",
     selectedCandidateId: null,
     sourceUrl: "https://blog.naver.com/synthetic/1",
@@ -44,6 +46,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     complete: vi.fn(),
     copy: vi.fn(),
     changeCommentLength: vi.fn(),
+    changeCommentMood: vi.fn(),
     changeRelationship: vi.fn(),
     changeSpeechStyle: vi.fn(),
     edit: vi.fn(),
@@ -80,6 +83,7 @@ describe("DomPanelView", () => {
       kind: "preview",
       preferences: {
         commentLength: "medium",
+        commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
       },
@@ -111,6 +115,7 @@ describe("DomPanelView", () => {
       kind: "preview",
       preferences: {
         commentLength: "medium",
+        commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
       },
@@ -153,6 +158,7 @@ describe("DomPanelView", () => {
       kind: "preview",
       preferences: {
         commentLength: "medium",
+        commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
       },
@@ -167,7 +173,12 @@ describe("DomPanelView", () => {
     expect(changeRelationship).toHaveBeenCalledWith("close");
     view.render({
       kind: "preview",
-      preferences: { commentLength: "long", relationshipLevel: "close", speechStyle: "banmal" },
+      preferences: {
+        commentLength: "long",
+        commentMood: "lively",
+        relationshipLevel: "close",
+        speechStyle: "banmal",
+      },
       preview,
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -176,6 +187,57 @@ describe("DomPanelView", () => {
       document.querySelector<HTMLInputElement>('input[name="speech-style"][value="banmal"]')
         ?.disabled,
     ).toBe(false);
+  });
+
+  it("exposes described mood and actual length options through labelled radio groups", () => {
+    const window = document.defaultView;
+    if (window === null) throw new Error("Synthetic window is missing");
+    const changeCommentMood = vi.fn();
+    view.bind(actions({ changeCommentMood }));
+    view.render({
+      kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        commentMood: "warm",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
+      preview: {
+        body: "충분한 길이의 합성 본문 내용입니다.",
+        frameId: 0,
+        originalLength: 20,
+        sourceUrl: "https://blog.naver.com/synthetic/mood",
+        tabId: 2,
+        title: "합성 제목",
+        transmittedLength: 20,
+        truncated: false,
+      },
+    });
+
+    expect(document.querySelector("#comment-length-options")?.textContent).toContain("40–80자");
+    expect(document.querySelector("#comment-length-options")?.textContent).toContain("200–320자");
+    expect(document.querySelector("#comment-mood-options")?.textContent).toContain(
+      "공감과 친근함을 담은 느낌",
+    );
+    document.querySelector<HTMLInputElement>('input[name="comment-mood"][value="lively"]')?.click();
+    expect(changeCommentMood).toHaveBeenCalledWith("lively");
+  });
+
+  it("shows deduplicated quality warnings without blocking three-candidate review", () => {
+    view.render({
+      kind: "review",
+      ...recommendation,
+      recommendation: {
+        ...recommendation.recommendation,
+        qualityWarnings: ["length_target_missed", "length_target_missed", "candidates_too_similar"],
+      },
+    });
+
+    expect((document.querySelector("#quality-warning-panel") as HTMLElement).hidden).toBe(false);
+    expect(document.querySelectorAll("#quality-warning-list li")).toHaveLength(2);
+    expect(document.querySelector("#quality-warning-list")?.textContent).toContain("길이 범위");
+    expect(document.querySelectorAll('#candidate-list input[name="candidate"]')).toHaveLength(3);
+    expect((document.querySelector("#approve-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("renders actionable errors and invokes retry from a keyboard-operable button", async () => {
@@ -219,7 +281,10 @@ describe("DomPanelView", () => {
     expect(document.activeElement?.id).toBe("result-title");
     expect(document.querySelector("#generated-relationship")?.textContent).toBe("편한 이웃");
     expect(document.querySelector("#generated-speech-style")?.textContent).toBe("존댓말");
-    expect(document.querySelector("#generated-comment-length")?.textContent).toBe("보통");
+    expect(document.querySelector("#generated-comment-length")?.textContent).toBe(
+      "보통 (100–160자)",
+    );
+    expect(document.querySelector("#generated-comment-mood")?.textContent).toBe("따뜻하게");
     radios[1]?.focus();
     radios[1]?.click();
     view.render({
@@ -341,6 +406,7 @@ describe("DomPanelView", () => {
       kind: "preview",
       preferences: {
         commentLength: "medium",
+        commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
       },

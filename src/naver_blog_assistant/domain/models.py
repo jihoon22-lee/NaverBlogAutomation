@@ -67,6 +67,14 @@ class CommentLength(StrEnum):
     LONG = "long"
 
 
+class CommentMood(StrEnum):
+    """Requested emotional energy for generated comments."""
+
+    CALM = "calm"
+    WARM = "warm"
+    LIVELY = "lively"
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationPreferences:
     """Immutable generation provenance attached to a recommendation."""
@@ -74,6 +82,7 @@ class GenerationPreferences:
     relationship: Relationship
     speech: SpeechStyle
     length: CommentLength
+    mood: CommentMood = CommentMood.WARM
 
     def __post_init__(self) -> None:
         if not isinstance(self.relationship, Relationship):
@@ -82,6 +91,8 @@ class GenerationPreferences:
             raise DomainValidationError("speech must be a SpeechStyle")
         if not isinstance(self.length, CommentLength):
             raise DomainValidationError("length must be a CommentLength")
+        if not isinstance(self.mood, CommentMood):
+            raise DomainValidationError("mood must be a CommentMood")
         if self.speech is SpeechStyle.BANMAL and self.relationship is not Relationship.CLOSE:
             raise DomainValidationError("banmal is allowed only for a close relationship")
 
@@ -90,7 +101,20 @@ DEFAULT_GENERATION_PREFERENCES: Final = GenerationPreferences(
     relationship=Relationship.FRIENDLY,
     speech=SpeechStyle.HONORIFIC,
     length=CommentLength.MEDIUM,
+    mood=CommentMood.WARM,
 )
+
+
+def comment_length_bounds(length: CommentLength) -> tuple[int, int]:
+    """Return the inclusive target character band for a generated comment."""
+    try:
+        return {
+            CommentLength.SHORT: (40, 80),
+            CommentLength.MEDIUM: (100, 160),
+            CommentLength.LONG: (200, 320),
+        }[length]
+    except (KeyError, TypeError) as error:
+        raise DomainValidationError("length must be a CommentLength") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,18 +154,17 @@ class CapturedPost:
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def request_hash_for(self, preferences: GenerationPreferences) -> str:
-        """Bind idempotency to effective preferences while preserving legacy defaults."""
+        """Bind idempotency to all effective generation-policy-v2 preferences."""
         if not isinstance(preferences, GenerationPreferences):
             raise DomainValidationError("preferences must be GenerationPreferences")
-        if preferences == DEFAULT_GENERATION_PREFERENCES:
-            return self.request_hash
         payload = json.dumps(
             {
-                "schema": "generation-preferences-v1",
+                "schema": "generation-policy-v2",
                 "post_hash": self.request_hash,
                 "relationship_level": preferences.relationship.value,
                 "speech_style": preferences.speech.value,
                 "comment_length": preferences.length.value,
+                "comment_mood": preferences.mood.value,
             },
             ensure_ascii=False,
             separators=(",", ":"),

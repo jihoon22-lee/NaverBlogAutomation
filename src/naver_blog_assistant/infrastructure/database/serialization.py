@@ -13,6 +13,7 @@ from naver_blog_assistant.domain import (
     CandidateTone,
     CommentCandidate,
     CommentLength,
+    CommentMood,
     GenerationPreferences,
     Recommendation,
     Relationship,
@@ -28,6 +29,7 @@ def serialize_generation_preferences(preferences: GenerationPreferences) -> str:
             "relationship": preferences.relationship.value,
             "speech": preferences.speech.value,
             "length": preferences.length.value,
+            "mood": preferences.mood.value,
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -51,13 +53,17 @@ def deserialize_generation_preferences(value: str) -> GenerationPreferences:
         length = data["length"]
     except KeyError as error:
         raise ValueError("generation preferences are incomplete") from error
-    if set(data) != {"relationship", "speech", "length"}:
+    if set(data) not in (
+        {"relationship", "speech", "length"},
+        {"relationship", "speech", "length", "mood"},
+    ):
         raise ValueError("generation preferences contain unknown fields")
     try:
         preferences = GenerationPreferences(
             relationship=Relationship(relationship),
             speech=SpeechStyle(speech),
             length=CommentLength(length),
+            mood=CommentMood(data.get("mood", CommentMood.WARM.value)),
         )
     except (TypeError, ValueError) as error:
         raise ValueError("generation preferences are invalid") from error

@@ -39,9 +39,11 @@ export class DomPanelView implements PanelView {
   readonly #errorTitle: HTMLElement;
   readonly #generateButton: HTMLButtonElement;
   readonly #generatedCommentLength: HTMLElement;
+  readonly #generatedCommentMood: HTMLElement;
   readonly #generatedRelationship: HTMLElement;
   readonly #generatedSpeechStyle: HTMLElement;
   readonly #commentLengthOptions: HTMLFieldSetElement;
+  readonly #commentMoodOptions: HTMLFieldSetElement;
   readonly #preferenceNotice: HTMLElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
   readonly #regenerateButton: HTMLButtonElement;
@@ -52,6 +54,8 @@ export class DomPanelView implements PanelView {
   readonly #previewTitle: HTMLElement;
   readonly #progressMessage: HTMLElement;
   readonly #progressPanel: HTMLElement;
+  readonly #qualityWarningList: HTMLElement;
+  readonly #qualityWarningPanel: HTMLElement;
   readonly #replaceButton: HTMLButtonElement;
   readonly #resultTitle: HTMLElement;
   readonly #retryButton: HTMLButtonElement;
@@ -82,9 +86,11 @@ export class DomPanelView implements PanelView {
     this.#errorTitle = requireElement(document, "#error-title");
     this.#generateButton = requireElement(document, "#generate-button");
     this.#generatedCommentLength = requireElement(document, "#generated-comment-length");
+    this.#generatedCommentMood = requireElement(document, "#generated-comment-mood");
     this.#generatedRelationship = requireElement(document, "#generated-relationship");
     this.#generatedSpeechStyle = requireElement(document, "#generated-speech-style");
     this.#commentLengthOptions = requireElement(document, "#comment-length-options");
+    this.#commentMoodOptions = requireElement(document, "#comment-mood-options");
     this.#preferenceNotice = requireElement(document, "#preference-notice");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
     this.#regenerateButton = requireElement(document, "#regenerate-button");
@@ -95,6 +101,8 @@ export class DomPanelView implements PanelView {
     this.#previewTitle = requireElement(document, "#preview-title");
     this.#progressMessage = requireElement(document, "#progress-message");
     this.#progressPanel = requireElement(document, "#progress-panel");
+    this.#qualityWarningList = requireElement(document, "#quality-warning-list");
+    this.#qualityWarningPanel = requireElement(document, "#quality-warning-panel");
     this.#replaceButton = requireElement(document, "#replace-button");
     this.#resultTitle = requireElement(document, "#result-title");
     this.#retryButton = requireElement(document, "#retry-button");
@@ -125,6 +133,10 @@ export class DomPanelView implements PanelView {
     this.#commentLengthOptions.addEventListener("change", (event) => {
       const input = this.#radioInput(event, "comment-length");
       if (input !== null) actions.changeCommentLength(input.value);
+    });
+    this.#commentMoodOptions.addEventListener("change", (event) => {
+      const input = this.#radioInput(event, "comment-mood");
+      if (input !== null) actions.changeCommentMood(input.value);
     });
     this.#regenerateButton.addEventListener("click", () => {
       if (
@@ -257,6 +269,7 @@ export class DomPanelView implements PanelView {
     this.#setChecked("relationship", preferences.relationshipLevel);
     this.#setChecked("speech-style", preferences.speechStyle);
     this.#setChecked("comment-length", preferences.commentLength);
+    this.#setChecked("comment-mood", preferences.commentMood);
     const banmal = this.#document.querySelector<HTMLInputElement>(
       'input[name="speech-style"][value="banmal"]',
     );
@@ -289,6 +302,16 @@ export class DomPanelView implements PanelView {
     this.#generatedRelationship.textContent = relationshipLabel(recommendation.relationshipLevel);
     this.#generatedSpeechStyle.textContent = speechStyleLabel(recommendation.speechStyle);
     this.#generatedCommentLength.textContent = commentLengthLabel(recommendation.commentLength);
+    this.#generatedCommentMood.textContent = commentMoodLabel(recommendation.commentMood);
+    const warnings = [...new Set(recommendation.qualityWarnings)];
+    this.#qualityWarningPanel.hidden = warnings.length === 0;
+    this.#qualityWarningList.replaceChildren(
+      ...warnings.map((warning) => {
+        const item = this.#document.createElement("li");
+        item.textContent = qualityWarningLabel(warning);
+        return item;
+      }),
+    );
     this.#summary.textContent = recommendation.summary;
     this.#topics.replaceChildren(
       ...recommendation.topics.map((topic) => {
@@ -365,12 +388,15 @@ export class DomPanelView implements PanelView {
     this.#generatedRelationship.textContent = "";
     this.#generatedSpeechStyle.textContent = "";
     this.#generatedCommentLength.textContent = "";
+    this.#generatedCommentMood.textContent = "";
+    this.#qualityWarningList.replaceChildren();
+    this.#qualityWarningPanel.hidden = true;
   }
 
   #preferenceInputs(): HTMLInputElement[] {
     return Array.from(
       this.#document.querySelectorAll<HTMLInputElement>(
-        'input[name="relationship"], input[name="speech-style"], input[name="comment-length"]',
+        'input[name="relationship"], input[name="speech-style"], input[name="comment-length"], input[name="comment-mood"]',
       ),
     );
   }
@@ -407,5 +433,22 @@ function speechStyleLabel(value: string): string {
 }
 
 function commentLengthLabel(value: string): string {
-  return { long: "길게", medium: "보통", short: "짧게" }[value] ?? value;
+  return (
+    { long: "길게 (200–320자)", medium: "보통 (100–160자)", short: "짧게 (40–80자)" }[value] ??
+    value
+  );
+}
+
+function commentMoodLabel(value: string): string {
+  return { calm: "차분하게", lively: "활기차게", warm: "따뜻하게" }[value] ?? value;
+}
+
+function qualityWarningLabel(value: string): string {
+  return (
+    {
+      candidate_roles_blurred: "댓글 후보별 역할 차이가 충분히 뚜렷하지 않을 수 있습니다.",
+      candidates_too_similar: "댓글 후보가 서로 비슷할 수 있으니 내용을 비교해 주세요.",
+      length_target_missed: "일부 댓글이 선택한 길이 범위를 벗어날 수 있습니다.",
+    }[value] ?? value
+  );
 }

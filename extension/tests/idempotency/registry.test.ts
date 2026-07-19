@@ -100,7 +100,70 @@ describe("IdempotencyRegistry", () => {
     await expect(subject.getOrCreate(digest(4))).rejects.toBeInstanceOf(RegistryQuarantinedError);
     expect(JSON.stringify(storage.value)).toContain("private");
     await subject.cleanupInvalid();
-    expect((storage.value[KEY] as { entries: unknown[] }).entries).toEqual([]);
+    expect(storage.value[KEY]).toEqual({
+      entries: [],
+      policyVersion: "generation-policy-v2",
+      schemaVersion: 2,
+    });
+  });
+
+  it("migrates only an empty legacy V1 registry to the V2 policy", async () => {
+    const storage = new MemoryStorage();
+    storage.value[KEY] = { entries: [], schemaVersion: 1 };
+
+    await expect(registry(storage).find(digest(41))).resolves.toBeNull();
+    expect(storage.value[KEY]).toEqual({
+      entries: [],
+      policyVersion: "generation-policy-v2",
+      schemaVersion: 2,
+    });
+  });
+
+  it("quarantines legacy attempts until explicit cleanup before creating a V2 key", async () => {
+    const storage = new MemoryStorage();
+    const legacyKey = "00000000-0000-4000-8000-000000000041";
+    storage.value[KEY] = {
+      entries: [
+        {
+          createdAt: 1_000,
+          digest: digest(41),
+          idempotencyKey: legacyKey,
+          state: "indeterminate",
+          updatedAt: 1_000,
+        },
+      ],
+      schemaVersion: 1,
+    };
+    const subject = registry(storage, () => 2_000);
+
+    await expect(subject.getOrCreate(digest(42))).rejects.toBeInstanceOf(RegistryQuarantinedError);
+    expect(storage.writes).toEqual([]);
+    expect(JSON.stringify(storage.value)).toContain(legacyKey);
+
+    await subject.cleanupAll();
+    await expect(subject.getOrCreate(digest(42))).resolves.toMatchObject({
+      digest: digest(42),
+      state: "active",
+    });
+    expect(JSON.stringify(storage.value)).not.toContain(legacyKey);
+    expect(storage.value[KEY]).toMatchObject({
+      policyVersion: "generation-policy-v2",
+      schemaVersion: 2,
+    });
+  });
+
+  it("quarantines a registry with an unknown policy version", async () => {
+    const storage = new MemoryStorage();
+    storage.value[KEY] = {
+      entries: [],
+      policyVersion: "generation-policy-v3",
+      schemaVersion: 2,
+    };
+
+    await expect(registry(storage).getOrCreate(digest(43))).rejects.toBeInstanceOf(
+      RegistryQuarantinedError,
+    );
+    expect(storage.writes).toEqual([]);
   });
 
   it("quarantines TTL metadata that exceeds the exact 60-minute retention", async () => {

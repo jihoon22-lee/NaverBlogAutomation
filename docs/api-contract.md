@@ -1,9 +1,9 @@
 # Side Panel Local API Contract
 
 The machine-readable contract is [`api/openapi.yaml`](api/openapi.yaml). This document records
-behavior that the Side Panel client and service implementation must preserve. The API remains
-backward compatible with the v1 contract implemented in PR 3; the architecture pivot changes its
-interactive consumer, not its schemas or endpoints.
+behavior that the Side Panel client and service implementation must preserve. The endpoints remain
+under `/api/v1`, while the generation-quality fields require the API and Side Panel to be upgraded
+together because the client intentionally rejects undeclared response fields.
 
 ## Transport
 
@@ -29,15 +29,16 @@ A UUID-valued `Idempotency-Key` header is required and must be stored before the
   "body": "전시에서 인상 깊었던 작품과 관람 동선을 정리한 본문입니다.",
   "relationship_level": "friendly",
   "speech_style": "honorific",
-  "comment_length": "medium"
+  "comment_length": "medium",
+  "comment_mood": "warm"
 }
 ```
 
-The three preference fields are optional independently. Omitted values default to `friendly`,
-`honorific`, and `medium`. `banmal` is accepted only with `relationship_level: close`; null,
-unknown values, and undeclared properties return `422`. Length targets are `short` (25–50 Korean
-characters, one sentence), `medium` (50–90, one or two sentences), and `long` (90–150, two or
-three sentences). They guide generation; the enforced response ceiling remains 500 characters.
+The four preference fields are optional independently. Omitted values default to `friendly`,
+`honorific`, `medium`, and `warm`. `banmal` is accepted only with `relationship_level: close`; null,
+unknown values, and undeclared properties return `422`. Length targets are `short` (40–80 Korean
+characters), `medium` (100–160), and `long` (200–320). The review editor ceiling remains 500
+characters. Mood values are `calm`, `warm`, and `lively` and apply to all three candidates.
 
 The server validates the host, normalizes whitespace, computes a content hash, generates three
 drafts, persists the result without the full body, and returns `201 Created`. Replaying the same key
@@ -63,6 +64,8 @@ key with different content returns `409 Conflict`.
   "relationship_level": "friendly",
   "speech_style": "honorific",
   "comment_length": "medium",
+  "comment_mood": "warm",
+  "quality_warnings": [],
   "created_at": "2026-07-16T10:00:00Z"
 }
 ```
@@ -71,9 +74,9 @@ The example abbreviates `candidates`; a successful response always contains exac
 
 ### Existing API and Target Client Retry Ownership
 
-The service retains the legacy normalized post digest for the effective default preferences.
-For any non-default preference it hashes a versioned canonical JSON composite containing the post
-digest and all three effective preference values. The Side Panel retains the associated
+The service and Side Panel hash a `generation-policy-v2` canonical JSON composite containing the
+post digest and all four effective preference values. This prevents results created under the old
+length and role policy from replaying for a new request. The Side Panel retains the associated
 idempotency key before transmission and reuses that key after a duplicate click,
 network interruption, `504`, or `generation_in_progress` response when the same payload remains
 available. Current successful replays return `Idempotency-Replayed: true`.

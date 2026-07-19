@@ -22,6 +22,7 @@ describe("generation preferences", () => {
     expect(
       isValidGenerationPreferences({
         commentLength: "long",
+        commentMood: "lively",
         relationshipLevel: "close",
         speechStyle: "banmal",
       }),
@@ -29,6 +30,7 @@ describe("generation preferences", () => {
     expect(
       isValidGenerationPreferences({
         commentLength: "long",
+        commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "banmal",
       }),
@@ -39,11 +41,13 @@ describe("generation preferences", () => {
     expect(
       requestPreferenceFields({
         commentLength: "short",
+        commentMood: "calm",
         relationshipLevel: "polite",
         speechStyle: "honorific",
       }),
     ).toEqual({
       comment_length: "short",
+      comment_mood: "calm",
       relationship_level: "polite",
       speech_style: "honorific",
     });

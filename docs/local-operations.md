@@ -28,8 +28,9 @@ candidate, edited comment, review state와 idempotency/failure metadata가 명�
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
-최대 20개 저장하고, 별도 versioned record에는 댓글 길이(`short`, `medium`, `long`)만 저장합니다.
-본문, URL, 관계와 말투는 저장하지 않습니다. Completed, released, dismissed entry는 60분 후
+최대 20개 저장하고, 별도 versioned record에는 댓글 길이(`short`, `medium`, `long`)와 분위기
+(`calm`, `warm`, `lively`)만 저장합니다. 본문, URL, 관계와 말투는 저장하지 않습니다.
+Completed, released, dismissed entry는 60분 후
 만료됩니다. Active,
 terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해 자동 삭제되지
 않습니다. Registry가 invalid 또는 full이면 Side Panel이 확인 dialog와 함께 cleanup action을
@@ -71,7 +72,8 @@ browser profile 대신 redacted status와 synthetic reproduction만 첨부하세
 ## Opt-in Manual Smoke Tests
 
 Live OpenAI smoke는 실제 비용과 외부 전송이 발생합니다. Private env에 key를 넣고 다음 명령을
-명시적으로 실행합니다. `--no-cov`는 opt-in test 한 개를 coverage gate와 분리합니다.
+명시적으로 실행합니다. `--no-cov`는 세 가지 길이·분위기 조합의 opt-in test를 coverage gate와
+분리합니다.
 
 ```bash
 RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \

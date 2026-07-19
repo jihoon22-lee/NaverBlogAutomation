@@ -13,6 +13,7 @@ from naver_blog_assistant.domain import (
     CandidateTone,
     CommentCandidate,
     CommentLength,
+    CommentMood,
     DomainValidationError,
     GenerationPreferences,
     Recommendation,
@@ -55,7 +56,7 @@ def _recommendation(preferences: GenerationPreferences) -> Recommendation:
 
 def test_generation_preferences_use_stable_canonical_json() -> None:
     assert DEFAULT_GENERATION_PREFERENCES_JSON == (
-        '{"length":"medium","relationship":"friendly","speech":"honorific"}'
+        '{"length":"medium","mood":"warm","relationship":"friendly","speech":"honorific"}'
     )
     assert (
         deserialize_generation_preferences(DEFAULT_GENERATION_PREFERENCES_JSON)
@@ -85,6 +86,7 @@ def test_snapshot_round_trip_preserves_non_default_generation_preferences() -> N
         relationship=Relationship.CLOSE,
         speech=SpeechStyle.BANMAL,
         length=CommentLength.LONG,
+        mood=CommentMood.LIVELY,
     )
     item = _recommendation(preferences)
 
@@ -94,6 +96,7 @@ def test_snapshot_round_trip_preserves_non_default_generation_preferences() -> N
         "relationship": "close",
         "speech": "banmal",
         "length": "long",
+        "mood": "lively",
     }
     assert deserialize_snapshot(encoded) == item
 
@@ -107,6 +110,19 @@ def test_legacy_snapshot_without_generation_preferences_uses_named_default() -> 
     assert restored.preferences is DEFAULT_GENERATION_PREFERENCES
 
 
+def test_legacy_three_field_preferences_default_mood_to_warm() -> None:
+    restored = deserialize_generation_preferences(
+        '{"length":"short","relationship":"new","speech":"honorific"}'
+    )
+
+    assert restored == GenerationPreferences(
+        relationship=Relationship.NEW,
+        speech=SpeechStyle.HONORIFIC,
+        length=CommentLength.SHORT,
+        mood=CommentMood.WARM,
+    )
+
+
 @pytest.mark.parametrize(
     "preferences",
     [
@@ -115,6 +131,12 @@ def test_legacy_snapshot_without_generation_preferences_uses_named_default() -> 
         {},
         {"relationship": "friendly", "speech": "honorific", "length": "unknown"},
         {"relationship": "friendly", "speech": "banmal", "length": "medium"},
+        {
+            "relationship": "friendly",
+            "speech": "honorific",
+            "length": "medium",
+            "mood": "electric",
+        },
     ],
 )
 def test_snapshot_does_not_treat_present_invalid_preferences_as_legacy(
@@ -132,6 +154,7 @@ def test_serializer_preserves_all_preference_values() -> None:
         relationship=Relationship.NEW,
         speech=SpeechStyle.HONORIFIC,
         length=CommentLength.SHORT,
+        mood=CommentMood.CALM,
     )
 
     assert deserialize_generation_preferences(serialize_generation_preferences(preferences)) == (

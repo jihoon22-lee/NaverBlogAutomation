@@ -61,9 +61,24 @@
           <p id="banmal-help" class="help">반말은 ‘가까운 사이’를 선택했을 때만 사용할 수 있습니다.</p>
           <fieldset id="comment-length-options" class="preference-options">
             <legend>댓글 길이</legend>
-            <label class="option"><input type="radio" name="comment-length" value="short" /> 짧게</label>
-            <label class="option"><input type="radio" name="comment-length" value="medium" /> 보통</label>
-            <label class="option"><input type="radio" name="comment-length" value="long" /> 길게</label>
+            <label class="option"><input type="radio" name="comment-length" value="short" /> 짧게 (40–80자)</label>
+            <label class="option"><input type="radio" name="comment-length" value="medium" /> 보통 (100–160자)</label>
+            <label class="option"><input type="radio" name="comment-length" value="long" /> 길게 (200–320자)</label>
+          </fieldset>
+          <fieldset id="comment-mood-options" class="preference-options descriptive-options">
+            <legend>댓글 분위기</legend>
+            <label class="option">
+              <input type="radio" name="comment-mood" value="calm" />
+              <span><strong>차분하게</strong><small>담백하고 안정적인 느낌</small></span>
+            </label>
+            <label class="option">
+              <input type="radio" name="comment-mood" value="warm" />
+              <span><strong>따뜻하게</strong><small>공감과 친근함을 담은 느낌</small></span>
+            </label>
+            <label class="option">
+              <input type="radio" name="comment-mood" value="lively" />
+              <span><strong>활기차게</strong><small>밝고 생동감 있는 느낌</small></span>
+            </label>
           </fieldset>
           <p id="preference-notice" class="notice" role="status" aria-live="polite" hidden></p>
         </section>
@@ -82,7 +97,12 @@
           <div><dt>관계</dt><dd id="generated-relationship"></dd></div>
           <div><dt>말투</dt><dd id="generated-speech-style"></dd></div>
           <div><dt>길이</dt><dd id="generated-comment-length"></dd></div>
+          <div><dt>분위기</dt><dd id="generated-comment-mood"></dd></div>
         </dl>
+        <section id="quality-warning-panel" class="notice quality-warning" role="status" aria-live="polite" hidden>
+          <h3>추천 품질 안내</h3>
+          <ul id="quality-warning-list"></ul>
+        </section>
         <h3>글 요약</h3>
         <p id="summary"></p>
         <ul id="topics" class="topics" aria-label="주요 주제"></ul>

@@ -166,8 +166,36 @@ label {
   opacity: 0.7;
 }
 
+.descriptive-options {
+  display: grid;
+}
+
+.descriptive-options .option {
+  border-radius: 10px;
+}
+
+.descriptive-options :where(.option) span {
+  display: grid;
+  gap: 2px;
+}
+
+.descriptive-options :where(.option) small {
+  color: #526159;
+  font-weight: 400;
+}
+
+.quality-warning h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.quality-warning ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
 .generated-preferences {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 10px 12px;
   border-radius: 8px;
   background: #f0f4f1;

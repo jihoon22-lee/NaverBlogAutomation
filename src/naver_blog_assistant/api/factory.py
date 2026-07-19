@@ -164,7 +164,7 @@ class ApiSettings:
     openai_model: str = "gpt-5.6-terra"
     openai_reasoning_effort: Literal["low", "medium", "high"] = "low"
     openai_timeout_seconds: float = 35.0
-    openai_max_output_tokens: int = 1_200
+    openai_max_output_tokens: int = 3_000
     rate_limit_requests: int = 10
     rate_limit_window_seconds: float = 60.0
 
@@ -239,7 +239,7 @@ class ApiSettings:
                 os.getenv("OPENAI_REASONING_EFFORT", "low").strip().lower(),
             ),
             openai_timeout_seconds=_environment_float("OPENAI_TIMEOUT_SECONDS", "35"),
-            openai_max_output_tokens=_environment_int("OPENAI_MAX_OUTPUT_TOKENS", "1200"),
+            openai_max_output_tokens=_environment_int("OPENAI_MAX_OUTPUT_TOKENS", "3000"),
             rate_limit_requests=_environment_int("RATE_LIMIT_REQUESTS", "10"),
             rate_limit_window_seconds=_environment_float("RATE_LIMIT_WINDOW_SECONDS", "60"),
         )

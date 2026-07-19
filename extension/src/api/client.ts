@@ -2,9 +2,11 @@ import type {
   ApiResult,
   CandidateTone,
   CommentLength,
+  CommentMood,
   CommentCandidate,
   CreateRecommendationRequest,
   ProblemDetails,
+  QualityWarning,
   Recommendation,
   RelationshipLevel,
   ReviewRecommendationRequest,
@@ -20,6 +22,12 @@ const REVIEW_STATUSES = new Set<ReviewStatus>(["approved", "completed", "drafted
 const RELATIONSHIP_LEVELS = new Set<RelationshipLevel>(["close", "friendly", "new", "polite"]);
 const SPEECH_STYLES = new Set<SpeechStyle>(["banmal", "honorific"]);
 const COMMENT_LENGTHS = new Set<CommentLength>(["long", "medium", "short"]);
+const COMMENT_MOODS = new Set<CommentMood>(["calm", "lively", "warm"]);
+const QUALITY_WARNINGS = new Set<QualityWarning>([
+  "candidate_roles_blurred",
+  "candidates_too_similar",
+  "length_target_missed",
+]);
 
 type Fetch = typeof fetch;
 
@@ -285,10 +293,12 @@ function parseRecommendation(value: unknown): Recommendation | null {
     !onlyKeys(value, [
       "candidates",
       "comment_length",
+      "comment_mood",
       "created_at",
       "edited_comment",
       "id",
       "relationship_level",
+      "quality_warnings",
       "review_status",
       "selected_candidate_id",
       "source_url",
@@ -311,6 +321,7 @@ function parseRecommendation(value: unknown): Recommendation | null {
   const editedComment = nullableString(value, "edited_comment", 500);
   const reviewStatus = value.review_status;
   const preferences = parseGenerationPreferences(value);
+  const qualityWarnings = parseQualityWarnings(value.quality_warnings);
   if (
     id === null ||
     !UUID.test(id) ||
@@ -327,6 +338,7 @@ function parseRecommendation(value: unknown): Recommendation | null {
     typeof reviewStatus !== "string" ||
     !REVIEW_STATUSES.has(reviewStatus as ReviewStatus) ||
     preferences === null ||
+    qualityWarnings === null ||
     !Array.isArray(value.topics) ||
     value.topics.length < 1 ||
     value.topics.length > 5 ||
@@ -371,19 +383,25 @@ function parseRecommendation(value: unknown): Recommendation | null {
     relationshipLevel: preferences.relationshipLevel,
     speechStyle: preferences.speechStyle,
     commentLength: preferences.commentLength,
+    commentMood: preferences.commentMood,
+    qualityWarnings,
   };
 }
 
 function parseGenerationPreferences(value: Record<string, unknown>): {
   commentLength: CommentLength;
+  commentMood: CommentMood;
   relationshipLevel: RelationshipLevel;
   speechStyle: SpeechStyle;
 } | null {
   const keys = ["comment_length", "relationship_level", "speech_style"] as const;
   const present = keys.filter((key) => Object.hasOwn(value, key));
+  const commentMood = parseCommentMood(value.comment_mood);
+  if (commentMood === null) return null;
   if (present.length === 0) {
     return {
       commentLength: "medium",
+      commentMood,
       relationshipLevel: "friendly",
       speechStyle: "honorific",
     };
@@ -397,6 +415,7 @@ function parseGenerationPreferences(value: Record<string, unknown>): {
   if (
     typeof commentLength !== "string" ||
     !COMMENT_LENGTHS.has(commentLength as CommentLength) ||
+    commentMood === null ||
     typeof relationshipLevel !== "string" ||
     !RELATIONSHIP_LEVELS.has(relationshipLevel as RelationshipLevel) ||
     typeof speechStyle !== "string" ||
@@ -407,9 +426,32 @@ function parseGenerationPreferences(value: Record<string, unknown>): {
   }
   return {
     commentLength: commentLength as CommentLength,
+    commentMood,
     relationshipLevel: relationshipLevel as RelationshipLevel,
     speechStyle: speechStyle as SpeechStyle,
   };
+}
+
+function parseCommentMood(value: unknown): CommentMood | null {
+  if (value === undefined) return "warm";
+  return typeof value === "string" && COMMENT_MOODS.has(value as CommentMood)
+    ? (value as CommentMood)
+    : null;
+}
+
+function parseQualityWarnings(value: unknown): QualityWarning[] | null {
+  if (value === undefined) return [];
+  if (
+    !Array.isArray(value) ||
+    value.length > 3 ||
+    new Set(value).size !== value.length ||
+    !value.every(
+      (warning) => typeof warning === "string" && QUALITY_WARNINGS.has(warning as QualityWarning),
+    )
+  ) {
+    return null;
+  }
+  return value as QualityWarning[];
 }
 
 function parseCandidate(value: unknown): CommentCandidate | null {

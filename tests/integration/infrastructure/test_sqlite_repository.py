@@ -29,6 +29,7 @@ from naver_blog_assistant.domain import (
     CapturedPost,
     CommentCandidate,
     CommentLength,
+    CommentMood,
     GeneratedComment,
     GenerationOutput,
     GenerationPreferences,
@@ -303,7 +304,7 @@ def test_populated_v1_to_v2_preserves_all_idempotency_states(tmp_path: Path) -> 
     engine.dispose()
 
 
-def test_populated_v2_to_v3_backfills_preferences_and_replays_legacy_snapshot(
+def test_populated_v2_to_head_backfills_preferences_mood_and_replays_legacy_snapshot(
     tmp_path: Path,
 ) -> None:
     database_url = f"sqlite:///{tmp_path / 'populated-v2.db'}"
@@ -383,6 +384,18 @@ def test_populated_v2_to_v3_backfills_preferences_and_replays_legacy_snapshot(
     )
     assert preference_column["nullable"] is False
     assert preference_column["default"] is not None
+    with engine.connect() as connection:
+        stored_preferences = json.loads(
+            connection.exec_driver_sql(
+                "SELECT generation_preferences_json FROM recommendations"
+            ).scalar_one()
+        )
+    assert stored_preferences == {
+        "length": "medium",
+        "mood": "warm",
+        "relationship": "friendly",
+        "speech": "honorific",
+    }
     repository = SqliteRepository(engine, clock=lambda: NOW)
     canonical = repository.get(item.id)
     assert canonical is not None
@@ -398,7 +411,9 @@ def test_populated_v2_to_v3_backfills_preferences_and_replays_legacy_snapshot(
     engine.dispose()
 
 
-def test_default_preferences_survive_v3_downgrade_and_reupgrade(tmp_path: Path) -> None:
+def test_default_preferences_survive_mood_and_v3_downgrade_then_reupgrade(
+    tmp_path: Path,
+) -> None:
     database_url = f"sqlite:///{tmp_path / 'default-preferences-downgrade.db'}"
     config = alembic_config(database_url)
     command.upgrade(config, "head")
@@ -413,7 +428,7 @@ def test_default_preferences_survive_v3_downgrade_and_reupgrade(tmp_path: Path) 
     )
     engine.dispose()
 
-    command.downgrade(config, "-1")
+    command.downgrade(config, "20260717_0002")
     engine = create_sqlite_engine(database_url)
     assert "generation_preferences_json" not in {
         column["name"] for column in inspect(engine).get_columns("recommendations")
@@ -467,13 +482,47 @@ def test_v3_downgrade_refuses_non_default_preference_provenance(tmp_path: Path) 
     engine.dispose()
 
     with pytest.raises(RuntimeError, match="non-default generation preferences"):
-        command.downgrade(config, "-1")
+        command.downgrade(config, "20260717_0002")
 
     engine = create_sqlite_engine(database_url)
     with engine.connect() as connection:
         assert (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
             == "20260719_0003"
+        )
+    persisted = SqliteRepository(engine, clock=lambda: NOW).get(item.id)
+    assert persisted is not None
+    assert persisted.preferences == preferences
+    engine.dispose()
+
+
+def test_v4_downgrade_refuses_non_default_generation_mood(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'non-default-mood.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    preferences = GenerationPreferences(
+        relationship=Relationship.FRIENDLY,
+        speech=SpeechStyle.HONORIFIC,
+        length=CommentLength.MEDIUM,
+        mood=CommentMood.LIVELY,
+    )
+    item = replace(recommendation(), preferences=preferences)
+    reservation = repository.reserve(KEY, REQUEST_HASH)
+    assert reservation.attempt_id is not None
+    repository.mark_generation_started(KEY, reservation.attempt_id)
+    repository.commit_generation(KEY, reservation.attempt_id, recommendation=item)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="non-default generation mood"):
+        command.downgrade(config, "20260719_0003")
+
+    engine = create_sqlite_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
+            == "20260719_0004"
         )
     persisted = SqliteRepository(engine, clock=lambda: NOW).get(item.id)
     assert persisted is not None

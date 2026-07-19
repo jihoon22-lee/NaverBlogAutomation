@@ -15,7 +15,7 @@ from naver_blog_assistant.api.models import (
     RecommendationResponse,
     ReviewRecommendationRequest,
 )
-from naver_blog_assistant.domain import CommentLength, Relationship, SpeechStyle
+from naver_blog_assistant.domain import CommentLength, CommentMood, Relationship, SpeechStyle
 
 ROOT = Path(__file__).parents[3]
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -111,12 +111,22 @@ def test_transport_models_preserve_contract_fields_and_limits() -> None:
     assert request_properties["speech_style"]["enum"] == ["honorific", "banmal"]
     assert request_properties["comment_length"]["default"] == "medium"
     assert request_properties["comment_length"]["enum"] == ["short", "medium", "long"]
+    assert request_properties["comment_mood"]["default"] == "warm"
+    assert request_properties["comment_mood"]["enum"] == ["calm", "warm", "lively"]
 
     response_properties = RecommendationResponse.model_json_schema()["properties"]
     assert response_properties["candidates"]["minItems"] == 3
     assert response_properties["candidates"]["maxItems"] == 3
+    assert response_properties["quality_warnings"]["maxItems"] == 3
+    assert response_properties["quality_warnings"]["uniqueItems"] is True
     response_required = set(RecommendationResponse.model_json_schema()["required"])
-    assert {"relationship_level", "speech_style", "comment_length"} <= response_required
+    assert {
+        "relationship_level",
+        "speech_style",
+        "comment_length",
+        "comment_mood",
+        "quality_warnings",
+    } <= response_required
     assert "relationship_level" not in CreateRecommendationRequest.model_json_schema()["required"]
 
 
@@ -129,15 +139,22 @@ def test_request_preferences_default_map_and_allow_partial_override() -> None:
 
     defaults = CreateRecommendationRequest.model_validate(base).to_generation_preferences()
     partial = CreateRecommendationRequest.model_validate(
-        {**base, "relationship_level": "polite", "comment_length": "long"}
+        {
+            **base,
+            "relationship_level": "polite",
+            "comment_length": "long",
+            "comment_mood": "lively",
+        }
     ).to_generation_preferences()
 
     assert defaults.relationship is Relationship.FRIENDLY
     assert defaults.speech is SpeechStyle.HONORIFIC
     assert defaults.length is CommentLength.MEDIUM
+    assert defaults.mood is CommentMood.WARM
     assert partial.relationship is Relationship.POLITE
     assert partial.speech is SpeechStyle.HONORIFIC
     assert partial.length is CommentLength.LONG
+    assert partial.mood is CommentMood.LIVELY
 
 
 @pytest.mark.parametrize(
@@ -146,9 +163,11 @@ def test_request_preferences_default_map_and_allow_partial_override() -> None:
         {"relationship_level": None},
         {"speech_style": None},
         {"comment_length": None},
+        {"comment_mood": None},
         {"relationship_level": "unknown"},
         {"speech_style": "formal"},
         {"comment_length": "extra-long"},
+        {"comment_mood": "electric"},
         {"relationship_level": "friendly", "speech_style": "banmal"},
         {"unexpected": "value"},
     ],
