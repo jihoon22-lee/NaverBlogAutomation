@@ -76,7 +76,9 @@ review conflict is recovered by fetching the current recommendation before the u
 The adapter uses the Responses API with Pydantic Structured Outputs. The default model is
 `gpt-5.6-terra`, with low reasoning effort and provider storage disabled using `store=false`.
 Configuration may override the model without weakening output validation. Article content is
-untrusted data: it is delimited from application instructions and cannot redefine the task.
+untrusted data: the entire provider input channel remains untrusted even when article text contains
+delimiter-like strings. Validated preference enums select static relationship, speech, and target
+length directives in trusted instructions; raw article fields cannot redefine those directives.
 
 The result contains a short summary, one to five topics, and exactly three grounded candidates in
 the warm, curious, and supportive tones. Refusals, rate limits, timeouts, unavailable providers,
@@ -109,7 +111,10 @@ or show manual recovery guidance.
 
 The extension normalizes whitespace in URL, title, and body using the shared contract, applies the
 100,000-code-point limit, serializes `{source_url,title,body}` in a canonical key order, and hashes
-its UTF-8 bytes. It persists the digest and UUID before sending `POST /api/v1/recommendations`.
+its UTF-8 bytes. Default generation preferences preserve this legacy digest. A non-default request
+uses a versioned, compact canonical JSON composite of that post digest and all three effective
+preference values so the same key cannot replay a differently configured generation. It persists
+the digest and UUID before sending `POST /api/v1/recommendations`.
 Unicode and emoji test vectors keep the TypeScript and Python identity rules aligned. Duplicate
 clicks, network interruption, or a `504` reuse that key whenever the same payload is available. A
 completed generation returns the immutable first response; an active one returns

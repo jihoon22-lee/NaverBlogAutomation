@@ -26,9 +26,18 @@ A UUID-valued `Idempotency-Key` header is required and must be stored before the
 {
   "source_url": "https://blog.naver.com/example/123456789",
   "title": "주말에 다녀온 전시 후기",
-  "body": "전시에서 인상 깊었던 작품과 관람 동선을 정리한 본문입니다."
+  "body": "전시에서 인상 깊었던 작품과 관람 동선을 정리한 본문입니다.",
+  "relationship_level": "friendly",
+  "speech_style": "honorific",
+  "comment_length": "medium"
 }
 ```
+
+The three preference fields are optional independently. Omitted values default to `friendly`,
+`honorific`, and `medium`. `banmal` is accepted only with `relationship_level: close`; null,
+unknown values, and undeclared properties return `422`. Length targets are `short` (25–50 Korean
+characters, one sentence), `medium` (50–90, one or two sentences), and `long` (90–150, two or
+three sentences). They guide generation; the enforced response ceiling remains 500 characters.
 
 The server validates the host, normalizes whitespace, computes a content hash, generates three
 drafts, persists the result without the full body, and returns `201 Created`. Replaying the same key
@@ -51,6 +60,9 @@ key with different content returns `409 Conflict`.
     }
   ],
   "review_status": "drafted",
+  "relationship_level": "friendly",
+  "speech_style": "honorific",
+  "comment_length": "medium",
   "created_at": "2026-07-16T10:00:00Z"
 }
 ```
@@ -59,8 +71,10 @@ The example abbreviates `candidates`; a successful response always contains exac
 
 ### Existing API and Target Client Retry Ownership
 
-The Side Panel derives a stable digest from the exact normalized POST payload and retains the
-associated idempotency key before transmission. It reuses that key after a duplicate click,
+The service retains the legacy normalized post digest for the effective default preferences.
+For any non-default preference it hashes a versioned canonical JSON composite containing the post
+digest and all three effective preference values. The Side Panel retains the associated
+idempotency key before transmission and reuses that key after a duplicate click,
 network interruption, `504`, or `generation_in_progress` response when the same payload remains
 available. Current successful replays return `Idempotency-Replayed: true`.
 
@@ -121,8 +135,9 @@ The service maps provider failures to `generation_rate_limited`, `generation_tim
 `generation_indeterminate`, and replays terminal failures as specified above. Responses never
 include API keys, source text, provider request bodies, stack traces, or raw provider errors.
 
-The OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`.
-Those are server-side generation settings and do not change this transport schema.
+The OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`. Validated
+preference enums map to static trusted instructions; URL, title, and body never influence that
+mapping. Article title/body stay in the untrusted input channel, and the source URL is not sent.
 
 ## Compatibility Rules
 

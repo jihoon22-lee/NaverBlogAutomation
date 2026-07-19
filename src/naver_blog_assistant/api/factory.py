@@ -64,6 +64,7 @@ from naver_blog_assistant.domain import (
     CapturedPost,
     DomainValidationError,
     GenerationOutput,
+    GenerationPreferences,
     ReviewPatch,
     ReviewTransitionError,
 )
@@ -387,11 +388,13 @@ def create_app(
             title=payload.title,
             body=payload.body,
         )
+        preferences = payload.to_generation_preferences()
         try:
             generation_task = asyncio.create_task(
                 asyncio.to_thread(
                     generate.execute,
                     post=post,
+                    preferences=preferences,
                     idempotency_key=idempotency_key,
                 )
             )
@@ -634,11 +637,11 @@ class _LocallyRateLimitedGenerator:
         self._generator = generator
         self._limiter = limiter
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
         retry_after = self._limiter.acquire()
         if retry_after is not None:
             raise _LocalRateLimitError(retry_after)
-        return self._generator.generate(post)
+        return self._generator.generate(post, preferences)
 
 
 class _LocalRateLimitError(GenerationRateLimitedError, GenerationNotStartedError):

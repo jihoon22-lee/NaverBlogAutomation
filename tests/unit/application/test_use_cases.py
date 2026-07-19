@@ -22,11 +22,15 @@ from naver_blog_assistant.domain import (
     DEFAULT_GENERATION_PREFERENCES,
     CandidateTone,
     CapturedPost,
+    CommentLength,
     GeneratedComment,
     GenerationOutput,
+    GenerationPreferences,
     Recommendation,
+    Relationship,
     ReviewPatch,
     ReviewStatus,
+    SpeechStyle,
 )
 from naver_blog_assistant.ports import (
     GenerationFailureSnapshot,
@@ -47,10 +51,12 @@ class FakeGenerator:
     error: Exception | None = None
     calls: int = 0
     received_post: CapturedPost | None = None
+    received_preferences: GenerationPreferences | None = None
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
         self.calls += 1
         self.received_post = post
+        self.received_preferences = preferences
         if self.error is not None:
             raise self.error
         return self.output
@@ -216,8 +222,29 @@ def test_generate_creates_three_tones_and_persists_no_full_body() -> None:
     assert result.recommendation.excerpt == post.excerpt
     assert not hasattr(result.recommendation, "body")
     assert generator.received_post is post
+    assert generator.received_preferences is DEFAULT_GENERATION_PREFERENCES
     assert recommendations.items == {result.recommendation.id: result.recommendation}
     assert idempotency.records[KEY][1] is result.recommendation
+
+
+def test_generate_passes_and_persists_explicit_preferences() -> None:
+    use_case, generator, _, idempotency = build_generation_use_case()
+    post = captured_post()
+    preferences = GenerationPreferences(
+        relationship=Relationship.CLOSE,
+        speech=SpeechStyle.BANMAL,
+        length=CommentLength.LONG,
+    )
+
+    result = use_case.execute(
+        post=post,
+        preferences=preferences,
+        idempotency_key=KEY,
+    )
+
+    assert generator.received_preferences is preferences
+    assert result.recommendation.preferences is preferences
+    assert idempotency.records[KEY][0] == post.request_hash_for(preferences)
 
 
 def test_generate_replays_completed_request_without_calling_generator() -> None:

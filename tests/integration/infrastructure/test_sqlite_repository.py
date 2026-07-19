@@ -80,7 +80,8 @@ class DoubleFailingRepository(FailingFailureRepository):
 
 
 class StaticGenerator:
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
+        del preferences
         return GenerationOutput(
             summary=f"{post.title} 요약",
             topics=("전시",),
@@ -99,7 +100,8 @@ class TimeoutGenerator:
     def __init__(self) -> None:
         self.calls = 0
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
+        del preferences
         self.calls += 1
         raise TimeoutError("synthetic provider timeout")
 
@@ -108,7 +110,8 @@ class ErrorGenerator:
     def __init__(self, error: Exception) -> None:
         self.error = error
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
+        del post, preferences
         raise self.error
 
 

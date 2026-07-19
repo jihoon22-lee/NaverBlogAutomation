@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 import time
@@ -15,6 +16,8 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
 from openai import OpenAI
@@ -25,7 +28,7 @@ from naver_blog_assistant.application import (
     GenerationRefusedError,
     GenerationUnavailableError,
 )
-from naver_blog_assistant.domain import CapturedPost, GenerationOutput
+from naver_blog_assistant.domain import CapturedPost, GenerationOutput, GenerationPreferences
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 from naver_blog_assistant.ports import GenerationNotStartedError
@@ -33,6 +36,7 @@ from naver_blog_assistant.ports import GenerationNotStartedError
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 BLOG_URL = "https://blog.naver.com/example/123"
 BODY = "전시에서 인상 깊었던 작품과 관람 동선을 자세하게 정리한 테스트 본문입니다."
+ROOT = Path(__file__).parents[3]
 
 
 @pytest.fixture
@@ -84,6 +88,9 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
 
     assert payload["title"] == "주말 전시 후기"
     assert payload["review_status"] == "drafted"
+    assert payload["relationship_level"] == "friendly"
+    assert payload["speech_style"] == "honorific"
+    assert payload["comment_length"] == "medium"
     assert len(payload["candidates"]) == 3
     assert {item["tone"] for item in payload["candidates"]} == {
         "warm",
@@ -92,6 +99,54 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     }
     assert "content_hash" not in payload and "excerpt" not in payload and "body" not in payload
     assert client.get(f"/api/v1/recommendations/{recommendation_id}").json() == payload
+
+
+def test_custom_preferences_are_generated_persisted_and_echoed(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/recommendations",
+        json={
+            **request_payload(),
+            "relationship_level": "close",
+            "speech_style": "banmal",
+            "comment_length": "long",
+        },
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert {
+        "relationship_level": payload["relationship_level"],
+        "speech_style": payload["speech_style"],
+        "comment_length": payload["comment_length"],
+    } == {
+        "relationship_level": "close",
+        "speech_style": "banmal",
+        "comment_length": "long",
+    }
+    assert all(90 <= len(candidate["comment"]) <= 150 for candidate in payload["candidates"])
+    assert client.get(f"/api/v1/recommendations/{payload['id']}").json() == payload
+
+
+@pytest.mark.parametrize(
+    "preferences",
+    [
+        {"relationship_level": "friendly", "speech_style": "banmal"},
+        {"relationship_level": None},
+        {"speech_style": "formal"},
+        {"comment_length": "extra-long"},
+    ],
+)
+def test_invalid_preferences_return_422_problem(
+    client: TestClient, preferences: dict[str, object]
+) -> None:
+    response = client.post(
+        "/api/v1/recommendations",
+        json={**request_payload(), **preferences},
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+
+    assert_problem(response, status=422, code="invalid_request")
 
 
 def test_idempotency_replay_and_content_conflict(client: TestClient) -> None:
@@ -118,6 +173,37 @@ def test_idempotency_replay_and_content_conflict(client: TestClient) -> None:
     assert replay.headers["Idempotency-Replayed"] == "true"
     assert replay.json() == first.json()
     assert_problem(conflict, status=409, code="idempotency_conflict")
+
+
+def test_idempotency_defaults_replay_but_preference_changes_conflict(
+    client: TestClient,
+) -> None:
+    key = uuid4()
+    omitted = client.post(
+        "/api/v1/recommendations",
+        json=request_payload(),
+        headers={"Idempotency-Key": str(key)},
+    )
+    explicit_defaults = client.post(
+        "/api/v1/recommendations",
+        json={
+            **request_payload(),
+            "relationship_level": "friendly",
+            "speech_style": "honorific",
+            "comment_length": "medium",
+        },
+        headers={"Idempotency-Key": str(key)},
+    )
+    changed = client.post(
+        "/api/v1/recommendations",
+        json={**request_payload(), "comment_length": "short"},
+        headers={"Idempotency-Key": str(key)},
+    )
+
+    assert omitted.status_code == 201
+    assert explicit_defaults.status_code == 200
+    assert explicit_defaults.json() == omitted.json()
+    assert_problem(changed, status=409, code="idempotency_conflict")
 
 
 def test_review_select_edit_and_forward_status_transitions(client: TestClient) -> None:
@@ -343,14 +429,124 @@ class BlockingGenerator:
         self.release = Event()
         self.generation_returned = Event()
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
         self.calls += 1
         self.started.set()
         if not self.release.wait(timeout=5):
             raise TimeoutError("test did not release the blocking generator")
-        output = DeterministicFakeGenerator().generate(post)
+        output = DeterministicFakeGenerator().generate(post, preferences)
         self.generation_returned.set()
         return output
+
+
+class RecordingGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
+        self.calls += 1
+        return DeterministicFakeGenerator().generate(post, preferences)
+
+
+def test_legacy_success_snapshot_replays_with_default_preference_echo(
+    database_path: Path,
+) -> None:
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{database_path}",
+        generator_mode="fake",
+        app_environment="test",
+    )
+    generator = RecordingGenerator()
+    key = uuid4()
+    with TestClient(create_app(settings, generator=generator)) as api:
+        created = api.post(
+            "/api/v1/recommendations",
+            json=request_payload(),
+            headers={"Idempotency-Key": str(key)},
+        )
+        assert created.status_code == 201
+        with closing(sqlite3.connect(database_path)) as connection:
+            snapshot_json = connection.execute(
+                "SELECT response_snapshot FROM idempotency_records WHERE key = ?", (str(key),)
+            ).fetchone()[0]
+            snapshot = json.loads(snapshot_json)
+            del snapshot["generation_preferences"]
+            connection.execute(
+                "UPDATE idempotency_records SET response_snapshot = ? WHERE key = ?",
+                (json.dumps(snapshot, ensure_ascii=False), str(key)),
+            )
+            connection.commit()
+
+        replay = api.post(
+            "/api/v1/recommendations",
+            json={**request_payload(), "relationship_level": "friendly"},
+            headers={"Idempotency-Key": str(key)},
+        )
+
+    assert replay.status_code == 200
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert replay.json()["relationship_level"] == "friendly"
+    assert replay.json()["speech_style"] == "honorific"
+    assert replay.json()["comment_length"] == "medium"
+    assert generator.calls == 1
+
+
+def test_get_echoes_defaults_for_recommendation_migrated_from_v2(
+    database_path: Path,
+) -> None:
+    database_url = f"sqlite:///{database_path}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260717_0002")
+    recommendation_id = UUID(int=701)
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(
+            "INSERT INTO recommendations "
+            "(id, source_url, title, content_hash, excerpt, summary, topics_json, "
+            "review_status, selected_candidate_id, edited_comment, created_at, "
+            "updated_at, version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'drafted', NULL, NULL, ?, NULL, 0)",
+            (
+                str(recommendation_id),
+                BLOG_URL,
+                "이전 버전 합성 제목",
+                "a" * 64,
+                "이전 버전 일부",
+                "이전 버전 합성 요약",
+                '["전시"]',
+                "2026-07-19T00:00:00Z",
+            ),
+        )
+        for position, tone in enumerate(("warm", "curious", "supportive")):
+            connection.execute(
+                "INSERT INTO comment_candidates "
+                "(id, recommendation_id, position, tone, comment, referenced_detail) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(UUID(int=710 + position)),
+                    str(recommendation_id),
+                    position,
+                    tone,
+                    f"{tone} 합성 댓글",
+                    "이전 버전 근거",
+                ),
+            )
+        connection.commit()
+
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=database_url,
+        generator_mode="fake",
+        app_environment="test",
+    )
+    with TestClient(create_app(settings)) as api:
+        response = api.get(f"/api/v1/recommendations/{recommendation_id}")
+
+    assert response.status_code == 200
+    assert response.json()["relationship_level"] == "friendly"
+    assert response.json()["speech_style"] == "honorific"
+    assert response.json()["comment_length"] == "medium"
 
 
 def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
@@ -451,7 +647,8 @@ class FailingGenerator:
         self.error = error
         self.calls = 0
 
-    def generate(self, post: CapturedPost) -> GenerationOutput:
+    def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
+        del post, preferences
         self.calls += 1
         raise self.error
 

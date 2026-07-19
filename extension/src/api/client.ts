@@ -1,12 +1,15 @@
 import type {
   ApiResult,
   CandidateTone,
+  CommentLength,
   CommentCandidate,
   CreateRecommendationRequest,
   ProblemDetails,
   Recommendation,
+  RelationshipLevel,
   ReviewRecommendationRequest,
   ReviewStatus,
+  SpeechStyle,
 } from "./types";
 import { LOCAL_API_ORIGIN } from "../config";
 
@@ -14,6 +17,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const PROBLEM_CODE = /^[a-z][a-z0-9_]*$/u;
 const TONES = new Set<CandidateTone>(["curious", "supportive", "warm"]);
 const REVIEW_STATUSES = new Set<ReviewStatus>(["approved", "completed", "drafted"]);
+const RELATIONSHIP_LEVELS = new Set<RelationshipLevel>(["close", "friendly", "new", "polite"]);
+const SPEECH_STYLES = new Set<SpeechStyle>(["banmal", "honorific"]);
+const COMMENT_LENGTHS = new Set<CommentLength>(["long", "medium", "short"]);
 
 type Fetch = typeof fetch;
 
@@ -278,12 +284,15 @@ function parseRecommendation(value: unknown): Recommendation | null {
     !isRecord(value) ||
     !onlyKeys(value, [
       "candidates",
+      "comment_length",
       "created_at",
       "edited_comment",
       "id",
+      "relationship_level",
       "review_status",
       "selected_candidate_id",
       "source_url",
+      "speech_style",
       "summary",
       "title",
       "topics",
@@ -301,6 +310,7 @@ function parseRecommendation(value: unknown): Recommendation | null {
   const selectedCandidateId = nullableString(value, "selected_candidate_id", 36);
   const editedComment = nullableString(value, "edited_comment", 500);
   const reviewStatus = value.review_status;
+  const preferences = parseGenerationPreferences(value);
   if (
     id === null ||
     !UUID.test(id) ||
@@ -316,6 +326,7 @@ function parseRecommendation(value: unknown): Recommendation | null {
     editedComment === undefined ||
     typeof reviewStatus !== "string" ||
     !REVIEW_STATUSES.has(reviewStatus as ReviewStatus) ||
+    preferences === null ||
     !Array.isArray(value.topics) ||
     value.topics.length < 1 ||
     value.topics.length > 5 ||
@@ -357,6 +368,47 @@ function parseRecommendation(value: unknown): Recommendation | null {
     title,
     topics: value.topics as string[],
     updatedAt,
+    relationshipLevel: preferences.relationshipLevel,
+    speechStyle: preferences.speechStyle,
+    commentLength: preferences.commentLength,
+  };
+}
+
+function parseGenerationPreferences(value: Record<string, unknown>): {
+  commentLength: CommentLength;
+  relationshipLevel: RelationshipLevel;
+  speechStyle: SpeechStyle;
+} | null {
+  const keys = ["comment_length", "relationship_level", "speech_style"] as const;
+  const present = keys.filter((key) => Object.hasOwn(value, key));
+  if (present.length === 0) {
+    return {
+      commentLength: "medium",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    };
+  }
+  if (present.length !== keys.length) {
+    return null;
+  }
+  const commentLength = value.comment_length;
+  const relationshipLevel = value.relationship_level;
+  const speechStyle = value.speech_style;
+  if (
+    typeof commentLength !== "string" ||
+    !COMMENT_LENGTHS.has(commentLength as CommentLength) ||
+    typeof relationshipLevel !== "string" ||
+    !RELATIONSHIP_LEVELS.has(relationshipLevel as RelationshipLevel) ||
+    typeof speechStyle !== "string" ||
+    !SPEECH_STYLES.has(speechStyle as SpeechStyle) ||
+    (speechStyle === "banmal" && relationshipLevel !== "close")
+  ) {
+    return null;
+  }
+  return {
+    commentLength: commentLength as CommentLength,
+    relationshipLevel: relationshipLevel as RelationshipLevel,
+    speechStyle: speechStyle as SpeechStyle,
   };
 }
 

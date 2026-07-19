@@ -129,6 +129,26 @@ class CapturedPost:
         )
         return hashlib.sha256(payload.encode()).hexdigest()
 
+    def request_hash_for(self, preferences: GenerationPreferences) -> str:
+        """Bind idempotency to effective preferences while preserving legacy defaults."""
+        if not isinstance(preferences, GenerationPreferences):
+            raise DomainValidationError("preferences must be GenerationPreferences")
+        if preferences == DEFAULT_GENERATION_PREFERENCES:
+            return self.request_hash
+        payload = json.dumps(
+            {
+                "schema": "generation-preferences-v1",
+                "post_hash": self.request_hash,
+                "relationship_level": preferences.relationship.value,
+                "speech_style": preferences.speech.value,
+                "comment_length": preferences.length.value,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()
+
     @property
     def excerpt(self) -> str:
         """Return a bounded preview that can never reconstruct the complete body."""

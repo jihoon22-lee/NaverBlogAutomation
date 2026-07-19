@@ -42,12 +42,15 @@ const candidates = [
 
 const drafted: Recommendation = {
   candidates,
+  commentLength: "medium",
   createdAt: "2026-07-17T00:00:00Z",
   editedComment: null,
   id: "00000000-0000-4000-8000-000000000070",
+  relationshipLevel: "friendly",
   reviewStatus: "drafted",
   selectedCandidateId: null,
   sourceUrl: tab.url,
+  speechStyle: "honorific",
   summary: "합성 전시 후기 요약",
   title: tab.title,
   topics: ["전시", "동선"],
