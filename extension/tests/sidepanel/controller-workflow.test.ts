@@ -8,6 +8,10 @@ import type {
   ReviewRecommendationRequest,
 } from "../../src/api/types";
 import type { TabCaptureGateway, TabInvalidation } from "../../src/browser/tab-capture-gateway";
+import type {
+  CommentInputGateway,
+  CommentInputResult,
+} from "../../src/browser/comment-input-gateway";
 import type { ActiveTab, FrameExecution } from "../../src/extraction/types";
 import {
   IdempotencyRegistry,
@@ -217,6 +221,7 @@ function problem(
 function setup(
   options: {
     api?: Api;
+    commentInput?: CommentInputGateway;
     digest?: (payload: CreateRecommendationRequest) => Promise<string>;
     gateway?: Gateway;
     lengthStore?: CommentLengthPreferenceStore;
@@ -236,6 +241,11 @@ function setup(
   const view = new View();
   const controller = new SidePanelController(gateway, view, {
     api: api.asClient(),
+    commentInput:
+      options.commentInput ??
+      ({
+        fill: vi.fn(async (): Promise<CommentInputResult> => "filled"),
+      } satisfies CommentInputGateway),
     digest: options.digest ?? vi.fn(async () => DIGEST),
     lengthStore: options.lengthStore ?? new CommentLengthPreferenceStore(storage),
     now: options.now ?? (() => 1_000),
@@ -317,18 +327,21 @@ describe("integrated Side Panel workflow", () => {
     });
   });
 
-  it("retains persisted length and mood when reading a new article", async () => {
+  it("retains an explicitly saved default profile when reading a new article", async () => {
     const fixture = setup();
     await fixture.controller.captureActivePost();
     fixture.view.actions?.changeRelationship("close");
     fixture.view.actions?.changeSpeechStyle("banmal");
     fixture.view.actions?.changeCommentLength("long");
     fixture.view.actions?.changeCommentMood("lively");
+    fixture.view.actions?.savePreferences();
     await vi.waitFor(() =>
       expect(fixture.storage.value.commentLengthPreferenceV1).toEqual({
-        length: "long",
-        mood: "lively",
-        schemaVersion: 2,
+        commentLength: "long",
+        commentMood: "lively",
+        relationshipLevel: "close",
+        schemaVersion: 3,
+        speechStyle: "banmal",
       }),
     );
 
@@ -338,8 +351,8 @@ describe("integrated Side Panel workflow", () => {
       preferences: {
         commentLength: "long",
         commentMood: "lively",
-        relationshipLevel: "friendly",
-        speechStyle: "honorific",
+        relationshipLevel: "close",
+        speechStyle: "banmal",
       },
     });
     expect(fixture.storage.value.generationRegistryV1).toBeUndefined();
@@ -520,7 +533,7 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.create.mock.calls[1]?.[1]).not.toBe(firstKey);
   });
 
-  it("returns to Preview without an API call, then regenerates with a fresh key", async () => {
+  it("regenerates directly with a fresh key and unchanged captured content", async () => {
     const fixture = setup();
     await extractAndGenerate(fixture.view, fixture.controller);
     const firstKey = fixture.api.create.mock.calls[0]?.[1];
@@ -531,9 +544,6 @@ describe("integrated Side Panel workflow", () => {
     fixture.api.create.mockResolvedValueOnce({ replayed: false, value: regenerated });
 
     fixture.view.actions?.regenerate();
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
-    expect(fixture.api.create).toHaveBeenCalledTimes(1);
-    fixture.view.actions?.generate();
     await vi.waitFor(() =>
       expect(
         fixture.view.states.at(-1)?.kind === "review" &&
@@ -548,6 +558,40 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.create.mock.calls[1]?.[1]).not.toBe(firstKey);
   });
 
+  it("returns to Preview without another API request when the article changed", async () => {
+    const changedFrames: readonly FrameExecution[] = [
+      {
+        frameId: 0,
+        result: {
+          ...(frames[0]?.result ?? {}),
+          body: "수정된 합성 본문으로 digest가 달라졌습니다.",
+        } as FrameExecution["result"],
+      },
+    ];
+    const gateway = new Gateway();
+    gateway.captureAllFrames = vi
+      .fn<() => Promise<readonly FrameExecution[]>>()
+      .mockResolvedValueOnce(frames)
+      .mockResolvedValueOnce(changedFrames);
+    const fixture = setup({
+      digest: vi.fn(async (payload) =>
+        payload.body.startsWith("수정된") ? "b".repeat(64) : DIGEST,
+      ),
+      gateway,
+    });
+    await extractAndGenerate(fixture.view, fixture.controller);
+
+    fixture.view.actions?.regenerate();
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        kind: "preview",
+        preferenceNotice: expect.stringContaining("글 내용이 달라져"),
+      }),
+    );
+    expect(fixture.api.create).toHaveBeenCalledOnce();
+  });
+
   it("preserves the original registry entry when regenerated preferences change digest", async () => {
     const otherDigest = "b".repeat(64);
     const fixture = setup({
@@ -559,7 +603,7 @@ describe("integrated Side Panel workflow", () => {
       value: { ...drafted, commentLength: "long", id: "00000000-0000-4000-8000-000000000081" },
     });
 
-    fixture.view.actions?.regenerate();
+    fixture.view.actions?.changeOptions();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
     fixture.view.actions?.changeCommentLength("long");
     fixture.view.actions?.generate();
@@ -581,7 +625,7 @@ describe("integrated Side Panel workflow", () => {
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
     fixture.view.actions?.generate();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
-    fixture.view.actions?.regenerate();
+    fixture.view.actions?.changeOptions();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("preview"));
     fixture.gateway.invalidation?.({ kind: "updated", tabId: tab.id });
     expect(fixture.view.states.at(-1)).toEqual({ failure: { code: "stale_page" }, kind: "error" });
@@ -619,6 +663,47 @@ describe("integrated Side Panel workflow", () => {
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("completed"));
     expect(fixture.api.review).toHaveBeenCalledTimes(2);
     expect(fixture.api.review.mock.calls[1]?.[1]).toEqual({ review_status: "completed" });
+  });
+
+  it("approves and fills a candidate through the two-click quick flow", async () => {
+    const fill = vi.fn(async (): Promise<CommentInputResult> => "filled");
+    const fixture = setup({ commentInput: { fill } });
+    await extractAndGenerate(fixture.view, fixture.controller);
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+
+    fixture.view.actions?.useCandidate(selected.id);
+
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledWith(tab.id, selected.comment));
+    expect(fixture.api.review).toHaveBeenCalledWith(
+      drafted.id,
+      {
+        edited_comment: selected.comment,
+        review_status: "approved",
+        selected_candidate_id: selected.id,
+      },
+      expect.any(AbortSignal),
+    );
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "approved",
+      notice: expect.stringContaining("입력란에 초안을"),
+    });
+  });
+
+  it("keeps the approved comment available when safe page insertion is unavailable", async () => {
+    const fill = vi.fn(async (): Promise<CommentInputResult> => "occupied");
+    const fixture = setup({ commentInput: { fill } });
+    await extractAndGenerate(fixture.view, fixture.controller);
+
+    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        kind: "approved",
+        notice: expect.stringContaining("덮어쓰지 않았습니다"),
+      }),
+    );
+    expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
   });
 
   it("refreshes GET after review_conflict without reapplying stale edits", async () => {

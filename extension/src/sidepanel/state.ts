@@ -37,6 +37,7 @@ export type PanelState =
 export interface PanelActions {
   approve(): void;
   cancel(): void;
+  changeOptions(): void;
   cleanup(): void;
   complete(): void;
   copy(): void;
@@ -49,7 +50,10 @@ export interface PanelActions {
   regenerate(): void;
   replace(): void;
   retry(): void;
+  savePreferences(): void;
   select(candidateId: string): void;
+  useCandidate(candidateId: string): void;
+  useEdited(): void;
 }
 
 export interface PanelView {

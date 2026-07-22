@@ -28,8 +28,8 @@ candidate, edited comment, review state와 idempotency/failure metadata가 명�
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
-최대 20개 저장하고, 별도 versioned record에는 댓글 길이(`short`, `medium`, `long`)와 분위기
-(`calm`, `warm`, `lively`)만 저장합니다. 본문, URL, 관계와 말투는 저장하지 않습니다.
+최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
+길이와 분위기 enum만 저장합니다. 본문, URL과 생성·편집된 댓글은 저장하지 않습니다.
 Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.
 Active, reviewing, terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해
 자동 만료되지 않습니다. Retained entry 20개가 남아 있거나 registry가 invalid이면 Side Panel이
@@ -63,6 +63,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로
   만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
   가능성을 이해한 경우에만 승인합니다.
+- **댓글 입력 실패:** 네이버에서 댓글 쓰기 영역을 먼저 엽니다. 입력란이 여러 개이거나 기존
+  text가 있으면 안전을 위해 덮어쓰지 않으므로 승인된 댓글을 복사해 직접 붙여넣습니다.
 - **Clipboard 실패:** 편집 영역에 선택된 text를 OS copy command로 직접 복사합니다. 자동 게시로
   전환되지 않습니다.
 
@@ -81,7 +83,7 @@ RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \
 ```
 
 Manual Naver/OpenAI smoke는 본인이 공개 전송을 허용한 글에서만 수행합니다. Preview 확인,
-generation, 후보 선택, 편집, 승인, copy까지 검증하되 댓글 입력과 등록은 직접 수행합니다.
+generation, 후보 선택, 편집, 입력 보조와 copy까지 검증하되 댓글 등록은 직접 수행합니다.
 Screenshot이나 terminal capture에는 글 본문, account identifier, source URL, API key를 남기지
 않습니다.
 

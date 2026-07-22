@@ -1,23 +1,28 @@
-import type { CommentLength, CommentMood } from "../api/types";
-import { DEFAULT_GENERATION_PREFERENCES, isCommentLength, isCommentMood } from "./model";
+import type { CommentLength } from "../api/types";
+import {
+  DEFAULT_GENERATION_PREFERENCES,
+  isCommentLength,
+  isCommentMood,
+  isValidGenerationPreferences,
+  type GenerationPreferences,
+} from "./model";
 
-// Keep the legacy key so existing length choices migrate in place to the V2 length+mood record.
+// Keep the legacy key so existing V1/V2 choices migrate in place to the V3 default profile.
 export const COMMENT_LENGTH_STORAGE_KEY = "commentLengthPreferenceV1";
 
-export interface StoredGenerationPreferences {
-  readonly commentLength: CommentLength;
-  readonly commentMood: CommentMood;
-}
+export type StoredGenerationPreferences = GenerationPreferences;
 
 interface StoredPreferenceV1 {
   length: CommentLength;
   schemaVersion: 1;
 }
 
-interface StoredPreferenceV2 {
-  length: CommentLength;
-  mood: CommentMood;
-  schemaVersion: 2;
+interface StoredPreferenceV3 {
+  commentLength: GenerationPreferences["commentLength"];
+  commentMood: GenerationPreferences["commentMood"];
+  relationshipLevel: GenerationPreferences["relationshipLevel"];
+  schemaVersion: 3;
+  speechStyle: GenerationPreferences["speechStyle"];
 }
 
 export interface PreferenceStorageArea {
@@ -44,7 +49,7 @@ export class CommentLengthPreferenceStore {
       const stored = raw[COMMENT_LENGTH_STORAGE_KEY];
       if (stored === undefined) return defaults();
       const parsed = parseStoredPreferences(stored);
-      if (parsed?.schemaVersion === 2) return parsed.preferences;
+      if (parsed?.schemaVersion === 3) return parsed.preferences;
       const preferences = parsed?.preferences ?? defaults();
       await this.#write(preferences);
       return preferences;
@@ -52,7 +57,7 @@ export class CommentLengthPreferenceStore {
   }
 
   save(preferences: StoredGenerationPreferences): Promise<void> {
-    if (!isCommentLength(preferences.commentLength) || !isCommentMood(preferences.commentMood)) {
+    if (!isValidGenerationPreferences(preferences)) {
       return Promise.reject(new TypeError("Invalid persisted generation preferences"));
     }
     return this.#exclusive(() => this.#write(preferences));
@@ -61,10 +66,12 @@ export class CommentLengthPreferenceStore {
   #write(preferences: StoredGenerationPreferences): Promise<void> {
     return this.#storage.set({
       [COMMENT_LENGTH_STORAGE_KEY]: {
-        length: preferences.commentLength,
-        mood: preferences.commentMood,
-        schemaVersion: 2,
-      } satisfies StoredPreferenceV2,
+        commentLength: preferences.commentLength,
+        commentMood: preferences.commentMood,
+        relationshipLevel: preferences.relationshipLevel,
+        schemaVersion: 3,
+        speechStyle: preferences.speechStyle,
+      } satisfies StoredPreferenceV3,
     });
   }
 
@@ -79,15 +86,12 @@ export class CommentLengthPreferenceStore {
 }
 
 function defaults(): StoredGenerationPreferences {
-  return {
-    commentLength: DEFAULT_GENERATION_PREFERENCES.commentLength,
-    commentMood: DEFAULT_GENERATION_PREFERENCES.commentMood,
-  };
+  return { ...DEFAULT_GENERATION_PREFERENCES };
 }
 
 function parseStoredPreferences(
   value: unknown,
-): { preferences: StoredGenerationPreferences; schemaVersion: 1 | 2 } | null {
+): { preferences: StoredGenerationPreferences; schemaVersion: 1 | 2 | 3 } | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   if (
     Object.keys(value).length === 2 &&
@@ -101,6 +105,8 @@ function parseStoredPreferences(
       preferences: {
         commentLength: legacy.length,
         commentMood: DEFAULT_GENERATION_PREFERENCES.commentMood,
+        relationshipLevel: DEFAULT_GENERATION_PREFERENCES.relationshipLevel,
+        speechStyle: DEFAULT_GENERATION_PREFERENCES.speechStyle,
       },
       schemaVersion: 1,
     };
@@ -115,9 +121,33 @@ function parseStoredPreferences(
     isCommentMood(value.mood)
   ) {
     return {
-      preferences: { commentLength: value.length, commentMood: value.mood },
+      preferences: {
+        commentLength: value.length,
+        commentMood: value.mood,
+        relationshipLevel: DEFAULT_GENERATION_PREFERENCES.relationshipLevel,
+        speechStyle: DEFAULT_GENERATION_PREFERENCES.speechStyle,
+      },
       schemaVersion: 2,
     };
+  }
+  if (
+    Object.keys(value).length === 5 &&
+    "schemaVersion" in value &&
+    value.schemaVersion === 3 &&
+    "commentLength" in value &&
+    "commentMood" in value &&
+    "relationshipLevel" in value &&
+    "speechStyle" in value
+  ) {
+    const preferences: GenerationPreferences = {
+      commentLength: value.commentLength as GenerationPreferences["commentLength"],
+      commentMood: value.commentMood as GenerationPreferences["commentMood"],
+      relationshipLevel: value.relationshipLevel as GenerationPreferences["relationshipLevel"],
+      speechStyle: value.speechStyle as GenerationPreferences["speechStyle"],
+    };
+    if (isValidGenerationPreferences(preferences)) {
+      return { preferences, schemaVersion: 3 };
+    }
   }
   return null;
 }

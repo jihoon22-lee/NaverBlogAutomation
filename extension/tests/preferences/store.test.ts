@@ -30,12 +30,16 @@ describe("CommentLengthPreferenceStore", () => {
     await expect(new CommentLengthPreferenceStore(new MemoryStorage()).load()).resolves.toEqual({
       commentLength: "medium",
       commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
     });
     const unreadable = new MemoryStorage();
     unreadable.getFailure = new Error("synthetic read failure");
     await expect(new CommentLengthPreferenceStore(unreadable).load()).resolves.toEqual({
       commentLength: "medium",
       commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
     });
   });
 
@@ -46,11 +50,15 @@ describe("CommentLengthPreferenceStore", () => {
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
       commentLength: "long",
       commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
-      length: "long",
-      mood: "warm",
-      schemaVersion: 2,
+      commentLength: "long",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      schemaVersion: 3,
+      speechStyle: "honorific",
     });
   });
 
@@ -60,11 +68,15 @@ describe("CommentLengthPreferenceStore", () => {
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
       commentLength: "medium",
       commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
-      length: "medium",
-      mood: "warm",
-      schemaVersion: 2,
+      commentLength: "medium",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      schemaVersion: 3,
+      speechStyle: "honorific",
     });
 
     const blocked = new MemoryStorage();
@@ -75,28 +87,71 @@ describe("CommentLengthPreferenceStore", () => {
     );
   });
 
-  it("persists only length and mood while preserving registry metadata", async () => {
+  it("persists a validated default profile while preserving registry metadata", async () => {
     const storage = new MemoryStorage();
     storage.value.generationRegistryV1 = { entries: [], schemaVersion: 1 };
     const store = new CommentLengthPreferenceStore(storage);
-    await store.save({ commentLength: "short", commentMood: "calm" });
+    await store.save({
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "close",
+      speechStyle: "banmal",
+    });
 
     expect(storage.value.generationRegistryV1).toEqual({ entries: [], schemaVersion: 1 });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
-      length: "short",
-      mood: "calm",
-      schemaVersion: 2,
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "close",
+      schemaVersion: 3,
+      speechStyle: "banmal",
     });
-    expect(JSON.stringify(storage.value[COMMENT_LENGTH_STORAGE_KEY])).not.toMatch(
-      /relationship|speech|banmal|honorific|close|friendly|polite|new/u,
-    );
+  });
+
+  it("loads a valid version 3 profile without rewriting it", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "close",
+      schemaVersion: 3,
+      speechStyle: "banmal",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "close",
+      speechStyle: "banmal",
+    });
+    expect(storage.writes).toHaveLength(0);
+  });
+
+  it("replaces an invalid version 3 relationship and speech combination with safe defaults", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      commentLength: "long",
+      commentMood: "lively",
+      relationshipLevel: "friendly",
+      schemaVersion: 3,
+      speechStyle: "banmal",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      commentLength: "medium",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    });
+    expect(storage.writes).toHaveLength(1);
   });
 
   it("serializes rapid writes so the last selected values win", async () => {
     const storage = new MemoryStorage();
     let release: (() => void) | undefined;
     storage.set = async (items): Promise<void> => {
-      const length = (items[COMMENT_LENGTH_STORAGE_KEY] as { length: CommentLength }).length;
+      const length = (items[COMMENT_LENGTH_STORAGE_KEY] as { commentLength: CommentLength })
+        .commentLength;
       if (length === "short") {
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -105,16 +160,28 @@ describe("CommentLengthPreferenceStore", () => {
       storage.value = { ...storage.value, ...structuredClone(items) };
     };
     const store = new CommentLengthPreferenceStore(storage);
-    const first = store.save({ commentLength: "short", commentMood: "calm" });
-    const second = store.save({ commentLength: "long", commentMood: "lively" });
+    const first = store.save({
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "new",
+      speechStyle: "honorific",
+    });
+    const second = store.save({
+      commentLength: "long",
+      commentMood: "lively",
+      relationshipLevel: "close",
+      speechStyle: "banmal",
+    });
     await Promise.resolve();
     release?.();
     await Promise.all([first, second]);
 
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
-      length: "long",
-      mood: "lively",
-      schemaVersion: 2,
+      commentLength: "long",
+      commentMood: "lively",
+      relationshipLevel: "close",
+      schemaVersion: 3,
+      speechStyle: "banmal",
     });
   });
 });
