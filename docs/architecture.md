@@ -107,13 +107,13 @@ The extension stores no body, title, URL, candidate, edited comment, cookie, or 
 schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
 versioned record contains only the selected comment length and mood. It persists across browser
 restarts and holds at most 20 operations.
-Completed, released, or explicitly dismissed entries expire after 60
-minutes and are evicted oldest-first. Active, terminal-failure, or indeterminate entries are never
-evicted automatically; if they fill the registry, new generation is blocked until the user
-explicitly resolves, replaces, or dismisses one. Invalid records are quarantined from automatic
-retry and require cleanup confirmation. Reopening can repeat the same request only when the same
-normalized payload can be extracted again; otherwise it can use a known recommendation ID for GET
-or show manual recovery guidance.
+Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
+later registry access. Active, reviewing, terminal-failure, or indeterminate entries never expire
+automatically. If 20 retained entries fill the registry, new generation is blocked until entries
+expire or the user explicitly resolves, replaces, dismisses, or cleans them up. Invalid records are
+quarantined from automatic retry and require cleanup confirmation. Reopening can repeat the same
+request only when the same normalized payload can be extracted again; otherwise it can use a known
+recommendation ID for GET or show manual recovery guidance.
 
 ## Idempotency and Failure Recovery
 

@@ -144,7 +144,10 @@ mapping. Article title/body stay in the untrusted input channel, and the source 
 
 ## Compatibility Rules
 
-- Adding an optional response field is backward compatible.
+- Adding an optional request field is backward compatible when the server supplies an effective
+  default.
+- Adding a response field requires a coordinated Side Panel update because the client rejects
+  undeclared fields instead of silently accepting contract drift.
 - Removing or renaming a field, changing an enum, or tightening an accepted limit requires a new
   API version.
 - Pydantic transport models and the checked-in OpenAPI file must be covered by a contract test.
