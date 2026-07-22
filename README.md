@@ -48,7 +48,29 @@ Extension을 다시 설치해 ID가 바뀌면 setup launcher를 다시 실행하
 현재 process에서만 repository의 PowerShell script 실행을 허용하며 system 실행 정책은 바꾸지
 않습니다.
 
-### 수동 설정 및 POSIX
+### macOS 간편 설정
+
+CPython 3.14, `uv`, Node.js 24와 npm 11을 설치한 뒤 Finder에서
+`scripts/setup-macos.command`를 double-click하거나 Terminal에서 실행합니다. Dependency와
+extension build가 끝나면 화면 안내에 따라 `extension/dist`를 Chrome에 불러오고 ID를
+붙여넣습니다.
+
+```bash
+scripts/setup-macos.command
+```
+
+Private 설정은 `~/.config/naver-blog-assistant/env`에 mode `0600`으로 보관됩니다. 기존 파일은
+다른 값을 유지하고 extension origin만 갱신합니다. 이후에는 아래 launcher를 실행하고 사용하는
+동안 열린 Terminal을 유지합니다.
+
+```bash
+scripts/start-macos.command
+```
+
+Extension ID가 바뀌면 setup launcher를 다시 실행합니다. macOS가 처음 실행을 확인하면 Finder에서
+script를 control-click한 뒤 **열기**를 선택할 수 있습니다.
+
+### Linux 및 수동 설정
 
 Repository root에서 locked dependency를 설치하고 extension을 먼저 build합니다.
 

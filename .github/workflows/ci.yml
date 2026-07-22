@@ -367,6 +367,34 @@ jobs:
             throw "The CMD launcher did not reject an invalid extension ID safely."
           }
 
+  macos-launcher:
+    name: macOS launcher
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate command launchers
+        shell: bash
+        run: |
+          test -x scripts/setup-macos.command
+          test -x scripts/start-macos.command
+          bash -n scripts/setup-macos.command scripts/start-macos.command
+          set +e
+          output="$(bash scripts/setup-macos.command \
+            --extension-id qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq \
+            --skip-dependencies 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [[ "$status" -ne 1 || "$output" != *"Extension ID"* ]]; then
+            echo "The macOS launcher did not reject an invalid extension ID safely." >&2
+            exit 1
+          fi
+
   quality-gate:
     name: Quality gate
     if: always()
@@ -376,6 +404,7 @@ jobs:
       - typescript-quality
       - system-e2e
       - windows-launcher
+      - macos-launcher
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -387,6 +416,7 @@ jobs:
           TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
           E2E_RESULT: ${{ needs.system-e2e.result }}
           WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
+          MACOS_RESULT: ${{ needs.macos-launcher.result }}
         run: |
           echo "## Required quality checks" >> "$GITHUB_STEP_SUMMARY"
           echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
@@ -396,12 +426,14 @@ jobs:
           echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| macOS launcher | $MACOS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$COMMIT_RESULT" != "success" \
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
             || "$E2E_RESULT" != "success" \
-            || "$WINDOWS_RESULT" != "success" ]]; then
+            || "$WINDOWS_RESULT" != "success" \
+            || "$MACOS_RESULT" != "success" ]]; then
             echo "One or more required jobs failed or were skipped." >&2
             exit 1
           fi
