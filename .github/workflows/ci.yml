@@ -353,10 +353,17 @@ jobs:
             throw "PowerShell launcher syntax validation failed."
           }
 
-          $output = cmd.exe /d /c `
-            "echo.| scripts\setup-windows.cmd -ExtensionId $('q' * 32) -SkipDependencies" 2>&1
-          if ($LASTEXITCODE -ne 1 -or ($output -join "`n") -notmatch "Extension ID") {
-            $output | Write-Output
+          $stdout = Join-Path $env:RUNNER_TEMP "windows-launcher.stdout.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "windows-launcher.stderr.txt"
+          $process = Start-Process -FilePath "cmd.exe" -ArgumentList @(
+            "/d",
+            "/c",
+            "echo.| scripts\setup-windows.cmd -ExtensionId $('q' * 32) -SkipDependencies"
+          ) -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $output = (Get-Content $stdout, $stderr -Raw) -join "`n"
+          if ($process.ExitCode -ne 1 -or $output -notmatch "Extension ID") {
+            Write-Output $output
             throw "The CMD launcher did not reject an invalid extension ID safely."
           }
 
