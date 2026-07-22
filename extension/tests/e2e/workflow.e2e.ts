@@ -134,7 +134,9 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     });
     await panel.locator("#generate-button").click();
     await expectReviewState(panel, apiRequests, failedRequests);
-    expect(latestRecommendationPost(apiResponses)?.status()).toBe(201);
+    const shortResponse = latestRecommendationPost(apiResponses);
+    expect(shortResponse?.status()).toBe(201);
+    const shortRecommendationId = await recommendationId(shortResponse);
     expect(recommendationPosts[0]).toMatchObject({
       payload: {
         comment_length: "long",
@@ -257,6 +259,20 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expect(panel.locator("#review-status")).toHaveText("수동 workflow 완료");
     await expect(panel.locator("#edited-comment")).toHaveValue(editedComment);
     expect(countRequests(apiRequests, "POST")).toBe(postCountBeforeRestore);
+
+    await panel.locator("#history-refresh-button").click();
+    await expect(panel.locator("#history-list .history-item")).toHaveCount(3);
+    await panel.locator("#history-title").click();
+    await expect(panel.locator("#history-list .history-item").first()).toContainText(
+      "합성 전시 후기",
+    );
+    await panel.locator('[data-history-action="copy"]').first().click();
+    await expect(panel.locator("#history-notice")).toContainText("복사");
+    panel.once("dialog", (dialog) => dialog.accept());
+    await panel.locator('[data-history-action="delete"]').first().click();
+    await expect(panel.locator("#history-list .history-item")).toHaveCount(2);
+    await expect(panel.locator("#history-notice")).toContainText("삭제");
+    expect(JSON.stringify(await readExtensionStorage(panel))).not.toContain(shortRecommendationId);
   } finally {
     await api?.dispose();
     await context?.close();

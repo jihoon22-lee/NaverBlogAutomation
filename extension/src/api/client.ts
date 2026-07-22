@@ -8,9 +8,11 @@ import type {
   ProblemDetails,
   QualityWarning,
   Recommendation,
+  RecommendationHistoryItem,
   RelationshipLevel,
   ReviewRecommendationRequest,
   ReviewStatus,
+  ServiceStatus,
   SpeechStyle,
 } from "./types";
 import { LOCAL_API_ORIGIN } from "../config";
@@ -72,6 +74,42 @@ export class LocalApiClient {
     if (!isRecord(value) || value.status !== "ok" || !onlyKeys(value, ["status"])) {
       throw invalidResponse(response.status);
     }
+  }
+
+  async status(signal?: AbortSignal): Promise<ServiceStatus> {
+    const response = await this.#request("/api/v1/status", {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseServiceStatus(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async listRecommendations(
+    limit = 20,
+    signal?: AbortSignal,
+  ): Promise<readonly RecommendationHistoryItem[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+      throw new RangeError("History limit must be between 1 and 50");
+    }
+    const response = await this.#request(`/api/v1/recommendations?limit=${limit}`, {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseRecommendationHistory(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async deleteRecommendation(id: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.#request(`/api/v1/recommendations/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      ...withSignal(signal),
+    });
+    if (response.status !== 204) throw invalidResponse(response.status);
   }
 
   async createRecommendation(
@@ -274,6 +312,97 @@ function parseProblem(value: unknown): ProblemDetails | null {
     return null;
   }
   return { code, detail, requestId, status, title, type };
+}
+
+function parseServiceStatus(value: unknown): ServiceStatus | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "api_version",
+      "app_environment",
+      "database",
+      "generator_mode",
+      "generator_model",
+      "status",
+    ])
+  ) {
+    return null;
+  }
+  const apiVersion = requiredString(value, "api_version", 100);
+  const generatorModel = requiredString(value, "generator_model", 300);
+  if (
+    apiVersion === null ||
+    generatorModel === null ||
+    value.status !== "ready" ||
+    value.database !== "ready" ||
+    !["development", "production", "test"].includes(String(value.app_environment)) ||
+    !["fake", "openai"].includes(String(value.generator_mode))
+  ) {
+    return null;
+  }
+  return {
+    apiVersion,
+    appEnvironment: value.app_environment as ServiceStatus["appEnvironment"],
+    database: "ready",
+    generatorMode: value.generator_mode as ServiceStatus["generatorMode"],
+    generatorModel,
+    status: "ready",
+  };
+}
+
+function parseRecommendationHistory(value: unknown): RecommendationHistoryItem[] | null {
+  if (!isRecord(value) || !onlyKeys(value, ["items"]) || !Array.isArray(value.items)) return null;
+  if (value.items.length > 50) return null;
+  const parsed = value.items.map(parseRecommendationHistoryItem);
+  return parsed.some((item) => item === null) ? null : (parsed as RecommendationHistoryItem[]);
+}
+
+function parseRecommendationHistoryItem(value: unknown): RecommendationHistoryItem | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "comment",
+      "created_at",
+      "id",
+      "review_status",
+      "source_url",
+      "title",
+      "updated_at",
+    ])
+  ) {
+    return null;
+  }
+  const id = requiredString(value, "id", 36);
+  const sourceUrl = requiredString(value, "source_url", 2_048);
+  const title = requiredString(value, "title", 300);
+  const comment = nullableString(value, "comment", 500);
+  const createdAt = requiredString(value, "created_at", 100);
+  const updatedAt = nullableString(value, "updated_at", 100);
+  const reviewStatus = value.review_status;
+  if (
+    id === null ||
+    !UUID.test(id) ||
+    sourceUrl === null ||
+    title === null ||
+    comment === undefined ||
+    createdAt === null ||
+    Number.isNaN(Date.parse(createdAt)) ||
+    updatedAt === undefined ||
+    (updatedAt !== null && Number.isNaN(Date.parse(updatedAt))) ||
+    typeof reviewStatus !== "string" ||
+    !REVIEW_STATUSES.has(reviewStatus as ReviewStatus)
+  ) {
+    return null;
+  }
+  return {
+    comment,
+    createdAt,
+    id,
+    reviewStatus: reviewStatus as ReviewStatus,
+    sourceUrl,
+    title,
+    updatedAt,
+  };
 }
 
 async function recommendation(response: Response): Promise<Recommendation> {

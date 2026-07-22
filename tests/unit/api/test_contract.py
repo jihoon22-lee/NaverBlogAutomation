@@ -12,8 +12,11 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.api.models import (
     CreateRecommendationRequest,
     ProblemDetails,
+    RecommendationHistoryItemResponse,
+    RecommendationHistoryResponse,
     RecommendationResponse,
     ReviewRecommendationRequest,
+    ServiceStatusResponse,
 )
 from naver_blog_assistant.domain import CommentLength, CommentMood, Relationship, SpeechStyle
 
@@ -85,6 +88,9 @@ def test_transport_models_preserve_contract_fields_and_limits() -> None:
 
     pairs = (
         (CreateRecommendationRequest, "CreateRecommendationRequest"),
+        (ServiceStatusResponse, "ServiceStatusResponse"),
+        (RecommendationHistoryItemResponse, "RecommendationHistoryItemResponse"),
+        (RecommendationHistoryResponse, "RecommendationHistoryResponse"),
         (RecommendationResponse, "RecommendationResponse"),
         (ReviewRecommendationRequest, "ReviewRecommendationRequest"),
         (ProblemDetails, "ProblemDetails"),

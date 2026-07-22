@@ -16,6 +16,26 @@
 
       <p id="status" class="status" role="status" aria-live="polite">본문을 확인하고 있습니다.</p>
 
+      <section class="history-card" aria-labelledby="history-title">
+        <div class="service-row">
+          <span id="service-status" class="service-status" data-status="checking">로컬 서비스 확인 중</span>
+          <button id="history-refresh-button" class="text-button" type="button">새로고침</button>
+        </div>
+        <details>
+          <summary id="history-title">최근 작업 <span id="history-count" class="count-badge"></span></summary>
+          <p id="history-empty" class="help">최근 작업을 불러오고 있습니다.</p>
+          <ul id="history-list" class="history-list"></ul>
+          <textarea
+            id="history-copy-fallback"
+            class="history-copy-fallback"
+            aria-label="직접 복사할 이전 댓글"
+            readonly
+            hidden
+          ></textarea>
+          <p id="history-notice" class="notice" role="status" aria-live="polite" hidden></p>
+        </details>
+      </section>
+
       <section id="error-panel" class="card error" role="alert" hidden aria-labelledby="error-title">
         <h2 id="error-title" tabindex="-1">작업을 완료하지 못했습니다</h2>
         <p id="error-message"></p>

@@ -8,6 +8,7 @@ import pytest
 
 from naver_blog_assistant.application import (
     ConcurrentReviewError,
+    DeleteRecommendation,
     GenerateRecommendation,
     GenerationIndeterminateError,
     GenerationInProgressError,
@@ -15,6 +16,7 @@ from naver_blog_assistant.application import (
     GenerationRefusedError,
     GetRecommendation,
     IdempotencyConflictError,
+    ListRecommendations,
     RecommendationNotFoundError,
     ReviewRecommendation,
 )
@@ -78,6 +80,12 @@ class FakeRecommendationRepository:
         self.items[persisted.id] = persisted
         self.updated.append(persisted)
         return persisted
+
+    def list_recent(self, limit: int) -> tuple[Recommendation, ...]:
+        return tuple(reversed(tuple(self.items.values())))[:limit]
+
+    def delete(self, recommendation_id: UUID) -> bool:
+        return self.items.pop(recommendation_id, None) is not None
 
 
 class FakeIdempotencyRepository:
@@ -206,6 +214,25 @@ def build_generation_use_case(
         id_factory=lambda: next(IDS),
     )
     return use_case, generator, recommendations, idempotency
+
+
+def test_list_and_delete_recommendations_use_repository_contract() -> None:
+    generate, _, recommendations, _ = build_generation_use_case()
+    first = generate.execute(post=captured_post(), idempotency_key=KEY).recommendation
+    second = replace(first, id=UUID(int=704))
+    recommendations.items = {first.id: first, second.id: second}
+
+    assert ListRecommendations(recommendations).execute(limit=1) == (second,)
+    DeleteRecommendation(recommendations).execute(first.id)
+    assert first.id not in recommendations.items
+    with pytest.raises(RecommendationNotFoundError):
+        DeleteRecommendation(recommendations).execute(first.id)
+
+
+@pytest.mark.parametrize("limit", [0, 51])
+def test_list_recommendations_rejects_out_of_range_limit(limit: int) -> None:
+    with pytest.raises(ValueError):
+        ListRecommendations(FakeRecommendationRepository()).execute(limit=limit)
 
 
 def test_generate_creates_three_tones_and_persists_no_full_body() -> None:

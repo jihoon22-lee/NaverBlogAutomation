@@ -227,6 +227,27 @@ describe("IdempotencyRegistry", () => {
     });
   });
 
+  it("removes retry metadata for an explicitly deleted recommendation", async () => {
+    const storage = new MemoryStorage();
+    const subject = registry(storage, () => 4_500);
+    const removedId = "00000000-0000-4000-8000-000000000061";
+    const retainedId = "00000000-0000-4000-8000-000000000062";
+    await subject.getOrCreate(digest(61));
+    await subject.transition(digest(61), "reviewing", removedId);
+    await subject.getOrCreate(digest(62));
+    await subject.transition(digest(62), "reviewing", retainedId);
+
+    await subject.removeRecommendation(removedId);
+
+    await expect(subject.find(digest(61))).resolves.toBeNull();
+    await expect(subject.find(digest(62))).resolves.toMatchObject({
+      recommendationId: retainedId,
+    });
+    await expect(subject.removeRecommendation("invalid")).rejects.toBeInstanceOf(
+      RegistryQuarantinedError,
+    );
+  });
+
   it("serializes mutations across registry instances with a shared browser lock", async () => {
     const storage = new MemoryStorage();
     const lock = new MemoryLock();

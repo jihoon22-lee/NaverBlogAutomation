@@ -50,6 +50,15 @@ class HealthResponse(StrictModel):
     status: Literal["ok"] = "ok"
 
 
+class ServiceStatusResponse(StrictModel):
+    status: Literal["ready"]
+    api_version: str
+    app_environment: Literal["production", "development", "test"]
+    database: Literal["ready"]
+    generator_mode: Literal["openai", "fake"]
+    generator_model: ShortText
+
+
 class CreateRecommendationRequest(StrictModel):
     source_url: Annotated[
         str,
@@ -147,6 +156,43 @@ class RecommendationResponse(StrictModel):
             comment_mood=recommendation.preferences.mood.value,
             quality_warnings=_quality_warnings(recommendation),
         )
+
+
+class RecommendationHistoryItemResponse(StrictModel):
+    id: UUID
+    source_url: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=2048),
+        Field(json_schema_extra={"format": "uri"}),
+    ]
+    title: ShortText
+    review_status: ReviewStatus
+    comment: CommentText | None
+    created_at: datetime
+    updated_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, recommendation: Recommendation) -> Self:
+        comment = recommendation.edited_comment
+        if comment is None and recommendation.selected_candidate_id is not None:
+            comment = next(
+                candidate.comment
+                for candidate in recommendation.candidates
+                if candidate.id == recommendation.selected_candidate_id
+            )
+        return cls(
+            id=recommendation.id,
+            source_url=recommendation.source_url,
+            title=recommendation.title,
+            review_status=recommendation.review_status,
+            comment=comment,
+            created_at=recommendation.created_at,
+            updated_at=recommendation.updated_at,
+        )
+
+
+class RecommendationHistoryResponse(StrictModel):
+    items: Annotated[list[RecommendationHistoryItemResponse], Field(max_length=50)]
 
 
 def _quality_warnings(recommendation: Recommendation) -> list[QualityWarning]:

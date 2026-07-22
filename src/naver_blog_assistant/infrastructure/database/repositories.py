@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, Engine, delete, insert, select, update
+from sqlalchemy import Connection, Engine, delete, func, insert, select, update
 
 from naver_blog_assistant.domain import (
     CandidateTone,
@@ -122,6 +122,41 @@ class SqliteRepository:
                     f"recommendation {recommendation.id} has a newer version"
                 )
             return replace(recommendation, version=recommendation.version + 1)
+
+    def list_recent(self, limit: int) -> tuple[Recommendation, ...]:
+        """Return recent canonical recommendations ordered by their latest activity."""
+        if not 1 <= limit <= 50:
+            raise ValueError("history limit must be between 1 and 50")
+        with self._engine.connect() as connection:
+            identifiers = connection.execute(
+                select(recommendations.c.id)
+                .order_by(
+                    func.coalesce(
+                        recommendations.c.updated_at, recommendations.c.created_at
+                    ).desc(),
+                    recommendations.c.id.desc(),
+                )
+                .limit(limit)
+            ).scalars()
+            return tuple(
+                item
+                for recommendation_id in identifiers
+                if (item := self._get_with_connection(connection, UUID(recommendation_id)))
+                is not None
+            )
+
+    def delete(self, recommendation_id: UUID) -> bool:
+        """Delete recommendation, candidates, and the completed idempotency snapshot."""
+        with self._immediate_connection() as connection:
+            connection.execute(
+                delete(idempotency_records).where(
+                    idempotency_records.c.recommendation_id == str(recommendation_id)
+                )
+            )
+            result = connection.execute(
+                delete(recommendations).where(recommendations.c.id == str(recommendation_id))
+            )
+            return result.rowcount == 1
 
     def reserve(self, key: UUID, request_hash: str) -> IdempotencyReservation:
         """Reserve a key under a SQLite write lock or classify the existing record."""

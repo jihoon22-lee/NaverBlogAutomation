@@ -27,6 +27,11 @@ SQLite `data/naver_blog_assistant.db`에는 source URL, title, bounded excerpt, 
 candidate, edited comment, review state와 idempotency/failure metadata가 명시적 cleanup 전까지
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
+Side Panel의 **최근 작업**은 SQLite에서 최신 20개를 읽으며 browser storage에 history text를
+복제하지 않습니다. 개별 **기록 삭제**는 선택한 recommendation, candidates와 연결된 completed
+idempotency snapshot을 한 transaction에서 제거합니다. 전체 database cleanup은 아래 script를
+사용합니다.
+
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
 최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
 길이와 분위기 enum만 저장합니다. 본문, URL과 생성·편집된 댓글은 저장하지 않습니다.
@@ -53,6 +58,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   trailing slash 없이 입력합니다. ID가 바뀌면 API를 재시작합니다.
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
   `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
+- **연결 표시는 정상이지만 최근 작업이 비어 있음:** 기록은 현재 configured `DATABASE_URL`에만
+  저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
 - **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
