@@ -117,6 +117,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expectPreviewState(panel);
     await expect(panel.locator("#post-title")).toHaveText("합성 전시 후기");
     await expect(panel.locator("#body-preview")).toContainText("관람 동선");
+    await panel.locator(".advanced-preferences > summary").click();
     await panel.locator('input[name="relationship"][value="close"]').check();
     await panel.locator('input[name="speech-style"][value="banmal"]').check();
     await panel.locator('input[name="comment-length"][value="long"]').check();
@@ -187,6 +188,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
 
     await panel.locator("#change-options-button").click();
     await expectPreviewState(panel);
+    await panel.locator(".advanced-preferences > summary").click();
     await panel.locator('input[name="comment-length"][value="short"]').check();
     await panel.locator("#save-preferences-button").click();
     await expect(panel.locator("#preference-notice")).toContainText("기본값으로 저장");
