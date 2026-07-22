@@ -25,6 +25,31 @@ extension에는 전달되지 않습니다. 자세한 설계는 [architecture](do
 
 ## Fresh Setup
 
+### Windows 간편 설정
+
+CPython 3.14, `uv`, Node.js 24와 npm 11을 설치한 뒤 repository folder에서
+`scripts\setup-windows.cmd`를 실행합니다. 이 launcher는 locked dependency 설치와 extension
+build를 마친 뒤, Chrome에 표시된 extension ID를 물어봅니다.
+
+```bat
+scripts\setup-windows.cmd
+```
+
+화면 안내대로 `chrome://extensions`의 Developer mode에서 `extension\dist`를 **Load unpacked**로
+불러오고 32자 ID를 붙여넣습니다. 설정은 `%APPDATA%\NaverBlogAssistant\env`에 보관되며 기존
+파일이 있으면 secret을 포함한 다른 항목은 유지하고 extension origin만 갱신합니다. 설정을 마친
+뒤에는 아래 launcher로 API를 시작하고, 사용하는 동안 열린 terminal을 유지합니다.
+
+```bat
+scripts\start-windows.cmd
+```
+
+Extension을 다시 설치해 ID가 바뀌면 setup launcher를 다시 실행하면 됩니다. `.cmd` launcher는
+현재 process에서만 repository의 PowerShell script 실행을 허용하며 system 실행 정책은 바꾸지
+않습니다.
+
+### 수동 설정 및 POSIX
+
 Repository root에서 locked dependency를 설치하고 extension을 먼저 build합니다.
 
 ```bash
