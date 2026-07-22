@@ -33,7 +33,43 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+  /api/v1/status:
+    get:
+      operationId: getServiceStatus
+      tags: [System]
+      summary: Report the local runtime configuration without secrets
+      responses:
+        "200":
+          description: The local service and its database are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatusResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
   /api/v1/recommendations:
+    get:
+      operationId: listRecommendations
+      tags: [Recommendations]
+      summary: List recent local recommendation history without source bodies
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: Recent recommendations ordered by latest activity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationHistoryResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
     post:
       operationId: createRecommendation
       tags: [Recommendations]
@@ -101,6 +137,17 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
+    delete:
+      operationId: deleteRecommendation
+      tags: [Recommendations]
+      summary: Delete one recommendation and its retry metadata
+      responses:
+        "204":
+          description: The local recommendation was deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
     patch:
       operationId: reviewRecommendation
       tags: [Recommendations]
@@ -164,6 +211,29 @@ components:
         status:
           type: string
           const: ok
+    ServiceStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [status, api_version, app_environment, database, generator_mode, generator_model]
+      properties:
+        status:
+          type: string
+          const: ready
+        api_version:
+          type: string
+        app_environment:
+          type: string
+          enum: [production, development, test]
+        database:
+          type: string
+          const: ready
+        generator_mode:
+          type: string
+          enum: [openai, fake]
+        generator_model:
+          type: string
+          minLength: 1
+          maxLength: 300
     CreateRecommendationRequest:
       type: object
       additionalProperties: false
@@ -284,6 +354,50 @@ components:
           default: null
         review_status:
           $ref: "#/components/schemas/ReviewStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          default: null
+    RecommendationHistoryResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/RecommendationHistoryItemResponse"
+    RecommendationHistoryItemResponse:
+      type: object
+      additionalProperties: false
+      required: [id, source_url, title, review_status, comment, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        review_status:
+          $ref: "#/components/schemas/ReviewStatus"
+        comment:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: "null"
         created_at:
           type: string
           format: date-time

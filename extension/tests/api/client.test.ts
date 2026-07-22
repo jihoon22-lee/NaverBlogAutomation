@@ -131,6 +131,72 @@ describe("LocalApiClient", () => {
     expect(fetcher.mock.calls[3]?.[1]).toEqual(expect.objectContaining({ method: "PATCH" }));
   });
 
+  it("reads service status and recent history, then deletes one local record", async () => {
+    const historyItem = {
+      comment: "다듬어 승인한 댓글",
+      created_at: recommendation.created_at,
+      id: recommendation.id,
+      review_status: "approved",
+      source_url: recommendation.source_url,
+      title: recommendation.title,
+      updated_at: "2026-07-17T00:01:00Z",
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({
+          api_version: "1.0.0",
+          app_environment: "production",
+          database: "ready",
+          generator_mode: "openai",
+          generator_model: "gpt-test",
+          status: "ready",
+        }),
+      )
+      .mockResolvedValueOnce(json({ items: [historyItem] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = new LocalApiClient(fetcher);
+
+    await expect(client.status()).resolves.toMatchObject({
+      apiVersion: "1.0.0",
+      generatorMode: "openai",
+      generatorModel: "gpt-test",
+    });
+    await expect(client.listRecommendations(10)).resolves.toEqual([
+      {
+        comment: historyItem.comment,
+        createdAt: historyItem.created_at,
+        id: historyItem.id,
+        reviewStatus: "approved",
+        sourceUrl: historyItem.source_url,
+        title: historyItem.title,
+        updatedAt: historyItem.updated_at,
+      },
+    ]);
+    await expect(client.deleteRecommendation(recommendation.id)).resolves.toBeUndefined();
+    expect(fetcher.mock.calls[1]?.[0]).toContain("?limit=10");
+    expect(fetcher.mock.calls[2]?.[1]).toEqual(expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("rejects invalid service status, history, limits, and delete responses", async () => {
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(json({ status: "ready" })),
+      ).status(),
+    ).rejects.toBeInstanceOf(ApiClientError);
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(json({ items: [{ id: "invalid" }] })),
+      ).listRecommendations(),
+    ).rejects.toBeInstanceOf(ApiClientError);
+    await expect(new LocalApiClient().listRecommendations(0)).rejects.toBeInstanceOf(RangeError);
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(json({}, { status: 200 })),
+      ).deleteRecommendation(recommendation.id),
+    ).rejects.toBeInstanceOf(ApiClientError);
+  });
+
   it("treats a 200 replay like a successful create and reads the exposed header", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

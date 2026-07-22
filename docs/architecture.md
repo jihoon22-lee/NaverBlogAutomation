@@ -1,6 +1,6 @@
 # Side Panel Comment Recommendation Architecture
 
-Status: Accepted target architecture on 2026-07-17
+Status: Accepted target architecture, updated 2026-07-22
 
 This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
 PR 1~8 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
@@ -13,9 +13,10 @@ The application helps one local user create a relevant comment draft for the Nav
 the active tab. The user opens the extension Side Panel, checks the extracted title and preview,
 explicitly requests recommendations, edits or selects a candidate, and manually publishes it.
 
-The MVP does not monitor blogs, traverse posts, sign in, click reactions, or publish comments. It
-does not provide recommendation history search or an ETag-based multi-client editing protocol.
-Every extraction and model request starts with an explicit user action on the active page.
+The application does not monitor blogs, traverse posts, sign in, click reactions, or publish
+comments. It provides only bounded recent local history, not remote sync or full-text history
+search, and does not provide an ETag-based multi-client editing protocol. Every extraction and
+model request starts with an explicit user action on the active page.
 
 ## System Context
 
@@ -24,7 +25,7 @@ flowchart LR
     U[User] -->|opens toolbar action| P[Chrome Side Panel]
     P -->|activeTab + scripting| N[Current Naver Blog tab]
     N -->|title, URL, visible body| P
-    P -->|preview-confirmed POST/PATCH| A[Local FastAPI service]
+    P -->|status, history, preview-confirmed POST/PATCH/DELETE| A[Local FastAPI service]
     A -->|structured request| O[OpenAI Responses API]
     O -->|summary, topics, three candidates| A
     A --> D[(SQLite)]
@@ -61,6 +62,10 @@ Input filling uses the existing `activeTab` and `scripting` grant, never clicks 
 submit control, and proceeds only when exactly one visible editable target is empty. Ambiguous,
 occupied, missing, stale, and denied targets fail closed.
 
+A separate history controller reads runtime diagnostics and the latest 20 local recommendations.
+It can copy a previously approved comment, open the original URL, or explicitly delete one local
+record. History text stays in DOM memory and is never copied into `chrome.storage.local`.
+
 Naver-specific selectors are isolated behind an extractor adapter. A generic semantic fallback
 handles minor markup changes. Results from eligible frames are ranked, normalized, and bounded to
 the API limit. The extractor returns strings only and excludes navigation and comments. An
@@ -77,8 +82,11 @@ The application and domain layers remain independent of FastAPI, Chrome, SQLAlch
 
 SQLite is the canonical owner of recommendations and review status. It stores the canonical URL,
 title, content hash, bounded excerpt, summary, topics, candidates, timestamps, and generation
-metadata, but never the complete body. No list/history endpoint or ETag is added for this MVP. A
-review conflict is recovered by fetching the current recommendation before the user retries.
+metadata, but never the complete body. A bounded list endpoint returns history summaries without
+excerpts, hashes, candidates, or full article bodies. Deleting one recommendation also deletes its
+candidates and completed retry snapshot transactionally. A review conflict is recovered by
+fetching the current recommendation before the user retries; ETag is still outside the local
+single-user scope.
 
 ### OpenAI Adapter
 
@@ -101,7 +109,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Full extracted body | Side Panel memory | References released on handoff, cancel, panel unload, or navigation |
 | Full request body | FastAPI generation task | Released when that task settles or the process exits |
 | Loading, preview, and unsaved edit state | Side Panel | Panel session |
-| Recommendation and review status | SQLite | Until local data is removed |
+| Recommendation, review status, and recent-history source | SQLite | Until individually or globally removed |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
 | Explicitly saved generation preference profile | Extension storage | Until changed or extension data is removed |

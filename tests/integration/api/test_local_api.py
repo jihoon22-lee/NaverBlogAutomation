@@ -83,6 +83,14 @@ def assert_problem(response: Response, *, status: int, code: str) -> None:
 
 def test_health_create_get_and_response_contract(client: TestClient) -> None:
     assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/api/v1/status").json() == {
+        "status": "ready",
+        "api_version": "1.0.0",
+        "app_environment": "test",
+        "database": "ready",
+        "generator_mode": "fake",
+        "generator_model": "deterministic-fake",
+    }
 
     recommendation_id, payload = create(client)
 
@@ -101,6 +109,53 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     }
     assert "content_hash" not in payload and "excerpt" not in payload and "body" not in payload
     assert client.get(f"/api/v1/recommendations/{recommendation_id}").json() == payload
+
+
+def test_history_lists_final_comment_and_delete_clears_local_record(client: TestClient) -> None:
+    key = uuid4()
+    recommendation_id, payload = create(client, key=key)
+    selected = payload["candidates"][1]
+    edited = "사용자가 기록에서 다시 복사할 최종 댓글입니다."
+    reviewed = client.patch(
+        f"/api/v1/recommendations/{recommendation_id}",
+        json={
+            "selected_candidate_id": selected["id"],
+            "edited_comment": edited,
+            "review_status": "approved",
+        },
+    )
+    assert reviewed.status_code == 200
+
+    history = client.get("/api/v1/recommendations?limit=1")
+    assert history.status_code == 200
+    assert history.json() == {
+        "items": [
+            {
+                "id": str(recommendation_id),
+                "source_url": BLOG_URL,
+                "title": "주말 전시 후기",
+                "review_status": "approved",
+                "comment": edited,
+                "created_at": payload["created_at"],
+                "updated_at": reviewed.json()["updated_at"],
+            }
+        ]
+    }
+    assert client.get("/api/v1/recommendations?limit=0").status_code == 422
+
+    deleted = client.delete(f"/api/v1/recommendations/{recommendation_id}")
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+    assert client.get(f"/api/v1/recommendations/{recommendation_id}").status_code == 404
+    assert client.delete(f"/api/v1/recommendations/{recommendation_id}").status_code == 404
+
+    regenerated = client.post(
+        "/api/v1/recommendations",
+        json=request_payload(),
+        headers={"Idempotency-Key": str(key)},
+    )
+    assert regenerated.status_code == 201
+    assert regenerated.json()["id"] != str(recommendation_id)
 
 
 def test_custom_preferences_are_generated_persisted_and_echoed(client: TestClient) -> None:
@@ -392,9 +447,17 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
     assert allowed.headers["access-control-expose-headers"] == ("Idempotency-Replayed, Retry-After")
+    assert allowed.headers["access-control-allow-methods"] == "DELETE, GET, POST, PATCH"
     assert "access-control-allow-credentials" not in allowed.headers
     assert_problem(denied, status=403, code="cors_origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
+
+    delete_preflight = client.options(
+        "/api/v1/recommendations/00000000-0000-4000-8000-000000000010",
+        headers={"Origin": ORIGIN, "Access-Control-Request-Method": "DELETE"},
+    )
+    assert delete_preflight.status_code == 200
+    assert delete_preflight.headers["access-control-allow-origin"] == ORIGIN
 
     oversized = client.post(
         "/api/v1/recommendations",

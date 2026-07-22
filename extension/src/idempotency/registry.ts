@@ -204,6 +204,20 @@ export class IdempotencyRegistry {
     await this.#exclusive(() => this.#save(emptyRegistry()));
   }
 
+  async removeRecommendation(recommendationId: string): Promise<void> {
+    if (!UUID.test(recommendationId)) throw new RegistryQuarantinedError();
+    await this.#exclusive(async () => {
+      const registry = await this.#load();
+      const retained = registry.entries.filter(
+        (entry) => entry.recommendationId !== recommendationId,
+      );
+      if (retained.length !== registry.entries.length) {
+        registry.entries = retained;
+        await this.#save(registry);
+      }
+    });
+  }
+
   async #load(): Promise<StoredRegistry> {
     const raw = await this.#storage.get(STORAGE_KEY);
     if (raw[STORAGE_KEY] === undefined) {

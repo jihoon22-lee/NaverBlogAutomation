@@ -165,6 +165,35 @@ def complete_generation(repository: SqliteRepository) -> Recommendation:
     return item
 
 
+def test_recent_history_and_delete_remove_retry_metadata(
+    migrated_database: tuple[str, Engine],
+) -> None:
+    _, engine = migrated_database
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    item = complete_generation(repository)
+    reviewed = repository.update(
+        item.apply_review(
+            ReviewPatch(selected_candidate_index=0, review_status=ReviewStatus.APPROVED),
+            reviewed_at=NOW + timedelta(minutes=1),
+        )
+    )
+
+    assert repository.list_recent(20) == (reviewed,)
+    assert repository.delete(item.id)
+    assert repository.get(item.id) is None
+    assert not repository.delete(item.id)
+    assert repository.reserve(KEY, REQUEST_HASH).outcome is IdempotencyOutcome.STARTED
+
+
+@pytest.mark.parametrize("limit", [0, 51])
+def test_recent_history_rejects_out_of_range_limit(
+    migrated_database: tuple[str, Engine], limit: int
+) -> None:
+    _, engine = migrated_database
+    with pytest.raises(ValueError):
+        SqliteRepository(engine).list_recent(limit)
+
+
 def test_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'migration.db'}"
     config = alembic_config(database_url)

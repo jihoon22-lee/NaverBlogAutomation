@@ -19,7 +19,7 @@ from uuid import UUID
 import yaml
 from alembic import command
 from alembic.config import Config
-from fastapi import FastAPI, Header, Request, Response
+from fastapi import FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.engine import make_url
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -39,12 +39,16 @@ from naver_blog_assistant.api.models import (
     CreateRecommendationRequest,
     HealthResponse,
     ProblemDetails,
+    RecommendationHistoryItemResponse,
+    RecommendationHistoryResponse,
     RecommendationResponse,
     ReviewRecommendationRequest,
+    ServiceStatusResponse,
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.application import (
     ConcurrentReviewError,
+    DeleteRecommendation,
     GenerateRecommendation,
     GenerationIndeterminateError,
     GenerationInProgressError,
@@ -55,6 +59,7 @@ from naver_blog_assistant.application import (
     GenerationUnavailableError,
     GetRecommendation,
     IdempotencyConflictError,
+    ListRecommendations,
     RecommendationNotFoundError,
     ReplayedGenerationFailure,
     ReviewRecommendation,
@@ -264,6 +269,8 @@ def create_app(
     rate_limited_generator = _LocallyRateLimitedGenerator(selected_generator, limiter)
     generate = GenerateRecommendation(generator=rate_limited_generator, idempotency=repository)
     get = GetRecommendation(repository)
+    list_recommendations = ListRecommendations(repository)
+    delete_recommendation = DeleteRecommendation(repository)
     review = ReviewRecommendation(repository)
     pending_generations: set[asyncio.Task[GenerationResult]] = set()
 
@@ -354,6 +361,43 @@ def create_app(
     )
     def health() -> HealthResponse:
         return HealthResponse()
+
+    @app.get(
+        "/api/v1/status",
+        response_model=ServiceStatusResponse,
+        responses={400: _problem_metadata("The HTTP request is malformed.")},
+        tags=["System"],
+        operation_id="getServiceStatus",
+    )
+    def service_status() -> ServiceStatusResponse:
+        generator_model = (
+            settings.openai_model if settings.generator_mode == "openai" else "deterministic-fake"
+        )
+        return ServiceStatusResponse(
+            status="ready",
+            api_version=app.version,
+            app_environment=settings.app_environment,
+            database="ready",
+            generator_mode=settings.generator_mode,
+            generator_model=generator_model,
+        )
+
+    @app.get(
+        "/api/v1/recommendations",
+        response_model=RecommendationHistoryResponse,
+        responses={422: _problem_metadata("History query is invalid.")},
+        tags=["Recommendations"],
+        operation_id="listRecommendations",
+    )
+    def list_recent_recommendations(
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    ) -> RecommendationHistoryResponse:
+        return RecommendationHistoryResponse(
+            items=[
+                RecommendationHistoryItemResponse.from_domain(recommendation)
+                for recommendation in list_recommendations.execute(limit=limit)
+            ]
+        )
 
     @app.post(
         "/api/v1/recommendations",
@@ -502,6 +546,23 @@ def create_app(
         except RecommendationNotFoundError as error:
             raise _not_found() from error
         return RecommendationResponse.from_domain(result)
+
+    @app.delete(
+        "/api/v1/recommendations/{recommendation_id}",
+        status_code=204,
+        responses={
+            404: _problem_metadata("Recommendation was not found."),
+            422: _problem_metadata("Recommendation ID is invalid."),
+        },
+        tags=["Recommendations"],
+        operation_id="deleteRecommendation",
+    )
+    def delete_stored_recommendation(recommendation_id: UUID) -> Response:
+        try:
+            delete_recommendation.execute(recommendation_id)
+        except RecommendationNotFoundError as error:
+            raise _not_found() from error
+        return Response(status_code=204)
 
     @app.patch(
         "/api/v1/recommendations/{recommendation_id}",

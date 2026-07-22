@@ -90,6 +90,14 @@ class RecommendationRepository(Protocol):
         """Persist a review with compare-and-swap and return its incremented version."""
         ...
 
+    def list_recent(self, limit: int) -> tuple[Recommendation, ...]:
+        """Return recent recommendations in descending activity order."""
+        ...
+
+    def delete(self, recommendation_id: UUID) -> bool:
+        """Delete one recommendation and retry metadata, returning whether it existed."""
+        ...
+
 
 class IdempotencyRepository(Protocol):
     """Coordinate safe retries around an otherwise expensive generation call."""

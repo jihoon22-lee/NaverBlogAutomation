@@ -97,6 +97,11 @@ uv run --frozen --env-file .env.local \
    못하거나 기존 내용이 있으면 복사 버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
 8. 실제 수동 절차를 마친 경우에만 **수동 등록 완료로 표시**를 누릅니다.
 
+Side Panel 상단의 연결 표시에서 local API와 적용 중인 generator model을 확인할 수 있습니다.
+**최근 작업**에는 최신 20개의 title, review 상태와 최종 댓글이 표시됩니다. 이전 댓글을 다시
+복사하거나 원문을 열 수 있고, 더 이상 보관하지 않을 기록은 확인 후 해당 recommendation과
+retry metadata를 함께 삭제할 수 있습니다.
+
 **같은 설정으로 새 후보 만들기**는 현재 글을 다시 확인한 뒤 내용이 같으면 곧바로 새 OpenAI
 API 요청을 시작합니다. 글이 달라졌으면 Preview에서 멈춥니다. **설정 바꾸기**는 API를 호출하지
 않고 Preview로 돌아갑니다. 기본값으로 저장한 관계·말투·길이·분위기는 다음 글에도 적용됩니다.
@@ -144,6 +149,8 @@ troubleshooting, data cleanup과 opt-in smoke 절차는
 - Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 등록, unattended browsing은 제외합니다.
 - Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다.
 - SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다.
+- 최근 작업 삭제는 선택한 SQLite recommendation, candidates와 연결된 idempotency snapshot만
+  제거하며 다른 기록에는 영향을 주지 않습니다.
 - Private/unpublished content, 실제 account identifier나 secret을 test fixture·artifact에 넣지 않습니다.
 
 작업 branch와 Conventional Commit, review-ready PR 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다.

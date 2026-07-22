@@ -1,15 +1,21 @@
 import { ChromeTabCaptureGateway } from "../browser/tab-capture-gateway";
-import { restrictStorageToTrustedContexts } from "../idempotency/registry";
+import { IdempotencyRegistry, restrictStorageToTrustedContexts } from "../idempotency/registry";
+import { HistoryController } from "../history/controller";
+import { DomHistoryView } from "../history/view";
 import { SidePanelController } from "./controller";
 import { DomPanelView } from "./view";
 
 const view = new DomPanelView(document);
 let controller: SidePanelController | null = null;
+let historyController: HistoryController | null = null;
 
 void (async () => {
   try {
     await restrictStorageToTrustedContexts();
-    controller = new SidePanelController(new ChromeTabCaptureGateway(), view);
+    const registry = new IdempotencyRegistry();
+    historyController = new HistoryController(new DomHistoryView(document), undefined, registry);
+    historyController.start();
+    controller = new SidePanelController(new ChromeTabCaptureGateway(), view, { registry });
     controller.start();
   } catch {
     view.render({
@@ -29,7 +35,9 @@ window.addEventListener(
   "pagehide",
   () => {
     controller?.dispose();
+    historyController?.dispose();
     controller = null;
+    historyController = null;
   },
   { once: true },
 );

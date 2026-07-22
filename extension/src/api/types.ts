@@ -64,3 +64,22 @@ export interface ApiResult<T> {
   replayed: boolean;
   value: T;
 }
+
+export interface ServiceStatus {
+  apiVersion: string;
+  appEnvironment: "development" | "production" | "test";
+  database: "ready";
+  generatorMode: "fake" | "openai";
+  generatorModel: string;
+  status: "ready";
+}
+
+export interface RecommendationHistoryItem {
+  comment: string | null;
+  createdAt: string;
+  id: string;
+  reviewStatus: ReviewStatus;
+  sourceUrl: string;
+  title: string;
+  updatedAt: string | null;
+}
