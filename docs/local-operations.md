@@ -34,7 +34,9 @@ idempotency snapshot을 한 transaction에서 제거합니다. 전체 database c
 
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
 최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
-길이와 분위기 enum만 저장합니다. 본문, URL과 생성·편집된 댓글은 저장하지 않습니다.
+길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 마무리 문구는 생성 요청이나
+OpenAI에 전송되지 않고 후보 선택 후 local 편집 단계에서만 붙습니다. 본문, URL과 생성·편집된
+댓글은 extension storage에 저장하지 않습니다.
 Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.
 Active, reviewing, terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해
 자동 만료되지 않습니다. Retained entry 20개가 남아 있거나 registry가 invalid이면 Side Panel이

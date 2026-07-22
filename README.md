@@ -137,7 +137,7 @@ uv run --frozen --env-file .env.local \
 4. 저장된 빠른 설정을 확인하거나 상세 설정에서 관계, 말투, 분위기와 댓글 길이를 선택합니다.
    반말은 **가까운 사이**에서만 사용할 수 있습니다. 길이 목표는 **짧게 40~80자**,
    **보통 100~160자**, **길게 200~320자**입니다. 원하는 조합은 명시적으로 기본값으로
-   저장할 수 있습니다.
+   저장할 수 있습니다. 자주 쓰는 마무리 문구도 선택적으로 함께 저장할 수 있습니다.
 5. **추천 댓글 만들기**를 눌러 세 후보를 생성하고 적용된 옵션을 확인합니다.
 6. 후보의 **이 댓글 사용**을 누르거나 내용을 다듬은 뒤 **다듬은 댓글 사용**을 누릅니다.
 7. 열려 있는 비어 있는 댓글 입력란이 정확히 하나이면 초안이 입력됩니다. 입력란을 찾지
@@ -158,6 +158,10 @@ API 요청을 시작합니다. 글이 달라졌으면 Preview에서 멈춥니다
 입력 보조, 복사와 완료 표시는 댓글을 게시하지 않습니다. 입력 보조는 visible하고 비어 있는
 댓글 입력란 하나만 채우며 기존 text를 덮어쓰거나 등록 버튼을 누르지 않습니다. Tab 이동이나
 navigation 뒤에는 toolbar action을 다시 눌러 `activeTab` 권한을 갱신하세요.
+
+마무리 문구는 최대 50자로 정규화해 Chrome local storage에만 기본값으로 저장하며 생성 API나
+OpenAI에는 전송하지 않습니다. 후보를 선택하면 편집 영역 끝에 문구가 붙으므로 승인 전에 제거하거나
+고칠 수 있습니다. 승인한 최종 댓글은 기존 review workflow에 따라 local SQLite에 저장됩니다.
 
 ## OpenAI Opt-in
 
@@ -194,7 +198,8 @@ troubleshooting, data cleanup과 opt-in smoke 절차는
 
 - 지원 범위는 현재 사용자가 연 Naver Blog 글의 추출, 추천, review, 안전한 입력 보조와 copy입니다.
 - Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 등록, unattended browsing은 제외합니다.
-- Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다.
+- Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다. 사용자가
+  기본값으로 저장한 생성 옵션과 최대 50자의 마무리 문구는 예외입니다.
 - SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다.
 - 최근 작업 삭제는 선택한 SQLite recommendation, candidates와 연결된 idempotency snapshot만
   제거하며 다른 기록에는 영향을 주지 않습니다.

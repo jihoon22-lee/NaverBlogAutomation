@@ -48,6 +48,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     copy: vi.fn(),
     changeCommentLength: vi.fn(),
     changeCommentMood: vi.fn(),
+    changeClosingPhrase: vi.fn(),
     changeRelationship: vi.fn(),
     changeSpeechStyle: vi.fn(),
     edit: vi.fn(),
@@ -84,6 +85,7 @@ describe("DomPanelView", () => {
 
   it("renders a bounded preview and enables explicit generation", async () => {
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "medium",
@@ -116,6 +118,7 @@ describe("DomPanelView", () => {
 
   it("hides the truncation notice for content within the API limit", () => {
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "medium",
@@ -159,6 +162,7 @@ describe("DomPanelView", () => {
       truncated: false,
     };
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "medium",
@@ -176,6 +180,7 @@ describe("DomPanelView", () => {
     close?.click();
     expect(changeRelationship).toHaveBeenCalledWith("close");
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "long",
@@ -199,6 +204,7 @@ describe("DomPanelView", () => {
     const changeCommentMood = vi.fn();
     view.bind(actions({ changeCommentMood }));
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "medium",
@@ -225,6 +231,44 @@ describe("DomPanelView", () => {
     );
     document.querySelector<HTMLInputElement>('input[name="comment-mood"][value="lively"]')?.click();
     expect(changeCommentMood).toHaveBeenCalledWith("lively");
+  });
+
+  it("edits a reusable closing phrase with a visible local-only explanation", () => {
+    const window = document.defaultView;
+    if (window === null) throw new Error("Synthetic window is missing");
+    const changeClosingPhrase = vi.fn();
+    view.bind(actions({ changeClosingPhrase }));
+    view.render({
+      closingPhrase: "기존 문구",
+      kind: "preview",
+      preferences: {
+        commentLength: "medium",
+        commentMood: "warm",
+        relationshipLevel: "friendly",
+        speechStyle: "honorific",
+      },
+      preview: {
+        body: "충분한 길이의 합성 본문 내용입니다.",
+        frameId: 0,
+        originalLength: 20,
+        sourceUrl: "https://blog.naver.com/synthetic/phrase",
+        tabId: 2,
+        title: "합성 제목",
+        transmittedLength: 20,
+        truncated: false,
+      },
+    });
+
+    const input = document.querySelector<HTMLInputElement>("#closing-phrase");
+    if (input === null) throw new Error("Closing phrase input is missing");
+    expect(input.value).toBe("기존 문구");
+    expect(document.querySelector("#closing-phrase-help")?.textContent).toContain(
+      "OpenAI에는 전송하지 않습니다",
+    );
+    input.value = "오늘도 좋은 하루 보내세요!";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(changeClosingPhrase).toHaveBeenCalledWith("오늘도 좋은 하루 보내세요!");
+    expect(document.querySelector("#closing-phrase-count")?.textContent).toContain("15 / 50자");
   });
 
   it("shows deduplicated quality warnings without blocking three-candidate review", () => {
@@ -419,6 +463,7 @@ describe("DomPanelView", () => {
 
   it("clears article and comment text from hidden DOM on generation and errors", () => {
     view.render({
+      closingPhrase: "",
       kind: "preview",
       preferences: {
         commentLength: "medium",

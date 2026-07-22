@@ -41,16 +41,18 @@ package provides the loopback service and contains no second presentation layer.
 ### Side Panel and Browser Boundary
 
 The Manifest V3 TypeScript extension requests only `activeTab`, `scripting`, `sidePanel`,
-`storage`, and the loopback API host permission. `storage` is added only when the retry registry
-lands; it holds no article or comment text. The service worker configures toolbar clicks to open
-the panel and performs only short browser-API orchestration. It never owns a model request because
-its lifecycle is ephemeral.
+`storage`, and the loopback API host permission. Storage holds no article, generated candidate, or
+edited-comment text; it contains retry metadata and the user's explicitly saved options, including
+one bounded closing phrase. The service worker configures toolbar clicks to open the panel and
+performs only short browser-API orchestration. It never owns a model request because its lifecycle
+is ephemeral.
 
 The Side Panel owns UI and HTTP request lifecycles. On open, it extracts the active post and shows
 the URL, title, character count, truncation state, and a bounded preview. Transmission begins only
 after the user confirms relationship, speech style, comment mood, and comment length and presses the
 generation button. A complete preference profile persists only after the user explicitly saves it as
-the default. The response echoes the effective options and non-blocking quality warnings so the
+the default. An optional 50-code-point closing phrase stays out of generation requests and is appended
+in the local review editor only when a candidate is selected. The response echoes the effective options and non-blocking quality warnings so the
 review UI can show provenance and weak role separation without hiding usable candidates. Direct
 regeneration recaptures the article and, when its digest is unchanged, uses a fresh idempotency key
 immediately; changed content returns to Preview. A separate settings action returns to Preview
@@ -112,12 +114,13 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Recommendation, review status, and recent-history source | SQLite | Until individually or globally removed |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
-| Explicitly saved generation preference profile | Extension storage | Until changed or extension data is removed |
+| Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
 
-The extension stores no body, title, URL, candidate, edited comment, cookie, or credential. Its
+The extension stores no body, title, URL, generated candidate, edited comment, cookie, or credential. Its
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
 schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
-versioned record contains only the four validated generation preference enums. It persists across browser
+versioned record contains the four validated generation preference enums and one normalized user-authored
+closing phrase of at most 50 code points. It persists across browser
 restarts and holds at most 20 operations.
 Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
 later registry access. Active, reviewing, terminal-failure, or indeterminate entries never expire

@@ -322,6 +322,35 @@ label {
   font-weight: 400;
 }
 
+.closing-phrase-field {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0 12px;
+}
+
+.closing-phrase-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #87978e;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.closing-phrase-field .help {
+  margin: 0;
+}
+
+.optional {
+  color: #526159;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.character-count {
+  text-align: right;
+}
+
 .quality-warning h3 {
   margin: 0 0 6px;
   font-size: 0.95rem;

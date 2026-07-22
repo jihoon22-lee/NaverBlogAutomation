@@ -13,11 +13,22 @@ export interface GenerationPreferences {
   readonly speechStyle: SpeechStyle;
 }
 
+export interface CommentPreferences extends GenerationPreferences {
+  readonly closingPhrase: string;
+}
+
+export const MAX_CLOSING_PHRASE_CODE_POINTS = 50;
+
 export const DEFAULT_GENERATION_PREFERENCES: GenerationPreferences = Object.freeze({
   commentLength: "medium",
   commentMood: "warm",
   relationshipLevel: "friendly",
   speechStyle: "honorific",
+});
+
+export const DEFAULT_COMMENT_PREFERENCES: CommentPreferences = Object.freeze({
+  ...DEFAULT_GENERATION_PREFERENCES,
+  closingPhrase: "",
 });
 
 const COMMENT_LENGTHS = new Set<CommentLength>(["long", "medium", "short"]);
@@ -49,6 +60,29 @@ export function isValidGenerationPreferences(value: GenerationPreferences): bool
     isSpeechStyle(value.speechStyle) &&
     (value.speechStyle !== "banmal" || value.relationshipLevel === "close")
   );
+}
+
+export function normalizeClosingPhrase(value: string): string {
+  return Array.from(value.replace(/\s+/gu, " ").trim())
+    .slice(0, MAX_CLOSING_PHRASE_CODE_POINTS)
+    .join("");
+}
+
+export function isValidCommentPreferences(value: CommentPreferences): boolean {
+  return (
+    isValidGenerationPreferences(value) &&
+    typeof value.closingPhrase === "string" &&
+    value.closingPhrase === normalizeClosingPhrase(value.closingPhrase)
+  );
+}
+
+export function appendClosingPhrase(comment: string, closingPhrase: string): string {
+  const normalizedComment = comment.trim();
+  const normalizedPhrase = normalizeClosingPhrase(closingPhrase);
+  if (normalizedPhrase.length === 0 || normalizedComment.endsWith(normalizedPhrase)) {
+    return normalizedComment;
+  }
+  return `${normalizedComment} ${normalizedPhrase}`;
 }
 
 export function preferencesFromRequest(

@@ -22,10 +22,12 @@ import {
 } from "../idempotency/registry";
 import {
   DEFAULT_GENERATION_PREFERENCES,
+  appendClosingPhrase,
   isCommentLength,
   isCommentMood,
   isRelationshipLevel,
   isSpeechStyle,
+  normalizeClosingPhrase,
   requestPreferenceFields,
   samePreferences,
   type GenerationPreferences,
@@ -84,6 +86,7 @@ export class SidePanelController {
   #activeTabId: number | null = null;
   #busy = false;
   #copied = false;
+  #closingPhrase = "";
   #digestValue: string | null = null;
   #editedComment = "";
   #operation = 0;
@@ -94,6 +97,7 @@ export class SidePanelController {
   #regenerationIntent: RegenerationIntent | null = null;
   #replacementIntent: ReplacementIntent | null = null;
   #savedPreferences: GenerationPreferences = { ...DEFAULT_GENERATION_PREFERENCES };
+  #savedClosingPhrase = "";
   #selectedCandidateId: string | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -120,6 +124,7 @@ export class SidePanelController {
       copy: () => void this.copy(),
       changeCommentLength: (value) => this.changeCommentLength(value),
       changeCommentMood: (value) => this.changeCommentMood(value),
+      changeClosingPhrase: (value) => this.changeClosingPhrase(value),
       changeRelationship: (value) => this.changeRelationship(value),
       changeSpeechStyle: (value) => this.changeSpeechStyle(value),
       edit: (value) => this.edit(value),
@@ -158,6 +163,7 @@ export class SidePanelController {
     this.#replacementIntent = null;
     this.#regenerationIntent = null;
     this.#preferences = { ...this.#savedPreferences };
+    this.#closingPhrase = this.#savedClosingPhrase;
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
   }
@@ -226,17 +232,35 @@ export class SidePanelController {
     this.#renderPreview();
   }
 
+  changeClosingPhrase(value: string): void {
+    if (this.#busy || this.#preview === null) return;
+    this.#closingPhrase = normalizeClosingPhrase(value);
+    this.#preferenceNotice = undefined;
+  }
+
   async savePreferences(): Promise<void> {
     if (this.#busy || this.#preview === null) return;
     const snapshot = { ...this.#preferences };
+    const closingPhrase = this.#closingPhrase;
     try {
-      await this.#lengthStore.save(snapshot);
-      if (this.#preview === null || !samePreferences(this.#preferences, snapshot)) return;
+      await this.#lengthStore.save({ ...snapshot, closingPhrase });
+      if (
+        this.#preview === null ||
+        !samePreferences(this.#preferences, snapshot) ||
+        this.#closingPhrase !== closingPhrase
+      ) {
+        return;
+      }
       this.#savedPreferences = { ...snapshot };
+      this.#savedClosingPhrase = closingPhrase;
       this.#preferenceNotice = "현재 설정을 다음 글의 기본값으로 저장했습니다.";
       this.#renderPreview();
     } catch {
-      if (this.#preview === null || !samePreferences(this.#preferences, snapshot)) {
+      if (
+        this.#preview === null ||
+        !samePreferences(this.#preferences, snapshot) ||
+        this.#closingPhrase !== closingPhrase
+      ) {
         return;
       }
       this.#preferenceNotice =
@@ -342,7 +366,7 @@ export class SidePanelController {
       return;
     }
     this.#selectedCandidateId = candidate.id;
-    this.#editedComment = candidate.comment;
+    this.#editedComment = appendClosingPhrase(candidate.comment, this.#closingPhrase);
     this.#copied = false;
     this.#renderReview();
   }
@@ -900,8 +924,11 @@ export class SidePanelController {
     try {
       const stored = await this.#lengthStore.load();
       this.#assertCurrent(lifecycle);
-      this.#savedPreferences = { ...stored };
-      this.#preferences = { ...stored };
+      const { closingPhrase, ...generationPreferences } = stored;
+      this.#savedPreferences = { ...generationPreferences };
+      this.#preferences = { ...generationPreferences };
+      this.#savedClosingPhrase = closingPhrase;
+      this.#closingPhrase = closingPhrase;
       await this.#captureActivePost();
     } catch (error) {
       if (error instanceof StaleOperation || lifecycle !== this.#operation) return;
@@ -919,6 +946,7 @@ export class SidePanelController {
   #renderPreview(): void {
     if (this.#preview === null) return;
     this.#view.render({
+      closingPhrase: this.#closingPhrase,
       kind: "preview",
       ...(this.#preferenceNotice === undefined ? {} : { preferenceNotice: this.#preferenceNotice }),
       preferences: { ...this.#preferences },
