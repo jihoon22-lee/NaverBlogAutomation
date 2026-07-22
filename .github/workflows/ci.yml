@@ -322,6 +322,51 @@ jobs:
             exit 1
           fi
 
+  windows-launcher:
+    name: Windows launcher
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate PowerShell launchers
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @("scripts/setup-windows.ps1", "scripts/start-windows.ps1")) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_ }
+              $failed = $true
+            }
+          }
+          if ($failed) {
+            throw "PowerShell launcher syntax validation failed."
+          }
+
+          $stdout = Join-Path $env:RUNNER_TEMP "windows-launcher.stdout.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "windows-launcher.stderr.txt"
+          $process = Start-Process -FilePath "cmd.exe" -ArgumentList @(
+            "/d",
+            "/c",
+            "echo.| scripts\setup-windows.cmd -ExtensionId $('q' * 32) -SkipDependencies"
+          ) -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $output = (Get-Content $stdout, $stderr -Raw) -join "`n"
+          if ($process.ExitCode -ne 1 -or $output -notmatch "Extension ID") {
+            Write-Output $output
+            throw "The CMD launcher did not reject an invalid extension ID safely."
+          }
+
   quality-gate:
     name: Quality gate
     if: always()
@@ -330,6 +375,7 @@ jobs:
       - python-quality
       - typescript-quality
       - system-e2e
+      - windows-launcher
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -340,6 +386,7 @@ jobs:
           PYTHON_RESULT: ${{ needs.python-quality.result }}
           TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
           E2E_RESULT: ${{ needs.system-e2e.result }}
+          WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
         run: |
           echo "## Required quality checks" >> "$GITHUB_STEP_SUMMARY"
           echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
@@ -348,11 +395,13 @@ jobs:
           echo "| Python quality | $PYTHON_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$COMMIT_RESULT" != "success" \
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
-            || "$E2E_RESULT" != "success" ]]; then
+            || "$E2E_RESULT" != "success" \
+            || "$WINDOWS_RESULT" != "success" ]]; then
             echo "One or more required jobs failed or were skipped." >&2
             exit 1
           fi
