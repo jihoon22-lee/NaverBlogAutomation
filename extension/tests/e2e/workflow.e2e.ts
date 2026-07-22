@@ -208,7 +208,13 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     const editedComment = "합성 본문의 전시 동선이 잘 드러나는 댓글로 직접 다듬었습니다.";
     await panel.locator("#edited-comment").fill(editedComment);
     await blogPage.bringToFront();
-    await panel.locator("#edited-use-button").click();
+    await panel.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>("#edited-use-button");
+      if (button === null) {
+        throw new Error("Edited comment use control is unavailable");
+      }
+      button.click();
+    });
     await expect(panel.locator("#review-status")).toHaveText("승인됨");
     await expect(blogPage.locator("textarea.u_cbox_text")).toHaveValue(editedComment);
     await expect(panel.locator("#review-notice")).toContainText("입력란에 초안을");
