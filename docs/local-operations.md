@@ -30,11 +30,11 @@ candidate, edited comment, review state와 idempotency/failure metadata가 명�
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
 최대 20개 저장하고, 별도 versioned record에는 댓글 길이(`short`, `medium`, `long`)와 분위기
 (`calm`, `warm`, `lively`)만 저장합니다. 본문, URL, 관계와 말투는 저장하지 않습니다.
-Completed, released, dismissed entry는 60분 후
-만료됩니다. Active,
-terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해 자동 삭제되지
-않습니다. Registry가 invalid 또는 full이면 Side Panel이 확인 dialog와 함께 cleanup action을
-제공합니다. Cleanup은 retry 복구 정보를 잃게 하므로 pending 결과를 확인한 뒤 실행하세요.
+Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.
+Active, reviewing, terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해
+자동 만료되지 않습니다. Retained entry 20개가 남아 있거나 registry가 invalid이면 Side Panel이
+확인 dialog와 함께 cleanup action을 제공합니다. Cleanup은 retry 복구 정보를 잃게 하므로
+pending 결과를 확인한 뒤 실행하세요.
 
 SQLite를 지우려면 API를 먼저 종료하고 dry run 결과를 확인한 뒤 같은 explicit env로 승인합니다.
 명령은 configured repo-local database와 `-wal`, `-shm` file 외에는 삭제하지 않습니다.

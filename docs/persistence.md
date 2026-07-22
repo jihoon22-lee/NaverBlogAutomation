@@ -2,9 +2,12 @@
 
 로컬 데이터베이스는 추천 결과의 검토 이력과 안전한 재시도에 필요한 정보만 저장합니다.
 원문 전체, OpenAI API 키, 쿠키와 인증 헤더는 테이블·스냅샷·로그에 저장하지 않습니다.
-스키마 변경은 `uv run alembic upgrade head`로 적용하고, 개발 중 되돌리기는
-`uv run alembic downgrade -1`로 수행합니다. 중복 provider 호출을 막는 `failed` 또는
-`indeterminate` fence가 있으면 해당 downgrade는 명시적으로 거부되며 데이터와 현재
+API startup은 explicit environment file의 `DATABASE_URL`을 Alembic에 주입해 해당 database만
+자동으로 `head`까지 upgrade합니다. Bare `uv run alembic ...` 명령은 `alembic.ini`의 generic
+기본 database를 가리키므로 dev/prod 운영 절차로 사용하지 않습니다. Local runtime은
+forward-only migration을 기본으로 하며, downgrade는 disposable integration-test database에서만
+검증합니다. 중복 provider 호출을 막는 `failed` 또는 `indeterminate` fence나 non-default
+generation provenance가 있으면 destructive downgrade는 명시적으로 거부되고 데이터와 현재
 schema를 그대로 유지합니다.
 
 운영 환경의 정확한 retention 범위, extension retry registry와 안전한 dry-run/confirmed cleanup
