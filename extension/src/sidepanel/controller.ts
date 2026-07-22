@@ -1,6 +1,11 @@
 import { ApiClientError, LocalApiClient } from "../api/client";
 import type { CreateRecommendationRequest, Recommendation } from "../api/types";
 import { BrowserCaptureError, type TabCaptureGateway } from "../browser/tab-capture-gateway";
+import {
+  ChromeCommentInputGateway,
+  type CommentInputGateway,
+  type CommentInputResult,
+} from "../browser/comment-input-gateway";
 import { chooseCapturedPost } from "../extraction/rank-captures";
 import { parseSupportedNaverUrl } from "../extraction/source-url";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
@@ -39,6 +44,7 @@ const MAX_POLL_MS = 60_000;
 
 export interface WorkflowDependencies {
   api?: LocalApiClient;
+  commentInput?: CommentInputGateway;
   digest?: typeof requestDigest;
   now?: () => number;
   registry?: IdempotencyRegistry;
@@ -66,6 +72,7 @@ interface RegenerationIntent {
 
 export class SidePanelController {
   readonly #api: LocalApiClient;
+  readonly #commentInput: CommentInputGateway;
   readonly #digest: typeof requestDigest;
   readonly #gateway: TabCaptureGateway;
   readonly #lengthStore: CommentLengthPreferenceStore;
@@ -86,6 +93,7 @@ export class SidePanelController {
   #recommendation: Recommendation | null = null;
   #regenerationIntent: RegenerationIntent | null = null;
   #replacementIntent: ReplacementIntent | null = null;
+  #savedPreferences: GenerationPreferences = { ...DEFAULT_GENERATION_PREFERENCES };
   #selectedCandidateId: string | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -95,6 +103,7 @@ export class SidePanelController {
     dependencies: WorkflowDependencies = {},
   ) {
     this.#gateway = gateway;
+    this.#commentInput = dependencies.commentInput ?? new ChromeCommentInputGateway();
     this.#lengthStore = dependencies.lengthStore ?? new CommentLengthPreferenceStore();
     this.#view = view;
     this.#api = dependencies.api ?? new LocalApiClient();
@@ -105,6 +114,7 @@ export class SidePanelController {
     this.#view.bind({
       approve: () => void this.approve(),
       cancel: () => void this.cancel(),
+      changeOptions: () => void this.changeOptions(),
       cleanup: () => void this.cleanupRegistry(),
       complete: () => void this.complete(),
       copy: () => void this.copy(),
@@ -117,7 +127,10 @@ export class SidePanelController {
       regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
       retry: () => void this.captureActivePost(),
+      savePreferences: () => void this.savePreferences(),
       select: (candidateId) => this.select(candidateId),
+      useCandidate: (candidateId) => void this.useCandidate(candidateId),
+      useEdited: () => void this.useEdited(),
     });
   }
 
@@ -144,11 +157,7 @@ export class SidePanelController {
   async captureActivePost(): Promise<void> {
     this.#replacementIntent = null;
     this.#regenerationIntent = null;
-    this.#preferences = {
-      ...DEFAULT_GENERATION_PREFERENCES,
-      commentLength: this.#preferences.commentLength,
-      commentMood: this.#preferences.commentMood,
-    };
+    this.#preferences = { ...this.#savedPreferences };
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
   }
@@ -208,7 +217,6 @@ export class SidePanelController {
     this.#preferences = { ...this.#preferences, commentLength: value };
     this.#preferenceNotice = undefined;
     this.#renderPreview();
-    this.#persistPreferences();
   }
 
   changeCommentMood(value: string): void {
@@ -216,26 +224,25 @@ export class SidePanelController {
     this.#preferences = { ...this.#preferences, commentMood: value };
     this.#preferenceNotice = undefined;
     this.#renderPreview();
-    this.#persistPreferences();
   }
 
-  #persistPreferences(): void {
-    const snapshot = {
-      commentLength: this.#preferences.commentLength,
-      commentMood: this.#preferences.commentMood,
-    };
-    void this.#lengthStore.save(snapshot).catch(() => {
-      if (
-        this.#preview === null ||
-        this.#preferences.commentLength !== snapshot.commentLength ||
-        this.#preferences.commentMood !== snapshot.commentMood
-      ) {
+  async savePreferences(): Promise<void> {
+    if (this.#busy || this.#preview === null) return;
+    const snapshot = { ...this.#preferences };
+    try {
+      await this.#lengthStore.save(snapshot);
+      if (this.#preview === null || !samePreferences(this.#preferences, snapshot)) return;
+      this.#savedPreferences = { ...snapshot };
+      this.#preferenceNotice = "현재 설정을 다음 글의 기본값으로 저장했습니다.";
+      this.#renderPreview();
+    } catch {
+      if (this.#preview === null || !samePreferences(this.#preferences, snapshot)) {
         return;
       }
       this.#preferenceNotice =
-        "댓글 길이와 분위기 설정을 저장하지 못했지만, 이번 추천 요청에는 선택한 값을 적용합니다.";
+        "기본 설정을 저장하지 못했지만, 이번 추천에는 현재 선택을 적용합니다.";
       this.#renderPreview();
-    });
+    }
   }
 
   async generate(): Promise<void> {
@@ -346,7 +353,20 @@ export class SidePanelController {
     }
   }
 
+  async useCandidate(candidateId: string): Promise<void> {
+    this.select(candidateId);
+    await this.#approveSelected(true);
+  }
+
   async approve(): Promise<void> {
+    await this.#approveSelected(false);
+  }
+
+  async useEdited(): Promise<void> {
+    await this.#approveSelected(true);
+  }
+
+  async #approveSelected(fillAfterApproval: boolean): Promise<void> {
     const recommendation = this.#recommendation;
     if (this.#busy || recommendation === null || recommendation.reviewStatus !== "drafted") {
       return;
@@ -379,6 +399,9 @@ export class SidePanelController {
         this.#assertCurrent(operation);
       }
       this.#showRecommendation(updated);
+      if (fillAfterApproval) {
+        await this.#fillApprovedComment(updated, operation);
+      }
     } catch (error) {
       if (operation !== this.#operation) {
         return;
@@ -393,6 +416,18 @@ export class SidePanelController {
         this.#busy = false;
       }
     }
+  }
+
+  async #fillApprovedComment(recommendation: Recommendation, operation: number): Promise<void> {
+    const tabId = this.#activeTabId;
+    const candidate = recommendation.candidates.find(
+      (item) => item.id === recommendation.selectedCandidateId,
+    );
+    const value = recommendation.editedComment ?? candidate?.comment;
+    if (tabId === null || value === undefined) return;
+    const result = await this.#commentInput.fill(tabId, value);
+    this.#assertCurrent(operation);
+    this.#renderReview(commentInputNotice(result));
   }
 
   async copy(): Promise<void> {
@@ -500,6 +535,14 @@ export class SidePanelController {
   }
 
   async regenerate(): Promise<void> {
+    await this.#prepareRegeneration(true);
+  }
+
+  async changeOptions(): Promise<void> {
+    await this.#prepareRegeneration(false);
+  }
+
+  async #prepareRegeneration(direct: boolean): Promise<void> {
     const recommendation = this.#recommendation;
     const digest = this.#digestValue;
     if (this.#busy || recommendation === null || digest === null) return;
@@ -538,7 +581,27 @@ export class SidePanelController {
       this.#editedComment = "";
       this.#preferences = { ...preferences };
       this.#preferenceNotice = undefined;
-      this.#renderPreview();
+      if (!direct) {
+        this.#renderPreview();
+        return;
+      }
+      const payload = canonicalizeRequest({
+        body: result.preview.body,
+        ...requestPreferenceFields(preferences),
+        source_url: result.preview.sourceUrl,
+        title: result.preview.title,
+      });
+      const currentDigest = await this.#digest(payload);
+      this.#assertCurrent(operation);
+      if (currentDigest !== intent.digest) {
+        this.#regenerationIntent = null;
+        this.#preferenceNotice =
+          "글 내용이 달라져 자동 재생성을 멈췄습니다. Preview를 확인한 뒤 생성해 주세요.";
+        this.#renderPreview();
+        return;
+      }
+      this.#busy = false;
+      await this.generate();
     } catch (error) {
       if (operation !== this.#operation || error instanceof StaleOperation) return;
       this.#regenerationIntent = null;
@@ -837,14 +900,15 @@ export class SidePanelController {
     try {
       const stored = await this.#lengthStore.load();
       this.#assertCurrent(lifecycle);
-      this.#preferences = { ...DEFAULT_GENERATION_PREFERENCES, ...stored };
+      this.#savedPreferences = { ...stored };
+      this.#preferences = { ...stored };
       await this.#captureActivePost();
     } catch (error) {
       if (error instanceof StaleOperation || lifecycle !== this.#operation) return;
       this.#renderFailure(
         workflowFailure(
           "storage_unavailable",
-          "댓글 길이와 분위기 설정을 안전하게 초기화하지 못했습니다. Browser storage를 확인해 주세요.",
+          "기본 댓글 설정을 안전하게 초기화하지 못했습니다. Browser storage를 확인해 주세요.",
           "Extension storage를 준비하지 못했습니다",
           null,
         ),
@@ -926,6 +990,22 @@ export class SidePanelController {
     this.#releaseAllContent();
     this.#view.render({ failure, kind: "error" });
   }
+}
+
+function commentInputNotice(result: CommentInputResult): string {
+  return {
+    ambiguous:
+      "댓글 입력란이 여러 개 보여 자동으로 선택하지 않았습니다. 승인된 댓글을 복사해 직접 붙여넣어 주세요.",
+    filled: "네이버 댓글 입력란에 초안을 넣었습니다. 내용을 확인한 뒤 직접 등록해 주세요.",
+    not_found:
+      "열려 있는 댓글 입력란을 찾지 못했습니다. 네이버에서 댓글 쓰기를 연 뒤 다시 시도하거나 복사해 주세요.",
+    occupied:
+      "댓글 입력란에 기존 내용이 있어 덮어쓰지 않았습니다. 기존 내용을 확인하거나 승인된 댓글을 복사해 주세요.",
+    permission_denied:
+      "현재 페이지에 댓글을 넣을 권한이 없습니다. toolbar 아이콘을 다시 누르거나 댓글을 복사해 주세요.",
+    stale_page:
+      "현재 탭이 바뀌어 댓글을 넣지 않았습니다. 원래 글로 돌아가거나 댓글을 복사해 주세요.",
+  }[result];
 }
 
 function captureFailure(code: CaptureFailure["code"]): CaptureFailure {

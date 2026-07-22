@@ -23,16 +23,18 @@ function requireElement<T extends Element>(document: Document, selector: string)
 
 export class DomPanelView implements PanelView {
   readonly #app: HTMLElement;
-  readonly #approveButton: HTMLButtonElement;
   readonly #bodyPreview: HTMLElement;
   readonly #cancelButton: HTMLButtonElement;
   readonly #candidateList: HTMLFieldSetElement;
+  readonly #changeOptionsButton: HTMLButtonElement;
   readonly #characterCount: HTMLElement;
   readonly #cleanupButton: HTMLButtonElement;
   readonly #completeButton: HTMLButtonElement;
   readonly #copyButton: HTMLButtonElement;
   readonly #document: Document;
   readonly #editCount: HTMLElement;
+  readonly #editSection: HTMLElement;
+  readonly #editedUseButton: HTMLButtonElement;
   readonly #editedComment: HTMLTextAreaElement;
   readonly #errorMessage: HTMLElement;
   readonly #errorPanel: HTMLElement;
@@ -45,9 +47,11 @@ export class DomPanelView implements PanelView {
   readonly #commentLengthOptions: HTMLFieldSetElement;
   readonly #commentMoodOptions: HTMLFieldSetElement;
   readonly #preferenceNotice: HTMLElement;
+  readonly #preferenceSummary: HTMLElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
   readonly #regenerateButton: HTMLButtonElement;
   readonly #speechStyleOptions: HTMLFieldSetElement;
+  readonly #savePreferencesButton: HTMLButtonElement;
   readonly #postTitle: HTMLElement;
   readonly #postUrl: HTMLElement;
   readonly #previewPanel: HTMLElement;
@@ -71,7 +75,7 @@ export class DomPanelView implements PanelView {
   constructor(document: Document) {
     this.#document = document;
     this.#app = requireElement(document, "#app");
-    this.#approveButton = requireElement(document, "#approve-button");
+    this.#changeOptionsButton = requireElement(document, "#change-options-button");
     this.#bodyPreview = requireElement(document, "#body-preview");
     this.#cancelButton = requireElement(document, "#cancel-button");
     this.#candidateList = requireElement(document, "#candidate-list");
@@ -80,7 +84,9 @@ export class DomPanelView implements PanelView {
     this.#completeButton = requireElement(document, "#complete-button");
     this.#copyButton = requireElement(document, "#copy-button");
     this.#editCount = requireElement(document, "#edit-count");
+    this.#editSection = requireElement(document, "#edit-section");
     this.#editedComment = requireElement(document, "#edited-comment");
+    this.#editedUseButton = requireElement(document, "#edited-use-button");
     this.#errorMessage = requireElement(document, "#error-message");
     this.#errorPanel = requireElement(document, "#error-panel");
     this.#errorTitle = requireElement(document, "#error-title");
@@ -92,9 +98,11 @@ export class DomPanelView implements PanelView {
     this.#commentLengthOptions = requireElement(document, "#comment-length-options");
     this.#commentMoodOptions = requireElement(document, "#comment-mood-options");
     this.#preferenceNotice = requireElement(document, "#preference-notice");
+    this.#preferenceSummary = requireElement(document, "#preference-summary");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
     this.#regenerateButton = requireElement(document, "#regenerate-button");
     this.#speechStyleOptions = requireElement(document, "#speech-style-options");
+    this.#savePreferencesButton = requireElement(document, "#save-preferences-button");
     this.#postTitle = requireElement(document, "#post-title");
     this.#postUrl = requireElement(document, "#post-url");
     this.#previewPanel = requireElement(document, "#preview-panel");
@@ -119,7 +127,8 @@ export class DomPanelView implements PanelView {
     this.#retryButton.addEventListener("click", actions.retry);
     this.#generateButton.addEventListener("click", actions.generate);
     this.#cancelButton.addEventListener("click", actions.cancel);
-    this.#approveButton.addEventListener("click", actions.approve);
+    this.#changeOptionsButton.addEventListener("click", actions.changeOptions);
+    this.#editedUseButton.addEventListener("click", actions.useEdited);
     this.#copyButton.addEventListener("click", actions.copy);
     this.#completeButton.addEventListener("click", actions.complete);
     this.#relationshipOptions.addEventListener("change", (event) => {
@@ -138,15 +147,8 @@ export class DomPanelView implements PanelView {
       const input = this.#radioInput(event, "comment-mood");
       if (input !== null) actions.changeCommentMood(input.value);
     });
-    this.#regenerateButton.addEventListener("click", () => {
-      if (
-        this.#document.defaultView?.confirm(
-          "현재 글을 다시 읽어 Preview로 돌아갑니다. Preview 단계에서는 요청하지 않으며, 생성 버튼을 누르면 추가 OpenAI API 사용이 발생할 수 있습니다. 계속할까요?",
-        ) === true
-      ) {
-        actions.regenerate();
-      }
-    });
+    this.#regenerateButton.addEventListener("click", actions.regenerate);
+    this.#savePreferencesButton.addEventListener("click", actions.savePreferences);
     this.#editedComment.addEventListener("input", () => {
       this.#editCount.textContent = `${Array.from(this.#editedComment.value).length.toLocaleString("ko-KR")} / 500자`;
       actions.edit(this.#editedComment.value);
@@ -156,6 +158,14 @@ export class DomPanelView implements PanelView {
       const Input = this.#document.defaultView?.HTMLInputElement;
       if (Input !== undefined && input instanceof Input && input.name === "candidate") {
         actions.select(input.value);
+      }
+    });
+    this.#candidateList.addEventListener("click", (event) => {
+      const target = event.target;
+      const Button = this.#document.defaultView?.HTMLButtonElement;
+      if (Button !== undefined && target instanceof Button) {
+        const candidateId = target.dataset.useCandidate;
+        if (candidateId !== undefined) actions.useCandidate(candidateId);
       }
     });
     this.#replaceButton.addEventListener("click", () => {
@@ -209,6 +219,8 @@ export class DomPanelView implements PanelView {
     this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
     for (const input of this.#preferenceInputs()) input.disabled = busy;
     this.#regenerateButton.disabled = busy;
+    this.#changeOptionsButton.disabled = busy;
+    this.#savePreferencesButton.disabled = busy;
     if (state.kind === "extracting" || state.kind === "error" || state.kind === "generating") {
       this.#clearSensitiveDom();
     }
@@ -270,6 +282,7 @@ export class DomPanelView implements PanelView {
     this.#setChecked("speech-style", preferences.speechStyle);
     this.#setChecked("comment-length", preferences.commentLength);
     this.#setChecked("comment-mood", preferences.commentMood);
+    this.#preferenceSummary.textContent = `${relationshipLabel(preferences.relationshipLevel)} · ${speechStyleLabel(preferences.speechStyle)} · ${commentLengthLabel(preferences.commentLength)} · ${commentMoodLabel(preferences.commentMood)}`;
     const banmal = this.#document.querySelector<HTMLInputElement>(
       'input[name="speech-style"][value="banmal"]',
     );
@@ -327,18 +340,23 @@ export class DomPanelView implements PanelView {
         ? activeElement.value
         : null;
     const legend = this.#document.createElement("legend");
-    legend.textContent = "댓글 후보 선택";
+    legend.textContent = "댓글 후보";
     this.#candidateList.replaceChildren(legend);
     for (const candidate of recommendation.candidates) {
-      const label = this.#document.createElement("label");
-      label.className = "candidate";
+      const container = this.#document.createElement("div");
+      container.className = "candidate";
       const input = this.#document.createElement("input");
       input.type = "radio";
       input.name = "candidate";
       input.value = candidate.id;
+      input.id = `candidate-${candidate.id}`;
       input.checked = candidate.id === presentation.selectedCandidateId;
       input.disabled = kind !== "review";
-      const content = this.#document.createElement("span");
+      const contentId = `candidate-content-${candidate.id}`;
+      input.setAttribute("aria-labelledby", contentId);
+      const content = this.#document.createElement("label");
+      content.id = contentId;
+      content.htmlFor = input.id;
       const tone = this.#document.createElement("strong");
       tone.textContent = toneLabel(candidate.tone);
       const comment = this.#document.createElement("span");
@@ -346,19 +364,28 @@ export class DomPanelView implements PanelView {
       const detail = this.#document.createElement("small");
       detail.textContent = `본문 근거: ${candidate.referencedDetail}`;
       content.append(tone, comment, detail);
-      label.append(input, content);
-      this.#candidateList.append(label);
+      container.append(input, content);
+      if (kind === "review") {
+        const useButton = this.#document.createElement("button");
+        useButton.className = "candidate-use";
+        useButton.dataset.useCandidate = candidate.id;
+        useButton.type = "button";
+        useButton.textContent = "이 댓글 사용";
+        container.append(useButton);
+      }
+      this.#candidateList.append(container);
     }
     if (this.#editedComment.value !== presentation.editedComment) {
       this.#editedComment.value = presentation.editedComment;
     }
     this.#editedComment.readOnly = kind !== "review";
+    this.#editSection.hidden = kind === "review" && presentation.selectedCandidateId === null;
     this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
-    this.#approveButton.hidden = kind !== "review";
-    this.#approveButton.disabled = kind === "saving";
+    this.#editedUseButton.hidden = kind !== "review";
     this.#copyButton.hidden = kind === "review" || kind === "saving";
     this.#completeButton.hidden = kind !== "approved";
     this.#regenerateButton.hidden = kind === "saving";
+    this.#changeOptionsButton.hidden = kind === "saving";
     this.#reviewNotice.hidden = presentation.notice === undefined;
     this.#reviewNotice.textContent = presentation.notice ?? "";
     if (focusedCandidateId !== null) {
@@ -391,6 +418,7 @@ export class DomPanelView implements PanelView {
     this.#generatedCommentMood.textContent = "";
     this.#qualityWarningList.replaceChildren();
     this.#qualityWarningPanel.hidden = true;
+    this.#editSection.hidden = true;
   }
 
   #preferenceInputs(): HTMLInputElement[] {

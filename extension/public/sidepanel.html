@@ -45,7 +45,16 @@
           <p id="body-preview" class="body-preview"></p>
         </details>
         <section class="preference-section" aria-labelledby="preferences-title">
-          <h3 id="preferences-title">댓글 생성 옵션</h3>
+          <div class="section-heading">
+            <div>
+              <h3 id="preferences-title">빠른 설정</h3>
+              <p id="preference-summary" class="help"></p>
+            </div>
+            <button id="save-preferences-button" class="text-button" type="button">기본값으로 저장</button>
+          </div>
+          <details class="advanced-preferences">
+            <summary>상세 설정 바꾸기</summary>
+            <div class="advanced-preferences-body">
           <fieldset id="relationship-options" class="preference-options">
             <legend>서로의 관계</legend>
             <label class="option"><input type="radio" name="relationship" value="new" /> 처음 교류</label>
@@ -81,6 +90,8 @@
             </label>
           </fieldset>
           <p id="preference-notice" class="notice" role="status" aria-live="polite" hidden></p>
+            </div>
+          </details>
         </section>
         <p class="privacy-note">
           전체 본문은 browser storage에 저장되지 않습니다. 추천 요청은 아래 버튼을 누른 뒤에만
@@ -107,16 +118,19 @@
         <p id="summary"></p>
         <ul id="topics" class="topics" aria-label="주요 주제"></ul>
         <fieldset id="candidate-list">
-          <legend>댓글 후보 선택</legend>
+          <legend>댓글 후보</legend>
         </fieldset>
-        <label for="edited-comment">선택한 댓글 편집</label>
-        <textarea id="edited-comment" rows="6" maxlength="500"></textarea>
-        <p id="edit-count" class="help"></p>
+        <section id="edit-section" hidden>
+          <label for="edited-comment">선택한 댓글 다듬기</label>
+          <textarea id="edited-comment" rows="6" maxlength="500"></textarea>
+          <p id="edit-count" class="help"></p>
+          <button id="edited-use-button" class="primary" type="button">다듬은 댓글 사용</button>
+        </section>
         <div class="actions stacked">
-          <button id="approve-button" class="primary" type="button">선택한 댓글 승인</button>
           <button id="copy-button" class="secondary" type="button">승인한 댓글 복사</button>
           <button id="complete-button" class="primary" type="button">수동 등록 완료로 표시</button>
-          <button id="regenerate-button" class="secondary" type="button">옵션을 바꿔 다시 생성</button>
+          <button id="regenerate-button" class="secondary" type="button">같은 설정으로 새 후보 만들기 · API 사용</button>
+          <button id="change-options-button" class="secondary" type="button">설정 바꾸기</button>
         </div>
         <p class="privacy-note">복사와 완료 표시는 댓글을 자동으로 등록하지 않습니다.</p>
       </section>

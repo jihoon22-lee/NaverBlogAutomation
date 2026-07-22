@@ -42,6 +42,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
   return {
     approve: vi.fn(),
     cancel: vi.fn(),
+    changeOptions: vi.fn(),
     cleanup: vi.fn(),
     complete: vi.fn(),
     copy: vi.fn(),
@@ -54,7 +55,10 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     regenerate: vi.fn(),
     replace: vi.fn(),
     retry: vi.fn(),
+    savePreferences: vi.fn(),
     select: vi.fn(),
+    useCandidate: vi.fn(),
+    useEdited: vi.fn(),
     ...overrides,
   };
 }
@@ -237,7 +241,20 @@ describe("DomPanelView", () => {
     expect(document.querySelectorAll("#quality-warning-list li")).toHaveLength(2);
     expect(document.querySelector("#quality-warning-list")?.textContent).toContain("길이 범위");
     expect(document.querySelectorAll('#candidate-list input[name="candidate"]')).toHaveLength(3);
-    expect((document.querySelector("#approve-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(document.querySelectorAll("button[data-use-candidate]")).toHaveLength(3);
+  });
+
+  it("offers a direct candidate-use action without requiring the edit flow", () => {
+    const useCandidate = vi.fn();
+    view.bind(actions({ useCandidate }));
+    view.render({ kind: "review", ...recommendation });
+
+    const buttons = document.querySelectorAll<HTMLButtonElement>("button[data-use-candidate]");
+    buttons[1]?.click();
+
+    expect(buttons).toHaveLength(3);
+    expect(useCandidate).toHaveBeenCalledWith("2");
+    expect((document.querySelector("#edit-section") as HTMLElement).hidden).toBe(true);
   });
 
   it("renders actionable errors and invokes retry from a keyboard-operable button", async () => {
@@ -269,10 +286,10 @@ describe("DomPanelView", () => {
     }
     const select = vi.fn();
     const edit = vi.fn();
-    const approve = vi.fn();
+    const useEdited = vi.fn();
     const copy = vi.fn();
     const complete = vi.fn();
-    view.bind(actions({ approve, complete, copy, edit, select }));
+    view.bind(actions({ complete, copy, edit, select, useEdited }));
     view.render({ kind: "review", ...recommendation });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -297,11 +314,11 @@ describe("DomPanelView", () => {
     const textarea = document.querySelector("#edited-comment") as HTMLTextAreaElement;
     textarea.value = "키보드로 다듬은 댓글";
     textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-    (document.querySelector("#approve-button") as HTMLButtonElement).click();
+    (document.querySelector("#edited-use-button") as HTMLButtonElement).click();
 
     expect(select).toHaveBeenCalledWith("2");
     expect(edit).toHaveBeenCalledWith("키보드로 다듬은 댓글");
-    expect(approve).toHaveBeenCalledOnce();
+    expect(useEdited).toHaveBeenCalledOnce();
 
     view.render({
       kind: "approved",
@@ -394,8 +411,7 @@ describe("DomPanelView", () => {
     view.render({ kind: "review", ...recommendation });
     (document.querySelector("#regenerate-button") as HTMLButtonElement).click();
 
-    expect(confirm).toHaveBeenCalledTimes(3);
-    expect(confirm.mock.calls[2]?.[0]).toMatch(/Preview.*OpenAI API/u);
+    expect(confirm).toHaveBeenCalledTimes(2);
     expect(replace).toHaveBeenCalledOnce();
     expect(cleanup).toHaveBeenCalledOnce();
     expect(regenerate).toHaveBeenCalledOnce();

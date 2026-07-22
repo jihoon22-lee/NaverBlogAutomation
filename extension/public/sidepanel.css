@@ -131,6 +131,34 @@ label {
   margin: 0 0 8px;
 }
 
+.section-heading {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.section-heading .help {
+  margin-top: 0;
+}
+
+.text-button {
+  min-height: auto;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #17673a;
+  white-space: nowrap;
+}
+
+.advanced-preferences {
+  margin-top: 14px;
+}
+
+.advanced-preferences-body {
+  padding-top: 4px;
+}
+
 .preference-options {
   display: flex;
   flex-wrap: wrap;
@@ -302,7 +330,7 @@ fieldset {
 
 .candidate {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
   border: 1px solid #cdd8d1;
@@ -310,7 +338,34 @@ fieldset {
   cursor: pointer;
 }
 
-.candidate > span {
+.candidate-use {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 38px;
+  padding: 7px 12px;
+  background: #167746;
+  color: #ffffff;
+}
+
+#edit-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #d6dfd9;
+}
+
+#edit-section[hidden] {
+  display: none;
+}
+
+.stacked {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 12px 0 4px;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0%), #fff 18%);
+}
+
+.candidate > :where(span, label) {
   display: grid;
   gap: 6px;
   font-weight: 400;

@@ -87,21 +87,25 @@ uv run --frozen --env-file .env.local \
 1. 지원되는 HTTPS Naver Blog 글을 현재 tab에 엽니다.
 2. Extension toolbar action을 눌러 Side Panel을 엽니다.
 3. 추출된 title과 bounded body preview가 맞는지 확인합니다.
-4. 관계, 말투, 분위기와 댓글 길이를 선택합니다. 반말은 **가까운 사이**에서만 사용할 수
-   있습니다. 길이 목표는 **짧게 40~80자**, **보통 100~160자**, **길게 200~320자**입니다.
+4. 저장된 빠른 설정을 확인하거나 상세 설정에서 관계, 말투, 분위기와 댓글 길이를 선택합니다.
+   반말은 **가까운 사이**에서만 사용할 수 있습니다. 길이 목표는 **짧게 40~80자**,
+   **보통 100~160자**, **길게 200~320자**입니다. 원하는 조합은 명시적으로 기본값으로
+   저장할 수 있습니다.
 5. **추천 댓글 만들기**를 눌러 세 후보를 생성하고 적용된 옵션을 확인합니다.
-6. 후보를 선택하거나 내용을 편집한 뒤 승인합니다.
-7. 승인한 댓글을 복사해 네이버 댓글 입력란에 직접 붙여넣고 등록합니다.
+6. 후보의 **이 댓글 사용**을 누르거나 내용을 다듬은 뒤 **다듬은 댓글 사용**을 누릅니다.
+7. 열려 있는 비어 있는 댓글 입력란이 정확히 하나이면 초안이 입력됩니다. 입력란을 찾지
+   못하거나 기존 내용이 있으면 복사 버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
 8. 실제 수동 절차를 마친 경우에만 **수동 등록 완료로 표시**를 누릅니다.
 
-**옵션을 바꿔 다시 생성**은 먼저 현재 글을 다시 읽어 Preview로 돌아갑니다. 이 단계에서는
-API를 호출하지 않으며, Preview에서 다시 생성 버튼을 눌렀을 때 새 OpenAI API 사용이 발생할 수
-있습니다. 댓글 길이와 분위기만 browser에 저장되고 관계와 말투는 새 글마다 기본값으로
-돌아갑니다. 생성 결과가 목표 길이나 역할 구분을 충분히 만족하지 못하면 후보를 숨기지 않고
-review 화면에 품질 안내를 표시합니다.
+**같은 설정으로 새 후보 만들기**는 현재 글을 다시 확인한 뒤 내용이 같으면 곧바로 새 OpenAI
+API 요청을 시작합니다. 글이 달라졌으면 Preview에서 멈춥니다. **설정 바꾸기**는 API를 호출하지
+않고 Preview로 돌아갑니다. 기본값으로 저장한 관계·말투·길이·분위기는 다음 글에도 적용됩니다.
+생성 결과가 목표 길이나 역할 구분을 충분히 만족하지 못하면 후보를 숨기지 않고 review 화면에
+품질 안내를 표시합니다.
 
-복사와 완료 표시는 댓글을 게시하지 않습니다. Tab 이동이나 navigation 뒤에는 toolbar action을
-다시 눌러 `activeTab` 권한을 갱신하세요.
+입력 보조, 복사와 완료 표시는 댓글을 게시하지 않습니다. 입력 보조는 visible하고 비어 있는
+댓글 입력란 하나만 채우며 기존 text를 덮어쓰거나 등록 버튼을 누르지 않습니다. Tab 이동이나
+navigation 뒤에는 toolbar action을 다시 눌러 `activeTab` 권한을 갱신하세요.
 
 ## OpenAI Opt-in
 
@@ -136,8 +140,8 @@ troubleshooting, data cleanup과 opt-in smoke 절차는
 
 ## 범위와 Privacy
 
-- 지원 범위는 현재 사용자가 연 Naver Blog 글의 추출, 추천, review와 copy입니다.
-- Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 입력·등록, unattended browsing은 제외합니다.
+- 지원 범위는 현재 사용자가 연 Naver Blog 글의 추출, 추천, review, 안전한 입력 보조와 copy입니다.
+- Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 등록, unattended browsing은 제외합니다.
 - Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다.
 - SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다.
 - Private/unpublished content, 실제 account identifier나 secret을 test fixture·artifact에 넣지 않습니다.
