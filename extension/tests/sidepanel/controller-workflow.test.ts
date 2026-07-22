@@ -334,19 +334,22 @@ describe("integrated Side Panel workflow", () => {
     fixture.view.actions?.changeSpeechStyle("banmal");
     fixture.view.actions?.changeCommentLength("long");
     fixture.view.actions?.changeCommentMood("lively");
+    fixture.view.actions?.changeClosingPhrase("오늘도 좋은 하루 보내세요!");
     fixture.view.actions?.savePreferences();
     await vi.waitFor(() =>
       expect(fixture.storage.value.commentLengthPreferenceV1).toEqual({
+        closingPhrase: "오늘도 좋은 하루 보내세요!",
         commentLength: "long",
         commentMood: "lively",
         relationshipLevel: "close",
-        schemaVersion: 3,
+        schemaVersion: 4,
         speechStyle: "banmal",
       }),
     );
 
     await fixture.controller.captureActivePost();
     expect(fixture.view.states.at(-1)).toMatchObject({
+      closingPhrase: "오늘도 좋은 하루 보내세요!",
       kind: "preview",
       preferences: {
         commentLength: "long",
@@ -688,6 +691,32 @@ describe("integrated Side Panel workflow", () => {
       kind: "approved",
       notice: expect.stringContaining("입력란에 초안을"),
     });
+  });
+
+  it("applies a local-only closing phrase without adding it to the generation request", async () => {
+    const fill = vi.fn(async (): Promise<CommentInputResult> => "filled");
+    const fixture = setup({ commentInput: { fill } });
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changeClosingPhrase("  오늘도   좋은 하루 보내세요!  ");
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+
+    fixture.view.actions?.useCandidate(selected.id);
+
+    const personalized = `${selected.comment} 오늘도 좋은 하루 보내세요!`;
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledWith(tab.id, personalized));
+    expect(JSON.stringify(fixture.api.create.mock.calls[0]?.[0])).not.toContain("좋은 하루");
+    expect(fixture.api.review).toHaveBeenCalledWith(
+      drafted.id,
+      {
+        edited_comment: personalized,
+        review_status: "approved",
+        selected_candidate_id: selected.id,
+      },
+      expect.any(AbortSignal),
+    );
   });
 
   it("keeps the approved comment available when safe page insertion is unavailable", async () => {

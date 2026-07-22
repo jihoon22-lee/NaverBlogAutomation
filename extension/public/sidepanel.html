@@ -109,6 +109,20 @@
               <span><strong>활기차게</strong><small>밝고 생동감 있는 느낌</small></span>
             </label>
           </fieldset>
+          <div class="closing-phrase-field">
+            <label for="closing-phrase">자주 쓰는 마무리 문구 <span class="optional">선택</span></label>
+            <input
+              id="closing-phrase"
+              type="text"
+              autocomplete="off"
+              placeholder="예: 오늘도 좋은 하루 보내세요!"
+              aria-describedby="closing-phrase-help closing-phrase-count"
+            />
+            <p id="closing-phrase-help" class="help">
+              후보 선택 시 편집 댓글 끝에 붙습니다. 생성 API나 OpenAI에는 전송하지 않습니다.
+            </p>
+            <p id="closing-phrase-count" class="help character-count">0 / 50자</p>
+          </div>
           <p id="preference-notice" class="notice" role="status" aria-live="polite" hidden></p>
             </div>
           </details>

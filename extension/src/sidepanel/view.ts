@@ -1,5 +1,6 @@
 import { PREVIEW_CODE_POINTS, boundCodePoints } from "../extraction/normalize";
 import type { CaptureFailureCode } from "../extraction/types";
+import { MAX_CLOSING_PHRASE_CODE_POINTS } from "../preferences/model";
 import type { PanelActions, PanelState, PanelView, ReviewPresentation } from "./state";
 
 const FAILURE_MESSAGES: Record<CaptureFailureCode, string> = {
@@ -46,6 +47,8 @@ export class DomPanelView implements PanelView {
   readonly #generatedSpeechStyle: HTMLElement;
   readonly #commentLengthOptions: HTMLFieldSetElement;
   readonly #commentMoodOptions: HTMLFieldSetElement;
+  readonly #closingPhrase: HTMLInputElement;
+  readonly #closingPhraseCount: HTMLElement;
   readonly #preferenceNotice: HTMLElement;
   readonly #preferenceSummary: HTMLElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
@@ -97,6 +100,8 @@ export class DomPanelView implements PanelView {
     this.#generatedSpeechStyle = requireElement(document, "#generated-speech-style");
     this.#commentLengthOptions = requireElement(document, "#comment-length-options");
     this.#commentMoodOptions = requireElement(document, "#comment-mood-options");
+    this.#closingPhrase = requireElement(document, "#closing-phrase");
+    this.#closingPhraseCount = requireElement(document, "#closing-phrase-count");
     this.#preferenceNotice = requireElement(document, "#preference-notice");
     this.#preferenceSummary = requireElement(document, "#preference-summary");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
@@ -146,6 +151,14 @@ export class DomPanelView implements PanelView {
     this.#commentMoodOptions.addEventListener("change", (event) => {
       const input = this.#radioInput(event, "comment-mood");
       if (input !== null) actions.changeCommentMood(input.value);
+    });
+    this.#closingPhrase.addEventListener("input", () => {
+      const bounded = Array.from(this.#closingPhrase.value)
+        .slice(0, MAX_CLOSING_PHRASE_CODE_POINTS)
+        .join("");
+      if (bounded !== this.#closingPhrase.value) this.#closingPhrase.value = bounded;
+      this.#closingPhraseCount.textContent = `${Array.from(this.#closingPhrase.value).length.toLocaleString("ko-KR")} / 50자`;
+      actions.changeClosingPhrase(this.#closingPhrase.value);
     });
     this.#regenerateButton.addEventListener("click", actions.regenerate);
     this.#savePreferencesButton.addEventListener("click", actions.savePreferences);
@@ -218,6 +231,7 @@ export class DomPanelView implements PanelView {
     this.#progressPanel.hidden = state.kind !== "generating";
     this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
     for (const input of this.#preferenceInputs()) input.disabled = busy;
+    this.#closingPhrase.disabled = busy;
     this.#regenerateButton.disabled = busy;
     this.#changeOptionsButton.disabled = busy;
     this.#savePreferencesButton.disabled = busy;
@@ -264,7 +278,7 @@ export class DomPanelView implements PanelView {
   }
 
   #renderPreview(state: Extract<PanelState, { kind: "preview" }>, focusHeading: boolean): void {
-    const { preferences, preview } = state;
+    const { closingPhrase, preferences, preview } = state;
     this.#status.textContent = "본문 preview를 확인했습니다. 아직 local API로 전송하지 않았습니다.";
     this.#postTitle.textContent = preview.title;
     this.#postUrl.textContent = preview.sourceUrl;
@@ -282,6 +296,10 @@ export class DomPanelView implements PanelView {
     this.#setChecked("speech-style", preferences.speechStyle);
     this.#setChecked("comment-length", preferences.commentLength);
     this.#setChecked("comment-mood", preferences.commentMood);
+    if (this.#document.activeElement !== this.#closingPhrase) {
+      this.#closingPhrase.value = closingPhrase;
+    }
+    this.#closingPhraseCount.textContent = `${Array.from(this.#closingPhrase.value).length.toLocaleString("ko-KR")} / 50자`;
     this.#preferenceSummary.textContent = `${relationshipLabel(preferences.relationshipLevel)} · ${speechStyleLabel(preferences.speechStyle)} · ${commentLengthLabel(preferences.commentLength)} · ${commentMoodLabel(preferences.commentMood)}`;
     const banmal = this.#document.querySelector<HTMLInputElement>(
       'input[name="speech-style"][value="banmal"]',

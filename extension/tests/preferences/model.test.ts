@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_GENERATION_PREFERENCES,
+  appendClosingPhrase,
   isValidGenerationPreferences,
+  normalizeClosingPhrase,
   preferencesFromRequest,
   requestPreferenceFields,
 } from "../../src/preferences/model";
@@ -51,5 +53,16 @@ describe("generation preferences", () => {
       relationship_level: "polite",
       speech_style: "honorific",
     });
+  });
+
+  it("normalizes and appends one bounded reusable closing phrase", () => {
+    expect(normalizeClosingPhrase(`  좋은   하루예요 ${"가".repeat(60)}`)).toHaveLength(50);
+    expect(appendClosingPhrase("본문 댓글", "  좋은   하루예요!  ")).toBe(
+      "본문 댓글 좋은 하루예요!",
+    );
+    expect(appendClosingPhrase("본문 댓글 좋은 하루예요!", "좋은 하루예요!")).toBe(
+      "본문 댓글 좋은 하루예요!",
+    );
+    expect(appendClosingPhrase("본문 댓글", "   ")).toBe("본문 댓글");
   });
 });

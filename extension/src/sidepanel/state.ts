@@ -24,6 +24,7 @@ export type PanelState =
   | { failure: CaptureFailure | WorkflowFailure; kind: "error" }
   | {
       kind: "preview";
+      closingPhrase: string;
       preferenceNotice?: string;
       preferences: GenerationPreferences;
       preview: CapturedPostPreview;
@@ -43,6 +44,7 @@ export interface PanelActions {
   copy(): void;
   changeCommentLength(value: string): void;
   changeCommentMood(value: string): void;
+  changeClosingPhrase(value: string): void;
   changeRelationship(value: string): void;
   changeSpeechStyle(value: string): void;
   edit(value: string): void;

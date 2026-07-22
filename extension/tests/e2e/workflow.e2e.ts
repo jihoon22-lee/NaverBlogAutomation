@@ -122,6 +122,8 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await panel.locator('input[name="speech-style"][value="banmal"]').check();
     await panel.locator('input[name="comment-length"][value="long"]').check();
     await panel.locator('input[name="comment-mood"][value="lively"]').check();
+    const closingPhrase = "오늘도 좋은 하루 보내세요!";
+    await panel.locator("#closing-phrase").fill(closingPhrase);
     await panel.locator("#save-preferences-button").click();
     await expect(panel.locator("#preference-notice")).toContainText("기본값으로 저장");
 
@@ -145,6 +147,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
         speech_style: "banmal",
       },
     });
+    expect(JSON.stringify(recommendationPosts[0]?.payload)).not.toContain(closingPhrase);
     expect(recommendationPosts[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/iu);
     await expect(panel.locator("#generated-relationship")).toHaveText("가까운 사이");
     await expect(panel.locator("#generated-speech-style")).toHaveText("반말");
@@ -166,6 +169,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expect(panel.locator('input[name="comment-mood"][value="lively"]')).toBeChecked();
     await expect(panel.locator('input[name="relationship"][value="close"]')).toBeChecked();
     await expect(panel.locator('input[name="speech-style"][value="banmal"]')).toBeChecked();
+    await expect(panel.locator("#closing-phrase")).toHaveValue(closingPhrase);
     await panel.locator("#generate-button").click();
     await expectReviewState(panel, apiRequests, failedRequests);
     const replayResponse = latestRecommendationPost(apiResponses);
@@ -188,7 +192,25 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     expect(recommendationPosts[2]?.idempotencyKey).not.toBe(recommendationPosts[0]?.idempotencyKey);
     expect(await recommendationId(regenerationResponse)).not.toBe(replayedId);
 
-    await panel.locator("#change-options-button").click();
+    const reusableCandidate =
+      (await panel.locator(".candidate > :is(span, label) > span").first().textContent()) ?? "";
+    await blogPage.bringToFront();
+    await panel.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>("button[data-use-candidate]");
+      if (button === null) throw new Error("Candidate use control is unavailable");
+      button.click();
+    });
+    await expect(panel.locator("#review-status")).toHaveText("승인됨");
+    await expect(blogPage.locator("textarea.u_cbox_text")).toHaveValue(
+      `${reusableCandidate} ${closingPhrase}`,
+    );
+    await blogPage.locator("textarea.u_cbox_text").fill("");
+
+    await panel.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>("#change-options-button");
+      if (button === null) throw new Error("Change options control is unavailable");
+      button.click();
+    });
     await expectPreviewState(panel);
     await panel.locator(".advanced-preferences > summary").click();
     await panel.locator('input[name="comment-length"][value="short"]').check();
@@ -232,10 +254,11 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expect(panel.locator("#review-status")).toHaveText("수동 workflow 완료");
     const storedValue = await readExtensionStorage(panel);
     expect(storedValue.commentLengthPreferenceV1).toEqual({
+      closingPhrase,
       commentLength: "short",
       commentMood: "lively",
       relationshipLevel: "close",
-      schemaVersion: 3,
+      schemaVersion: 4,
       speechStyle: "banmal",
     });
     const stored = JSON.stringify(storedValue);
@@ -249,6 +272,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expect(panel.locator("#preview-panel")).toBeVisible();
     await expect(panel.locator('input[name="relationship"][value="close"]')).toBeChecked();
     await expect(panel.locator('input[name="speech-style"][value="banmal"]')).toBeChecked();
+    await expect(panel.locator("#closing-phrase")).toHaveValue(closingPhrase);
     const restoreGet = panel.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&

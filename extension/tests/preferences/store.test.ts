@@ -26,8 +26,9 @@ class MemoryStorage implements PreferenceStorageArea {
 }
 
 describe("CommentLengthPreferenceStore", () => {
-  it("uses medium and warm when storage is absent or unreadable", async () => {
+  it("uses safe generation and personalization defaults when storage is absent or unreadable", async () => {
     await expect(new CommentLengthPreferenceStore(new MemoryStorage()).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
@@ -36,6 +37,7 @@ describe("CommentLengthPreferenceStore", () => {
     const unreadable = new MemoryStorage();
     unreadable.getFailure = new Error("synthetic read failure");
     await expect(new CommentLengthPreferenceStore(unreadable).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
@@ -48,16 +50,18 @@ describe("CommentLengthPreferenceStore", () => {
     storage.value[COMMENT_LENGTH_STORAGE_KEY] = { length: "long", schemaVersion: 1 };
 
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "long",
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      closingPhrase: "",
       commentLength: "long",
       commentMood: "warm",
       relationshipLevel: "friendly",
-      schemaVersion: 3,
+      schemaVersion: 4,
       speechStyle: "honorific",
     });
   });
@@ -66,16 +70,18 @@ describe("CommentLengthPreferenceStore", () => {
     const storage = new MemoryStorage();
     storage.value[COMMENT_LENGTH_STORAGE_KEY] = { mood: "unknown", schemaVersion: 2 };
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
-      schemaVersion: 3,
+      schemaVersion: 4,
       speechStyle: "honorific",
     });
 
@@ -92,6 +98,7 @@ describe("CommentLengthPreferenceStore", () => {
     storage.value.generationRegistryV1 = { entries: [], schemaVersion: 1 };
     const store = new CommentLengthPreferenceStore(storage);
     await store.save({
+      closingPhrase: "좋은 하루 보내세요!",
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "close",
@@ -100,15 +107,16 @@ describe("CommentLengthPreferenceStore", () => {
 
     expect(storage.value.generationRegistryV1).toEqual({ entries: [], schemaVersion: 1 });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      closingPhrase: "좋은 하루 보내세요!",
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "close",
-      schemaVersion: 3,
+      schemaVersion: 4,
       speechStyle: "banmal",
     });
   });
 
-  it("loads a valid version 3 profile without rewriting it", async () => {
+  it("migrates a valid version 3 profile with an empty closing phrase", async () => {
     const storage = new MemoryStorage();
     storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
       commentLength: "short",
@@ -119,12 +127,59 @@ describe("CommentLengthPreferenceStore", () => {
     };
 
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "close",
       speechStyle: "banmal",
     });
+    expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      closingPhrase: "",
+      commentLength: "short",
+      commentMood: "calm",
+      relationshipLevel: "close",
+      schemaVersion: 4,
+      speechStyle: "banmal",
+    });
+    expect(storage.writes).toHaveLength(1);
+  });
+
+  it("loads a valid version 4 profile without rewriting it", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      closingPhrase: "오늘도 좋은 하루 보내세요!",
+      commentLength: "medium",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      schemaVersion: 4,
+      speechStyle: "honorific",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toMatchObject({
+      closingPhrase: "오늘도 좋은 하루 보내세요!",
+    });
     expect(storage.writes).toHaveLength(0);
+  });
+
+  it("replaces a non-canonical or oversized closing phrase with safe defaults", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      closingPhrase: `  ${"가".repeat(51)}  `,
+      commentLength: "medium",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      schemaVersion: 4,
+      speechStyle: "honorific",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      closingPhrase: "",
+      commentLength: "medium",
+      commentMood: "warm",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    });
+    expect(storage.writes).toHaveLength(1);
   });
 
   it("replaces an invalid version 3 relationship and speech combination with safe defaults", async () => {
@@ -138,6 +193,7 @@ describe("CommentLengthPreferenceStore", () => {
     };
 
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toEqual({
+      closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
@@ -161,12 +217,14 @@ describe("CommentLengthPreferenceStore", () => {
     };
     const store = new CommentLengthPreferenceStore(storage);
     const first = store.save({
+      closingPhrase: "첫 문구",
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "new",
       speechStyle: "honorific",
     });
     const second = store.save({
+      closingPhrase: "마지막 문구",
       commentLength: "long",
       commentMood: "lively",
       relationshipLevel: "close",
@@ -177,10 +235,11 @@ describe("CommentLengthPreferenceStore", () => {
     await Promise.all([first, second]);
 
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
+      closingPhrase: "마지막 문구",
       commentLength: "long",
       commentMood: "lively",
       relationshipLevel: "close",
-      schemaVersion: 3,
+      schemaVersion: 4,
       speechStyle: "banmal",
     });
   });
