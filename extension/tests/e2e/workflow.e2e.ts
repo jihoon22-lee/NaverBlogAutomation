@@ -201,10 +201,10 @@ test("built production Side Panel completes, replays, and restores the reviewed 
       button.click();
     });
     await expect(panel.locator("#review-status")).toHaveText("승인됨");
-    await expect(blogPage.locator("textarea.u_cbox_text")).toHaveValue(
+    await expect(blogPage.locator(".u_cbox_text")).toHaveText(
       `${reusableCandidate} ${closingPhrase}`,
     );
-    await blogPage.locator("textarea.u_cbox_text").fill("");
+    await blogPage.locator(".u_cbox_text").fill("");
 
     await panel.evaluate(() => {
       const button = document.querySelector<HTMLButtonElement>("#change-options-button");
@@ -242,7 +242,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
       button.click();
     });
     await expect(panel.locator("#review-status")).toHaveText("승인됨");
-    await expect(blogPage.locator("textarea.u_cbox_text")).toHaveValue(editedComment);
+    await expect(blogPage.locator(".u_cbox_text")).toHaveText(editedComment);
     await expect(panel.locator("#review-notice")).toContainText("입력란에 초안을");
 
     await panel.locator("#copy-button").click();

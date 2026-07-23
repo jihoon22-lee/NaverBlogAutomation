@@ -395,6 +395,34 @@ jobs:
             exit 1
           fi
 
+  linux-launcher:
+    name: Linux launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate Linux launchers
+        shell: bash
+        run: |
+          test -x scripts/setup-linux.sh
+          test -x scripts/start-linux.sh
+          bash -n scripts/setup-linux.sh scripts/start-linux.sh
+          set +e
+          output="$(bash scripts/setup-linux.sh \
+            --extension-id qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq \
+            --skip-dependencies 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [[ "$status" -ne 1 || "$output" != *"Extension ID"* ]]; then
+            echo "The Linux launcher did not reject an invalid extension ID safely." >&2
+            exit 1
+          fi
+
   quality-gate:
     name: Quality gate
     if: always()
@@ -405,6 +433,7 @@ jobs:
       - system-e2e
       - windows-launcher
       - macos-launcher
+      - linux-launcher
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -417,6 +446,7 @@ jobs:
           E2E_RESULT: ${{ needs.system-e2e.result }}
           WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
           MACOS_RESULT: ${{ needs.macos-launcher.result }}
+          LINUX_RESULT: ${{ needs.linux-launcher.result }}
         run: |
           echo "## Required quality checks" >> "$GITHUB_STEP_SUMMARY"
           echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
@@ -427,13 +457,15 @@ jobs:
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| macOS launcher | $MACOS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Linux launcher | $LINUX_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$COMMIT_RESULT" != "success" \
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
             || "$E2E_RESULT" != "success" \
             || "$WINDOWS_RESULT" != "success" \
-            || "$MACOS_RESULT" != "success" ]]; then
+            || "$MACOS_RESULT" != "success" \
+            || "$LINUX_RESULT" != "success" ]]; then
             echo "One or more required jobs failed or were skipped." >&2
             exit 1
           fi
