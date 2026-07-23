@@ -24,6 +24,7 @@ from naver_blog_assistant.application.review_recommendation import ReviewRecomme
 
 __all__ = [
     "ApplicationError",
+    "ClearPersonalizationExamples",
     "ConcurrentReviewError",
     "DeleteRecommendation",
     "GenerateRecommendation",
@@ -41,3 +42,6 @@ __all__ = [
     "ReplayedGenerationFailure",
     "ReviewRecommendation",
 ]
+from naver_blog_assistant.application.clear_personalization_examples import (
+    ClearPersonalizationExamples,
+)

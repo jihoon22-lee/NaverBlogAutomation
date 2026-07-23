@@ -47,6 +47,7 @@ from naver_blog_assistant.api.models import (
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.application import (
+    ClearPersonalizationExamples,
     ConcurrentReviewError,
     DeleteRecommendation,
     GenerateRecommendation,
@@ -267,11 +268,16 @@ def create_app(
         window_seconds=settings.rate_limit_window_seconds,
     )
     rate_limited_generator = _LocallyRateLimitedGenerator(selected_generator, limiter)
-    generate = GenerateRecommendation(generator=rate_limited_generator, idempotency=repository)
+    generate = GenerateRecommendation(
+        generator=rate_limited_generator,
+        idempotency=repository,
+        personalization=repository,
+    )
     get = GetRecommendation(repository)
     list_recommendations = ListRecommendations(repository)
     delete_recommendation = DeleteRecommendation(repository)
     review = ReviewRecommendation(repository)
+    clear_personalization_examples = ClearPersonalizationExamples(repository)
     pending_generations: set[asyncio.Task[GenerationResult]] = set()
 
     def finish_generation_task(task: asyncio.Task[GenerationResult]) -> None:
@@ -439,6 +445,7 @@ def create_app(
                     generate.execute,
                     post=post,
                     preferences=preferences,
+                    personalization_mode=payload.to_personalization_mode(),
                     idempotency_key=idempotency_key,
                 )
             )
@@ -564,6 +571,17 @@ def create_app(
             raise _not_found() from error
         return Response(status_code=204)
 
+    @app.delete(
+        "/api/v1/personalization/examples",
+        status_code=204,
+        responses={400: _problem_metadata("The HTTP request is malformed.")},
+        tags=["Personalization"],
+        operation_id="clearPersonalizationExamples",
+    )
+    def clear_stored_personalization_examples() -> Response:
+        clear_personalization_examples.execute()
+        return Response(status_code=204)
+
     @app.patch(
         "/api/v1/recommendations/{recommendation_id}",
         response_model=RecommendationResponse,
@@ -598,6 +616,11 @@ def create_app(
                 ),
                 clear_edited_comment=(
                     "edited_comment" in fields and payload.edited_comment is None
+                ),
+                personalization_eligible=(
+                    payload.personalization_eligible
+                    if "personalization_eligible" in fields
+                    else None
                 ),
                 review_status=payload.review_status,
             )
@@ -702,6 +725,20 @@ class _LocallyRateLimitedGenerator:
         retry_after = self._limiter.acquire()
         if retry_after is not None:
             raise _LocalRateLimitError(retry_after)
+        return self._generator.generate(post, preferences)
+
+    def generate_with_style(
+        self,
+        post: CapturedPost,
+        preferences: GenerationPreferences,
+        style_examples: tuple[str, ...],
+    ) -> GenerationOutput:
+        retry_after = self._limiter.acquire()
+        if retry_after is not None:
+            raise _LocalRateLimitError(retry_after)
+        generate_with_style = getattr(self._generator, "generate_with_style", None)
+        if callable(generate_with_style):
+            return generate_with_style(post, preferences, style_examples)
         return self._generator.generate(post, preferences)
 
 

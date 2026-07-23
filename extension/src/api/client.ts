@@ -3,6 +3,7 @@ import type {
   CandidateTone,
   CommentLength,
   CommentMood,
+  PersonalizationMode,
   CommentCandidate,
   CreateRecommendationRequest,
   ProblemDetails,
@@ -25,6 +26,7 @@ const RELATIONSHIP_LEVELS = new Set<RelationshipLevel>(["close", "friendly", "ne
 const SPEECH_STYLES = new Set<SpeechStyle>(["banmal", "honorific"]);
 const COMMENT_LENGTHS = new Set<CommentLength>(["long", "medium", "short"]);
 const COMMENT_MOODS = new Set<CommentMood>(["calm", "lively", "warm"]);
+const PERSONALIZATION_MODES = new Set<PersonalizationMode>(["completed_examples", "off"]);
 const QUALITY_WARNINGS = new Set<QualityWarning>([
   "candidate_roles_blurred",
   "candidates_too_similar",
@@ -106,6 +108,14 @@ export class LocalApiClient {
 
   async deleteRecommendation(id: string, signal?: AbortSignal): Promise<void> {
     const response = await this.#request(`/api/v1/recommendations/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      ...withSignal(signal),
+    });
+    if (response.status !== 204) throw invalidResponse(response.status);
+  }
+
+  async clearPersonalizationExamples(signal?: AbortSignal): Promise<void> {
+    const response = await this.#request("/api/v1/personalization/examples", {
       method: "DELETE",
       ...withSignal(signal),
     });
@@ -368,6 +378,7 @@ function parseRecommendationHistoryItem(value: unknown): RecommendationHistoryIt
       "source_url",
       "title",
       "updated_at",
+      "personalization_eligible",
     ])
   ) {
     return null;
@@ -379,6 +390,7 @@ function parseRecommendationHistoryItem(value: unknown): RecommendationHistoryIt
   const createdAt = requiredString(value, "created_at", 100);
   const updatedAt = nullableString(value, "updated_at", 100);
   const reviewStatus = value.review_status;
+  const personalizationEligible = value.personalization_eligible;
   if (
     id === null ||
     !UUID.test(id) ||
@@ -390,7 +402,8 @@ function parseRecommendationHistoryItem(value: unknown): RecommendationHistoryIt
     updatedAt === undefined ||
     (updatedAt !== null && Number.isNaN(Date.parse(updatedAt))) ||
     typeof reviewStatus !== "string" ||
-    !REVIEW_STATUSES.has(reviewStatus as ReviewStatus)
+    !REVIEW_STATUSES.has(reviewStatus as ReviewStatus) ||
+    typeof personalizationEligible !== "boolean"
   ) {
     return null;
   }
@@ -402,6 +415,7 @@ function parseRecommendationHistoryItem(value: unknown): RecommendationHistoryIt
     sourceUrl,
     title,
     updatedAt,
+    personalizationEligible,
   };
 }
 
@@ -428,6 +442,10 @@ function parseRecommendation(value: unknown): Recommendation | null {
       "id",
       "relationship_level",
       "quality_warnings",
+      "personalization_applied",
+      "personalization_mode",
+      "personalization_sample_count",
+      "personalization_eligible",
       "review_status",
       "selected_candidate_id",
       "source_url",
@@ -451,6 +469,10 @@ function parseRecommendation(value: unknown): Recommendation | null {
   const reviewStatus = value.review_status;
   const preferences = parseGenerationPreferences(value);
   const qualityWarnings = parseQualityWarnings(value.quality_warnings);
+  const personalizationApplied = value.personalization_applied;
+  const personalizationMode = value.personalization_mode;
+  const personalizationSampleCount = value.personalization_sample_count;
+  const personalizationEligible = value.personalization_eligible;
   if (
     id === null ||
     !UUID.test(id) ||
@@ -468,6 +490,14 @@ function parseRecommendation(value: unknown): Recommendation | null {
     !REVIEW_STATUSES.has(reviewStatus as ReviewStatus) ||
     preferences === null ||
     qualityWarnings === null ||
+    typeof personalizationApplied !== "boolean" ||
+    typeof personalizationMode !== "string" ||
+    !PERSONALIZATION_MODES.has(personalizationMode as PersonalizationMode) ||
+    typeof personalizationSampleCount !== "number" ||
+    !Number.isInteger(personalizationSampleCount) ||
+    personalizationSampleCount < 0 ||
+    personalizationSampleCount > 5 ||
+    typeof personalizationEligible !== "boolean" ||
     !Array.isArray(value.topics) ||
     value.topics.length < 1 ||
     value.topics.length > 5 ||
@@ -514,6 +544,10 @@ function parseRecommendation(value: unknown): Recommendation | null {
     commentLength: preferences.commentLength,
     commentMood: preferences.commentMood,
     qualityWarnings,
+    personalizationApplied,
+    personalizationMode: personalizationMode as PersonalizationMode,
+    personalizationSampleCount,
+    personalizationEligible,
   };
 }
 

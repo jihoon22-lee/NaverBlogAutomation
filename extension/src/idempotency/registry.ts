@@ -1,6 +1,6 @@
 const STORAGE_KEY = "generationRegistryV1";
 const SCHEMA_VERSION = 2;
-const POLICY_VERSION = "generation-policy-v2";
+const POLICY_VERSION = "generation-policy-v3";
 const MAX_ENTRIES = 20;
 const RETENTION_MS = 60 * 60 * 1_000;
 const DIGEST = /^[0-9a-f]{64}$/u;

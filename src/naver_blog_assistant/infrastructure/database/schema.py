@@ -1,6 +1,7 @@
 """SQLAlchemy table metadata for the local SQLite database."""
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
@@ -41,12 +42,23 @@ recommendations = Table(
         nullable=False,
         server_default=DEFAULT_GENERATION_PREFERENCES_JSON,
     ),
+    Column("personalization_mode", String(32), nullable=False, server_default="off"),
+    Column("personalization_sample_count", Integer, nullable=False, server_default="0"),
+    Column("personalization_eligible", Boolean, nullable=False, server_default="1"),
     CheckConstraint(
         "review_status IN ('drafted', 'approved', 'completed')",
         name="ck_recommendations_review_status",
     ),
     CheckConstraint("length(content_hash) = 64", name="ck_recommendations_content_hash"),
     CheckConstraint("version >= 0", name="ck_recommendations_version"),
+    CheckConstraint(
+        "personalization_mode IN ('off', 'completed_examples')",
+        name="ck_recommendations_personalization_mode",
+    ),
+    CheckConstraint(
+        "personalization_sample_count BETWEEN 0 AND 5",
+        name="ck_recommendations_personalization_sample_count",
+    ),
 )
 
 comment_candidates = Table(

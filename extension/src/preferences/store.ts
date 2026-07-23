@@ -8,7 +8,7 @@ import {
   type CommentPreferences,
 } from "./model";
 
-// Keep the legacy key so existing V1/V2/V3 choices migrate in place to the V4 profile.
+// Keep the legacy key so existing choices migrate in place to the V5 profile.
 export const COMMENT_LENGTH_STORAGE_KEY = "commentLengthPreferenceV1";
 
 export type StoredCommentPreferences = CommentPreferences;
@@ -18,13 +18,8 @@ interface StoredPreferenceV1 {
   schemaVersion: 1;
 }
 
-interface StoredPreferenceV4 {
-  closingPhrase: string;
-  commentLength: CommentPreferences["commentLength"];
-  commentMood: CommentPreferences["commentMood"];
-  relationshipLevel: CommentPreferences["relationshipLevel"];
-  schemaVersion: 4;
-  speechStyle: CommentPreferences["speechStyle"];
+interface StoredPreferenceV5 extends CommentPreferences {
+  schemaVersion: 5;
 }
 
 export interface PreferenceStorageArea {
@@ -51,7 +46,7 @@ export class CommentLengthPreferenceStore {
       const stored = raw[COMMENT_LENGTH_STORAGE_KEY];
       if (stored === undefined) return defaults();
       const parsed = parseStoredPreferences(stored);
-      if (parsed?.schemaVersion === 4) return parsed.preferences;
+      if (parsed?.schemaVersion === 5) return parsed.preferences;
       const preferences = parsed?.preferences ?? defaults();
       await this.#write(preferences);
       return preferences;
@@ -71,10 +66,11 @@ export class CommentLengthPreferenceStore {
         closingPhrase: preferences.closingPhrase,
         commentLength: preferences.commentLength,
         commentMood: preferences.commentMood,
+        personalizationMode: preferences.personalizationMode,
         relationshipLevel: preferences.relationshipLevel,
-        schemaVersion: 4,
+        schemaVersion: 5,
         speechStyle: preferences.speechStyle,
-      } satisfies StoredPreferenceV4,
+      } satisfies StoredPreferenceV5,
     });
   }
 
@@ -94,7 +90,7 @@ function defaults(): StoredCommentPreferences {
 
 function parseStoredPreferences(
   value: unknown,
-): { preferences: StoredCommentPreferences; schemaVersion: 1 | 2 | 3 | 4 } | null {
+): { preferences: StoredCommentPreferences; schemaVersion: 1 | 2 | 3 | 4 | 5 } | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   if (
     Object.keys(value).length === 2 &&
@@ -111,6 +107,7 @@ function parseStoredPreferences(
         commentMood: DEFAULT_COMMENT_PREFERENCES.commentMood,
         relationshipLevel: DEFAULT_COMMENT_PREFERENCES.relationshipLevel,
         speechStyle: DEFAULT_COMMENT_PREFERENCES.speechStyle,
+        personalizationMode: DEFAULT_COMMENT_PREFERENCES.personalizationMode,
       },
       schemaVersion: 1,
     };
@@ -131,6 +128,7 @@ function parseStoredPreferences(
         commentMood: value.mood,
         relationshipLevel: DEFAULT_COMMENT_PREFERENCES.relationshipLevel,
         speechStyle: DEFAULT_COMMENT_PREFERENCES.speechStyle,
+        personalizationMode: DEFAULT_COMMENT_PREFERENCES.personalizationMode,
       },
       schemaVersion: 2,
     };
@@ -150,6 +148,7 @@ function parseStoredPreferences(
       commentMood: value.commentMood as CommentPreferences["commentMood"],
       relationshipLevel: value.relationshipLevel as CommentPreferences["relationshipLevel"],
       speechStyle: value.speechStyle as CommentPreferences["speechStyle"],
+      personalizationMode: DEFAULT_COMMENT_PREFERENCES.personalizationMode,
     };
     if (isValidCommentPreferences(preferences)) {
       return { preferences, schemaVersion: 3 };
@@ -172,12 +171,40 @@ function parseStoredPreferences(
       commentMood: value.commentMood as CommentPreferences["commentMood"],
       relationshipLevel: value.relationshipLevel as CommentPreferences["relationshipLevel"],
       speechStyle: value.speechStyle as CommentPreferences["speechStyle"],
+      personalizationMode: DEFAULT_COMMENT_PREFERENCES.personalizationMode,
     };
     if (
       isValidCommentPreferences(preferences) &&
       preferences.closingPhrase === value.closingPhrase
     ) {
       return { preferences, schemaVersion: 4 };
+    }
+  }
+  if (
+    Object.keys(value).length === 7 &&
+    "schemaVersion" in value &&
+    value.schemaVersion === 5 &&
+    "closingPhrase" in value &&
+    typeof value.closingPhrase === "string" &&
+    "commentLength" in value &&
+    "commentMood" in value &&
+    "personalizationMode" in value &&
+    "relationshipLevel" in value &&
+    "speechStyle" in value
+  ) {
+    const preferences: CommentPreferences = {
+      closingPhrase: normalizeClosingPhrase(value.closingPhrase),
+      commentLength: value.commentLength as CommentPreferences["commentLength"],
+      commentMood: value.commentMood as CommentPreferences["commentMood"],
+      personalizationMode: value.personalizationMode as CommentPreferences["personalizationMode"],
+      relationshipLevel: value.relationshipLevel as CommentPreferences["relationshipLevel"],
+      speechStyle: value.speechStyle as CommentPreferences["speechStyle"],
+    };
+    if (
+      isValidCommentPreferences(preferences) &&
+      preferences.closingPhrase === value.closingPhrase
+    ) {
+      return { preferences, schemaVersion: 5 };
     }
   }
   return null;

@@ -11,7 +11,13 @@ let document: Document;
 let view: DomHistoryView;
 
 function actions(): HistoryActions {
-  return { copy: vi.fn(), delete: vi.fn(), refresh: vi.fn() };
+  return {
+    clearPersonalization: vi.fn(),
+    copy: vi.fn(),
+    delete: vi.fn(),
+    refresh: vi.fn(),
+    togglePersonalization: vi.fn(),
+  };
 }
 
 beforeEach(async () => {
@@ -33,6 +39,7 @@ describe("DomHistoryView", () => {
           sourceUrl: "https://blog.naver.com/synthetic/10",
           title: "합성 전시 후기",
           updatedAt: "2026-07-17T00:01:00Z",
+          personalizationEligible: true,
         },
       ],
       kind: "ready",
@@ -52,7 +59,7 @@ describe("DomHistoryView", () => {
     expect(document.querySelector<HTMLAnchorElement>(".history-item a")?.target).toBe("_blank");
   });
 
-  it("binds refresh, copy, and confirmed delete actions", () => {
+  it("binds refresh, copy, personalization, and confirmed delete actions", () => {
     const bound = actions();
     view.bind(bound);
     view.render({
@@ -65,6 +72,7 @@ describe("DomHistoryView", () => {
           sourceUrl: "https://blog.naver.com/synthetic/10",
           title: "합성 후기",
           updatedAt: null,
+          personalizationEligible: true,
         },
       ],
       kind: "ready",
@@ -81,11 +89,15 @@ describe("DomHistoryView", () => {
 
     document.querySelector<HTMLButtonElement>("#history-refresh-button")?.click();
     document.querySelector<HTMLButtonElement>('[data-history-action="copy"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-history-action="personalization"]')?.click();
     document.querySelector<HTMLButtonElement>('[data-history-action="delete"]')?.click();
+    document.querySelector<HTMLButtonElement>("#personalization-clear-button")?.click();
 
     expect(bound.refresh).toHaveBeenCalledOnce();
     expect(bound.copy).toHaveBeenCalledWith("history-id");
+    expect(bound.togglePersonalization).toHaveBeenCalledWith("history-id");
     expect(bound.delete).toHaveBeenCalledWith("history-id");
+    expect(bound.clearPersonalization).toHaveBeenCalledOnce();
   });
 
   it("renders loading and disconnected states without stale history", () => {

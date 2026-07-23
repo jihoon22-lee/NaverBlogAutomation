@@ -2,6 +2,7 @@ import type {
   CommentLength,
   CommentMood,
   CreateRecommendationRequest,
+  PersonalizationMode,
   RelationshipLevel,
   SpeechStyle,
 } from "../api/types";
@@ -11,6 +12,7 @@ export interface GenerationPreferences {
   readonly commentMood: CommentMood;
   readonly relationshipLevel: RelationshipLevel;
   readonly speechStyle: SpeechStyle;
+  readonly personalizationMode: PersonalizationMode;
 }
 
 export interface CommentPreferences extends GenerationPreferences {
@@ -24,6 +26,7 @@ export const DEFAULT_GENERATION_PREFERENCES: GenerationPreferences = Object.free
   commentMood: "warm",
   relationshipLevel: "friendly",
   speechStyle: "honorific",
+  personalizationMode: "completed_examples",
 });
 
 export const DEFAULT_COMMENT_PREFERENCES: CommentPreferences = Object.freeze({
@@ -35,6 +38,7 @@ const COMMENT_LENGTHS = new Set<CommentLength>(["long", "medium", "short"]);
 const COMMENT_MOODS = new Set<CommentMood>(["calm", "lively", "warm"]);
 const RELATIONSHIP_LEVELS = new Set<RelationshipLevel>(["close", "friendly", "new", "polite"]);
 const SPEECH_STYLES = new Set<SpeechStyle>(["banmal", "honorific"]);
+const PERSONALIZATION_MODES = new Set<PersonalizationMode>(["completed_examples", "off"]);
 
 export function isCommentLength(value: unknown): value is CommentLength {
   return typeof value === "string" && COMMENT_LENGTHS.has(value as CommentLength);
@@ -52,12 +56,17 @@ export function isSpeechStyle(value: unknown): value is SpeechStyle {
   return typeof value === "string" && SPEECH_STYLES.has(value as SpeechStyle);
 }
 
+export function isPersonalizationMode(value: unknown): value is PersonalizationMode {
+  return typeof value === "string" && PERSONALIZATION_MODES.has(value as PersonalizationMode);
+}
+
 export function isValidGenerationPreferences(value: GenerationPreferences): boolean {
   return (
     isCommentLength(value.commentLength) &&
     isCommentMood(value.commentMood) &&
     isRelationshipLevel(value.relationshipLevel) &&
     isSpeechStyle(value.speechStyle) &&
+    isPersonalizationMode(value.personalizationMode) &&
     (value.speechStyle !== "banmal" || value.relationshipLevel === "close")
   );
 }
@@ -105,6 +114,10 @@ export function preferencesFromRequest(
       request.speech_style === undefined
         ? DEFAULT_GENERATION_PREFERENCES.speechStyle
         : request.speech_style,
+    personalizationMode:
+      request.personalization_mode === undefined
+        ? DEFAULT_GENERATION_PREFERENCES.personalizationMode
+        : request.personalization_mode,
   };
   return isValidGenerationPreferences(value) ? value : null;
 }
@@ -113,7 +126,7 @@ export function requestPreferenceFields(
   preferences: GenerationPreferences,
 ): Pick<
   Required<CreateRecommendationRequest>,
-  "comment_length" | "comment_mood" | "relationship_level" | "speech_style"
+  "comment_length" | "comment_mood" | "relationship_level" | "speech_style" | "personalization_mode"
 > {
   if (!isValidGenerationPreferences(preferences)) {
     throw new TypeError("Invalid generation preferences");
@@ -123,6 +136,7 @@ export function requestPreferenceFields(
     comment_mood: preferences.commentMood,
     relationship_level: preferences.relationshipLevel,
     speech_style: preferences.speechStyle,
+    personalization_mode: preferences.personalizationMode,
   };
 }
 
@@ -134,6 +148,7 @@ export function samePreferences(
     left.commentLength === right.commentLength &&
     left.commentMood === right.commentMood &&
     left.relationshipLevel === right.relationshipLevel &&
-    left.speechStyle === right.speechStyle
+    left.speechStyle === right.speechStyle &&
+    left.personalizationMode === right.personalizationMode
   );
 }

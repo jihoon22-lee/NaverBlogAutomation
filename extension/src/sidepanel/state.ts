@@ -44,6 +44,7 @@ export interface PanelActions {
   copy(): void;
   changeCommentLength(value: string): void;
   changeCommentMood(value: string): void;
+  changePersonalizationMode(value: string): void;
   changeClosingPhrase(value: string): void;
   changeRelationship(value: string): void;
   changeSpeechStyle(value: string): void;
@@ -52,6 +53,7 @@ export interface PanelActions {
   regenerate(): void;
   replace(): void;
   retry(): void;
+  refill(): void;
   savePreferences(): void;
   select(candidateId: string): void;
   useCandidate(candidateId: string): void;

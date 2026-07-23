@@ -9,6 +9,7 @@ function requireElement<T extends Element>(document: Document, selector: string)
 
 export class DomHistoryView implements HistoryView {
   readonly #document: Document;
+  readonly #clearPersonalization: HTMLButtonElement;
   readonly #empty: HTMLElement;
   readonly #fallback: HTMLTextAreaElement;
   readonly #list: HTMLElement;
@@ -19,6 +20,7 @@ export class DomHistoryView implements HistoryView {
 
   constructor(document: Document) {
     this.#document = document;
+    this.#clearPersonalization = requireElement(document, "#personalization-clear-button");
     this.#empty = requireElement(document, "#history-empty");
     this.#fallback = requireElement(document, "#history-copy-fallback");
     this.#list = requireElement(document, "#history-list");
@@ -30,6 +32,15 @@ export class DomHistoryView implements HistoryView {
 
   bind(actions: HistoryActions): void {
     this.#refresh.addEventListener("click", actions.refresh);
+    this.#clearPersonalization.addEventListener("click", () => {
+      if (
+        this.#document.defaultView?.confirm(
+          "최근 작업 기록은 남기고, 완료 댓글을 OpenAI 스타일 예시에서 모두 제외할까요?",
+        ) === true
+      ) {
+        actions.clearPersonalization();
+      }
+    });
     this.#list.addEventListener("click", (event) => {
       const Button = this.#document.defaultView?.HTMLButtonElement;
       const target = event.target;
@@ -37,6 +48,7 @@ export class DomHistoryView implements HistoryView {
       const id = target.dataset.historyId;
       if (id === undefined) return;
       if (target.dataset.historyAction === "copy") actions.copy(id);
+      if (target.dataset.historyAction === "personalization") actions.togglePersonalization(id);
       if (
         target.dataset.historyAction === "delete" &&
         this.#document.defaultView?.confirm(
@@ -69,6 +81,8 @@ export class DomHistoryView implements HistoryView {
     this.#list.replaceChildren();
     this.#notice.hidden = true;
     this.#refresh.disabled = state.kind === "loading";
+    this.#clearPersonalization.disabled =
+      state.kind !== "ready" || state.clearingPersonalization === true;
     if (state.kind === "loading") {
       this.#fallback.hidden = true;
       this.#fallback.value = "";
@@ -125,6 +139,16 @@ export class DomHistoryView implements HistoryView {
     const actions = this.#document.createElement("div");
     actions.className = "history-actions";
     if (item.comment !== null) actions.append(this.#button("댓글 복사", "copy", item.id, false));
+    if (item.reviewStatus === "completed" && item.comment !== null) {
+      actions.append(
+        this.#button(
+          item.personalizationEligible ? "개인화에서 제외" : "스타일 예시에 포함",
+          "personalization",
+          item.id,
+          busyId === item.id,
+        ),
+      );
+    }
     actions.append(this.#button("기록 삭제", "delete", item.id, busyId === item.id));
     row.append(actions);
     return row;

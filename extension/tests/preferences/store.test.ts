@@ -33,6 +33,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     const unreadable = new MemoryStorage();
     unreadable.getFailure = new Error("synthetic read failure");
@@ -42,6 +43,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
   });
 
@@ -55,14 +57,16 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
       closingPhrase: "",
       commentLength: "long",
       commentMood: "warm",
       relationshipLevel: "friendly",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
   });
 
@@ -75,14 +79,16 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
       closingPhrase: "",
       commentLength: "medium",
       commentMood: "warm",
       relationshipLevel: "friendly",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
 
     const blocked = new MemoryStorage();
@@ -103,6 +109,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "calm",
       relationshipLevel: "close",
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
 
     expect(storage.value.generationRegistryV1).toEqual({ entries: [], schemaVersion: 1 });
@@ -111,8 +118,9 @@ describe("CommentLengthPreferenceStore", () => {
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "close",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
   });
 
@@ -132,19 +140,21 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "calm",
       relationshipLevel: "close",
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
     expect(storage.value[COMMENT_LENGTH_STORAGE_KEY]).toEqual({
       closingPhrase: "",
       commentLength: "short",
       commentMood: "calm",
       relationshipLevel: "close",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
     expect(storage.writes).toHaveLength(1);
   });
 
-  it("loads a valid version 4 profile without rewriting it", async () => {
+  it("migrates a valid version 4 profile to the version 5 personalization default", async () => {
     const storage = new MemoryStorage();
     storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
       closingPhrase: "오늘도 좋은 하루 보내세요!",
@@ -157,8 +167,45 @@ describe("CommentLengthPreferenceStore", () => {
 
     await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toMatchObject({
       closingPhrase: "오늘도 좋은 하루 보내세요!",
+      personalizationMode: "completed_examples",
+    });
+    expect(storage.writes).toHaveLength(1);
+  });
+
+  it("loads a valid version 5 profile without rewriting its personalization choice", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      closingPhrase: "스타일 예시 없이 작성해요.",
+      commentLength: "medium",
+      commentMood: "warm",
+      personalizationMode: "off",
+      relationshipLevel: "friendly",
+      schemaVersion: 5,
+      speechStyle: "honorific",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toMatchObject({
+      personalizationMode: "off",
     });
     expect(storage.writes).toHaveLength(0);
+  });
+
+  it("replaces a version 5 profile with an invalid personalization mode", async () => {
+    const storage = new MemoryStorage();
+    storage.value[COMMENT_LENGTH_STORAGE_KEY] = {
+      closingPhrase: "",
+      commentLength: "medium",
+      commentMood: "warm",
+      personalizationMode: "unknown",
+      relationshipLevel: "friendly",
+      schemaVersion: 5,
+      speechStyle: "honorific",
+    };
+
+    await expect(new CommentLengthPreferenceStore(storage).load()).resolves.toMatchObject({
+      personalizationMode: "completed_examples",
+    });
+    expect(storage.writes).toHaveLength(1);
   });
 
   it("replaces a non-canonical or oversized closing phrase with safe defaults", async () => {
@@ -178,6 +225,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     expect(storage.writes).toHaveLength(1);
   });
@@ -198,6 +246,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "warm",
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     expect(storage.writes).toHaveLength(1);
   });
@@ -222,6 +271,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "calm",
       relationshipLevel: "new",
       speechStyle: "honorific",
+      personalizationMode: "completed_examples",
     });
     const second = store.save({
       closingPhrase: "마지막 문구",
@@ -229,6 +279,7 @@ describe("CommentLengthPreferenceStore", () => {
       commentMood: "lively",
       relationshipLevel: "close",
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
     await Promise.resolve();
     release?.();
@@ -239,8 +290,9 @@ describe("CommentLengthPreferenceStore", () => {
       commentLength: "long",
       commentMood: "lively",
       relationshipLevel: "close",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "banmal",
+      personalizationMode: "completed_examples",
     });
   });
 });

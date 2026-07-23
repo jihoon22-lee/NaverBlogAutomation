@@ -75,6 +75,13 @@ class CommentMood(StrEnum):
     LIVELY = "lively"
 
 
+class PersonalizationMode(StrEnum):
+    """Controls whether locally completed comments guide a new generation."""
+
+    OFF = "off"
+    COMPLETED_EXAMPLES = "completed_examples"
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationPreferences:
     """Immutable generation provenance attached to a recommendation."""
@@ -153,18 +160,25 @@ class CapturedPost:
         )
         return hashlib.sha256(payload.encode()).hexdigest()
 
-    def request_hash_for(self, preferences: GenerationPreferences) -> str:
-        """Bind idempotency to all effective generation-policy-v2 preferences."""
+    def request_hash_for(
+        self,
+        preferences: GenerationPreferences,
+        personalization_mode: PersonalizationMode = PersonalizationMode.COMPLETED_EXAMPLES,
+    ) -> str:
+        """Bind idempotency to all effective generation-policy-v3 settings."""
         if not isinstance(preferences, GenerationPreferences):
             raise DomainValidationError("preferences must be GenerationPreferences")
+        if not isinstance(personalization_mode, PersonalizationMode):
+            raise DomainValidationError("personalization_mode must be a PersonalizationMode")
         payload = json.dumps(
             {
-                "schema": "generation-policy-v2",
+                "schema": "generation-policy-v3",
                 "post_hash": self.request_hash,
                 "relationship_level": preferences.relationship.value,
                 "speech_style": preferences.speech.value,
                 "comment_length": preferences.length.value,
                 "comment_mood": preferences.mood.value,
+                "personalization_mode": personalization_mode.value,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -220,6 +234,7 @@ class ReviewPatch:
     clear_selection: bool = False
     edited_comment: str | None = None
     clear_edited_comment: bool = False
+    personalization_eligible: bool | None = None
     review_status: ReviewStatus | None = None
 
     def __post_init__(self) -> None:
@@ -251,6 +266,7 @@ class ReviewPatch:
                 self.clear_selection,
                 self.edited_comment is not None,
                 self.clear_edited_comment,
+                self.personalization_eligible is not None,
                 self.review_status is not None,
             )
         )
@@ -271,6 +287,9 @@ class Recommendation:
     review_status: ReviewStatus
     created_at: datetime
     preferences: GenerationPreferences
+    personalization_mode: PersonalizationMode = PersonalizationMode.OFF
+    personalization_sample_count: int = 0
+    personalization_eligible: bool = True
     selected_candidate_id: UUID | None = None
     edited_comment: str | None = None
     updated_at: datetime | None = None
@@ -312,6 +331,19 @@ class Recommendation:
             _require_bounded_text("edited_comment", self.edited_comment, MAX_COMMENT_LENGTH)
         if not isinstance(self.preferences, GenerationPreferences):
             raise DomainValidationError("preferences must be GenerationPreferences")
+        if not isinstance(self.personalization_mode, PersonalizationMode):
+            raise DomainValidationError("personalization_mode must be a PersonalizationMode")
+        if not 0 <= self.personalization_sample_count <= 5:
+            raise DomainValidationError(
+                "personalization_sample_count must be between zero and five"
+            )
+        if (
+            self.personalization_mode is PersonalizationMode.OFF
+            and self.personalization_sample_count != 0
+        ):
+            raise DomainValidationError("disabled personalization cannot use style examples")
+        if not isinstance(self.personalization_eligible, bool):
+            raise DomainValidationError("personalization_eligible must be a boolean")
         if self.created_at.tzinfo is None:
             raise DomainValidationError("created_at must be timezone-aware")
         if self.updated_at is not None and self.updated_at.tzinfo is None:
@@ -350,6 +382,11 @@ class Recommendation:
             self,
             selected_candidate_id=selected_candidate_id,
             edited_comment=edited_comment,
+            personalization_eligible=(
+                patch.personalization_eligible
+                if patch.personalization_eligible is not None
+                else self.personalization_eligible
+            ),
             review_status=review_status,
             updated_at=reviewed_at,
         )

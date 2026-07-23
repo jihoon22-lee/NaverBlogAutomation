@@ -6,7 +6,7 @@
       "title": "주말 전시 후기",
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다."
     },
-    "expected_hash": "604c6dc8f1116694c097eab2251d5622c87ae2f460d25ab224bee87fa0e93470"
+    "expected_hash": "79ede0a9d29a84f46b0681c398c6eb39625addd7d1b2e8f7f0f749d231015295"
   },
   {
     "id": "explicit-defaults",
@@ -19,7 +19,7 @@
       "comment_length": "medium",
       "comment_mood": "warm"
     },
-    "expected_hash": "604c6dc8f1116694c097eab2251d5622c87ae2f460d25ab224bee87fa0e93470"
+    "expected_hash": "79ede0a9d29a84f46b0681c398c6eb39625addd7d1b2e8f7f0f749d231015295"
   },
   {
     "id": "new-relationship",
@@ -29,7 +29,7 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "relationship_level": "new"
     },
-    "expected_hash": "7cd3f86eb9fb6efe815aa8841954a603e82f53871c7a2bd831dac45f7aaa0cc2"
+    "expected_hash": "db51dc8295bcbd74cdc80719d65aa8b087fdca342bfcf1b07b40e092b0592f6c"
   },
   {
     "id": "short-comment",
@@ -39,7 +39,7 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "comment_length": "short"
     },
-    "expected_hash": "757d86f502dcf1378412b21abeb1b1faea108fb679fe17b7a212fabab89e93e8"
+    "expected_hash": "01e93946210a345bcc3a96484cc06073cdb9c7197e013acd044929de1cad230d"
   },
   {
     "id": "close-banmal",
@@ -50,7 +50,7 @@
       "relationship_level": "close",
       "speech_style": "banmal"
     },
-    "expected_hash": "4937cf009294fdd63255ef92d8b91b1f44652d5bdaa898ff878fe84fcd70bdc5"
+    "expected_hash": "e49d6e8cba07649188eb0a90ee373f08b9797f0cd893067318059c9843b5e8b9"
   },
   {
     "id": "unicode-whitespace",
@@ -61,7 +61,7 @@
       "relationship_level": "polite",
       "comment_length": "long"
     },
-    "expected_hash": "10d268be13b07ecde7ab0f2d3f938fed92914897e67ae8ad61f73818e29fcd6f"
+    "expected_hash": "2a29a62b4f1034aa771a1971b96fd1b6fc59821e1bf54cb1c01a952300ce3287"
   },
   {
     "id": "lively-mood",
@@ -71,6 +71,6 @@
       "body": "푸른 조각과 조용한 2층 동선을 소개한 충분히 긴 합성 본문입니다.",
       "comment_mood": "lively"
     },
-    "expected_hash": "c51d806cd252225510f2f6646df9bd26236fa9fd830486401604db3564ca5da6"
+    "expected_hash": "4fa42c144af245b27a5e631491d1704d1fe3541e7a23b3480cfea23c912d9380"
   }
 ]

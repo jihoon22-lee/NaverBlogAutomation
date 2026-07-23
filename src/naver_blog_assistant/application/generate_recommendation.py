@@ -23,6 +23,7 @@ from naver_blog_assistant.domain import (
     CommentCandidate,
     DomainValidationError,
     GenerationPreferences,
+    PersonalizationMode,
     Recommendation,
     ReviewStatus,
 )
@@ -32,6 +33,7 @@ from naver_blog_assistant.ports import (
     GenerationNotStartedError,
     IdempotencyOutcome,
     IdempotencyRepository,
+    PersonalizationRepository,
 )
 
 
@@ -51,11 +53,13 @@ class GenerateRecommendation:
         *,
         generator: CommentGenerator,
         idempotency: IdempotencyRepository,
+        personalization: PersonalizationRepository | None = None,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], UUID] | None = None,
     ) -> None:
         self._generator = generator
         self._idempotency = idempotency
+        self._personalization = personalization
         self._clock = clock or (lambda: datetime.now(UTC))
         self._id_factory = id_factory or uuid4
 
@@ -65,9 +69,13 @@ class GenerateRecommendation:
         post: CapturedPost,
         idempotency_key: UUID,
         preferences: GenerationPreferences = DEFAULT_GENERATION_PREFERENCES,
+        personalization_mode: PersonalizationMode = PersonalizationMode.COMPLETED_EXAMPLES,
     ) -> GenerationResult:
         """Generate once for a key and replay a matching completed request."""
-        reservation = self._idempotency.reserve(idempotency_key, post.request_hash_for(preferences))
+        reservation = self._idempotency.reserve(
+            idempotency_key,
+            post.request_hash_for(preferences, personalization_mode),
+        )
         if reservation.outcome is IdempotencyOutcome.CONFLICT:
             raise IdempotencyConflictError("idempotency key was used for different content")
         if reservation.outcome is IdempotencyOutcome.IN_PROGRESS:
@@ -85,6 +93,17 @@ class GenerateRecommendation:
         attempt_id = reservation.attempt_id
 
         try:
+            style_examples = (
+                self._personalization.list_personalization_examples(5)
+                if personalization_mode is PersonalizationMode.COMPLETED_EXAMPLES
+                and self._personalization is not None
+                else ()
+            )
+        except Exception as error:
+            self._idempotency.release(idempotency_key, attempt_id)
+            raise GenerationUnavailableError("personalization examples are unavailable") from error
+
+        try:
             self._idempotency.mark_generation_started(idempotency_key, attempt_id)
         except Exception:
             # Fencing makes cleanup safe if this attempt lost ownership before the mark.
@@ -92,7 +111,12 @@ class GenerateRecommendation:
             raise
 
         try:
-            output = self._generator.generate(post, preferences)
+            generate_with_style = getattr(self._generator, "generate_with_style", None)
+            output = (
+                generate_with_style(post, preferences, style_examples)
+                if callable(generate_with_style)
+                else self._generator.generate(post, preferences)
+            )
         except GenerationNotStartedError:
             self._idempotency.release(idempotency_key, attempt_id)
             raise
@@ -136,6 +160,8 @@ class GenerateRecommendation:
                 review_status=ReviewStatus.DRAFTED,
                 created_at=self._clock(),
                 preferences=preferences,
+                personalization_mode=personalization_mode,
+                personalization_sample_count=len(style_examples),
             )
         except DomainValidationError as error:
             self._commit_failure(idempotency_key, attempt_id, _INVALID)

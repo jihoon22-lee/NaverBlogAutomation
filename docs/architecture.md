@@ -60,8 +60,8 @@ without an API call. The panel then supports candidate selection, editing, appro
 comment-input filling, clipboard copy, and an explicit completed action. Filling or copying alone
 never marks a recommendation completed. Copy uses the user gesture Clipboard API on a best-effort
 basis and falls back to a selectable text area; the extension does not request `clipboardWrite`.
-Input filling uses the existing `activeTab` and `scripting` grant, never clicks an editor opener or
-submit control, and proceeds only when exactly one visible editable target is empty. Ambiguous,
+Input filling uses the existing `activeTab` and `scripting` grant, may click one verified standard
+comment-editor opener but never a submit control, and proceeds only when exactly one visible editable target is empty. Ambiguous,
 occupied, missing, stale, and denied targets fail closed.
 
 A separate history controller reads runtime diagnostics and the latest 20 local recommendations.
@@ -98,6 +98,9 @@ Configuration may override the model without weakening output validation. Articl
 untrusted data: the entire provider input channel remains untrusted even when article text contains
 delimiter-like strings. Validated preference enums select static relationship, speech, and target
 length directives in trusted instructions; raw article fields cannot redefine those directives.
+When the user enables personalization, at most five explicitly eligible completed comments are sent
+as a separate untrusted style-example input. They can influence surface style only; their facts and
+wording are not instructions or grounding.
 
 The result contains a short summary, one to five topics, and exactly three grounded candidates in
 the warm, curious, and supportive tones. Refusals, rate limits, timeouts, unavailable providers,
@@ -112,6 +115,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Full request body | FastAPI generation task | Released when that task settles or the process exits |
 | Loading, preview, and unsaved edit state | Side Panel | Panel session |
 | Recommendation, review status, and recent-history source | SQLite | Until individually or globally removed |
+| Eligible completed-comment style examples | SQLite/OpenAI request | Until excluded; at most five per enabled generation |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
 | Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
@@ -119,7 +123,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 The extension stores no body, title, URL, generated candidate, edited comment, cookie, or credential. Its
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
 schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
-versioned record contains the four validated generation preference enums and one normalized user-authored
+versioned record contains the five validated generation preference enums and one normalized user-authored
 closing phrase of at most 50 code points. It persists across browser
 restarts and holds at most 20 operations.
 Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
@@ -134,8 +138,8 @@ recommendation ID for GET or show manual recovery guidance.
 
 The extension normalizes whitespace in URL, title, and body using the shared contract, applies the
 100,000-code-point limit, serializes `{source_url,title,body}` in a canonical key order, and hashes
-its UTF-8 bytes. Every request uses a `generation-policy-v2` canonical JSON composite of that post
-digest and all four effective preference values, so an old-policy result or differently configured
+its UTF-8 bytes. Every request uses a `generation-policy-v3` canonical JSON composite of that post
+digest and all five effective preference values, so an old-policy result or differently configured
 generation cannot be replayed. A non-empty legacy registry is quarantined until explicit cleanup;
 only an empty legacy registry is migrated automatically. The extension persists the new digest and
 UUID before sending `POST /api/v1/recommendations`.

@@ -51,6 +51,8 @@ export class DomPanelView implements PanelView {
   readonly #closingPhraseCount: HTMLElement;
   readonly #preferenceNotice: HTMLElement;
   readonly #preferenceSummary: HTMLElement;
+  readonly #personalizationMode: HTMLInputElement;
+  readonly #personalizationResultNotice: HTMLElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
   readonly #regenerateButton: HTMLButtonElement;
   readonly #speechStyleOptions: HTMLFieldSetElement;
@@ -66,6 +68,7 @@ export class DomPanelView implements PanelView {
   readonly #replaceButton: HTMLButtonElement;
   readonly #resultTitle: HTMLElement;
   readonly #retryButton: HTMLButtonElement;
+  readonly #retryFillButton: HTMLButtonElement;
   readonly #reviewNotice: HTMLElement;
   readonly #reviewPanel: HTMLElement;
   readonly #reviewStatus: HTMLElement;
@@ -104,6 +107,8 @@ export class DomPanelView implements PanelView {
     this.#closingPhraseCount = requireElement(document, "#closing-phrase-count");
     this.#preferenceNotice = requireElement(document, "#preference-notice");
     this.#preferenceSummary = requireElement(document, "#preference-summary");
+    this.#personalizationMode = requireElement(document, "#personalization-mode");
+    this.#personalizationResultNotice = requireElement(document, "#personalization-result-notice");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
     this.#regenerateButton = requireElement(document, "#regenerate-button");
     this.#speechStyleOptions = requireElement(document, "#speech-style-options");
@@ -119,6 +124,7 @@ export class DomPanelView implements PanelView {
     this.#replaceButton = requireElement(document, "#replace-button");
     this.#resultTitle = requireElement(document, "#result-title");
     this.#retryButton = requireElement(document, "#retry-button");
+    this.#retryFillButton = requireElement(document, "#retry-fill-button");
     this.#reviewNotice = requireElement(document, "#review-notice");
     this.#reviewPanel = requireElement(document, "#review-panel");
     this.#reviewStatus = requireElement(document, "#review-status");
@@ -135,6 +141,7 @@ export class DomPanelView implements PanelView {
     this.#changeOptionsButton.addEventListener("click", actions.changeOptions);
     this.#editedUseButton.addEventListener("click", actions.useEdited);
     this.#copyButton.addEventListener("click", actions.copy);
+    this.#retryFillButton.addEventListener("click", actions.refill);
     this.#completeButton.addEventListener("click", actions.complete);
     this.#relationshipOptions.addEventListener("change", (event) => {
       const input = this.#radioInput(event, "relationship");
@@ -151,6 +158,11 @@ export class DomPanelView implements PanelView {
     this.#commentMoodOptions.addEventListener("change", (event) => {
       const input = this.#radioInput(event, "comment-mood");
       if (input !== null) actions.changeCommentMood(input.value);
+    });
+    this.#personalizationMode.addEventListener("change", () => {
+      actions.changePersonalizationMode(
+        this.#personalizationMode.checked ? "completed_examples" : "off",
+      );
     });
     this.#closingPhrase.addEventListener("input", () => {
       const bounded = Array.from(this.#closingPhrase.value)
@@ -232,6 +244,7 @@ export class DomPanelView implements PanelView {
     this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
     for (const input of this.#preferenceInputs()) input.disabled = busy;
     this.#closingPhrase.disabled = busy;
+    this.#personalizationMode.disabled = busy;
     this.#regenerateButton.disabled = busy;
     this.#changeOptionsButton.disabled = busy;
     this.#savePreferencesButton.disabled = busy;
@@ -296,11 +309,12 @@ export class DomPanelView implements PanelView {
     this.#setChecked("speech-style", preferences.speechStyle);
     this.#setChecked("comment-length", preferences.commentLength);
     this.#setChecked("comment-mood", preferences.commentMood);
+    this.#personalizationMode.checked = preferences.personalizationMode === "completed_examples";
     if (this.#document.activeElement !== this.#closingPhrase) {
       this.#closingPhrase.value = closingPhrase;
     }
     this.#closingPhraseCount.textContent = `${Array.from(this.#closingPhrase.value).length.toLocaleString("ko-KR")} / 50자`;
-    this.#preferenceSummary.textContent = `${relationshipLabel(preferences.relationshipLevel)} · ${speechStyleLabel(preferences.speechStyle)} · ${commentLengthLabel(preferences.commentLength)} · ${commentMoodLabel(preferences.commentMood)}`;
+    this.#preferenceSummary.textContent = `${relationshipLabel(preferences.relationshipLevel)} · ${speechStyleLabel(preferences.speechStyle)} · ${commentLengthLabel(preferences.commentLength)} · ${commentMoodLabel(preferences.commentMood)} · ${personalizationLabel(preferences.personalizationMode)}`;
     const banmal = this.#document.querySelector<HTMLInputElement>(
       'input[name="speech-style"][value="banmal"]',
     );
@@ -334,6 +348,11 @@ export class DomPanelView implements PanelView {
     this.#generatedSpeechStyle.textContent = speechStyleLabel(recommendation.speechStyle);
     this.#generatedCommentLength.textContent = commentLengthLabel(recommendation.commentLength);
     this.#generatedCommentMood.textContent = commentMoodLabel(recommendation.commentMood);
+    this.#personalizationResultNotice.textContent = recommendation.personalizationApplied
+      ? `최근 완료 댓글 ${recommendation.personalizationSampleCount}개를 스타일 예시로 적용했습니다.`
+      : recommendation.personalizationMode === "completed_examples"
+        ? "사용 가능한 완료 댓글이 없어 스타일 예시 없이 생성했습니다."
+        : "스타일 예시 없이 생성했습니다.";
     const warnings = [...new Set(recommendation.qualityWarnings)];
     this.#qualityWarningPanel.hidden = warnings.length === 0;
     this.#qualityWarningList.replaceChildren(
@@ -401,6 +420,7 @@ export class DomPanelView implements PanelView {
     this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
     this.#editedUseButton.hidden = kind !== "review";
     this.#copyButton.hidden = kind === "review" || kind === "saving";
+    this.#retryFillButton.hidden = kind !== "approved";
     this.#completeButton.hidden = kind !== "approved";
     this.#regenerateButton.hidden = kind === "saving";
     this.#changeOptionsButton.hidden = kind === "saving";
@@ -434,6 +454,7 @@ export class DomPanelView implements PanelView {
     this.#generatedSpeechStyle.textContent = "";
     this.#generatedCommentLength.textContent = "";
     this.#generatedCommentMood.textContent = "";
+    this.#personalizationResultNotice.textContent = "";
     this.#qualityWarningList.replaceChildren();
     this.#qualityWarningPanel.hidden = true;
     this.#editSection.hidden = true;
@@ -487,6 +508,10 @@ function commentLengthLabel(value: string): string {
 
 function commentMoodLabel(value: string): string {
   return { calm: "차분하게", lively: "활기차게", warm: "따뜻하게" }[value] ?? value;
+}
+
+function personalizationLabel(value: string): string {
+  return value === "completed_examples" ? "스타일 활용" : "스타일 미사용";
 }
 
 function qualityWarningLabel(value: string): string {

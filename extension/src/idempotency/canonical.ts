@@ -89,9 +89,10 @@ export async function requestDigest(payload: CreateRecommendationRequest): Promi
     JSON.stringify({
       comment_length: preferences.commentLength,
       comment_mood: preferences.commentMood,
+      personalization_mode: preferences.personalizationMode,
       post_hash: postHash,
       relationship_level: preferences.relationshipLevel,
-      schema: "generation-policy-v2",
+      schema: "generation-policy-v3",
       speech_style: preferences.speechStyle,
     }),
   );

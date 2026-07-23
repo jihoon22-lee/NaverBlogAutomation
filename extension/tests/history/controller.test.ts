@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalApiClient } from "../../src/api/client";
+import type { RecommendationHistoryItem, ServiceStatus } from "../../src/api/types";
 import { HistoryController } from "../../src/history/controller";
 import type { HistoryActions, HistoryState, HistoryView } from "../../src/history/state";
 
@@ -17,6 +18,7 @@ const item = {
   comment: "이전에 승인한 댓글",
   created_at: "2026-07-17T00:00:00Z",
   id,
+  personalization_eligible: true,
   review_status: "approved",
   source_url: "https://blog.naver.com/synthetic/10",
   title: "합성 전시 후기",
@@ -91,5 +93,117 @@ describe("HistoryController", () => {
       kind: "error",
       message: "로컬 서비스에 연결하지 못했습니다. API 실행 상태를 확인해 주세요.",
     });
+  });
+
+  it("updates completed-comment personalization without deleting its history", async () => {
+    const view = new FakeHistoryView();
+    const completed: RecommendationHistoryItem = {
+      comment: "완료한 댓글",
+      createdAt: item.created_at,
+      id,
+      personalizationEligible: true,
+      reviewStatus: "completed",
+      sourceUrl: item.source_url,
+      title: item.title,
+      updatedAt: item.updated_at,
+    };
+    const status = vi.fn<(signal?: AbortSignal) => Promise<ServiceStatus>>(async () => ({
+      apiVersion: "1.0.0",
+      appEnvironment: "test",
+      database: "ready",
+      generatorMode: "fake",
+      generatorModel: "deterministic-fake",
+      status: "ready",
+    }));
+    const list = vi.fn<
+      (limit?: number, signal?: AbortSignal) => Promise<readonly RecommendationHistoryItem[]>
+    >(async () => [completed]);
+    const review = vi.fn(async () => undefined);
+    const clear = vi.fn(async () => undefined);
+    const api = {
+      clearPersonalizationExamples: clear,
+      listRecommendations: list,
+      reviewRecommendation: review,
+      status,
+    } as unknown as LocalApiClient;
+    const controller = new HistoryController(view, api, {
+      removeRecommendation: vi.fn(async () => undefined),
+    });
+
+    await controller.refresh();
+    view.actions?.togglePersonalization(id);
+    await vi.waitFor(() =>
+      expect(review).toHaveBeenCalledWith(id, { personalization_eligible: false }),
+    );
+    await vi.waitFor(() =>
+      expect(view.states.at(-1)).toMatchObject({
+        kind: "ready",
+        notice: expect.stringContaining("제외"),
+      }),
+    );
+
+    view.actions?.clearPersonalization();
+    await vi.waitFor(() => expect(clear).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(view.states.at(-1)).toMatchObject({
+        kind: "ready",
+        notice: expect.stringContaining("모두 제외"),
+      }),
+    );
+    expect(list).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps history visible when a personalization update cannot be saved", async () => {
+    const view = new FakeHistoryView();
+    const completed: RecommendationHistoryItem = {
+      comment: "완료한 댓글",
+      createdAt: item.created_at,
+      id,
+      personalizationEligible: false,
+      reviewStatus: "completed",
+      sourceUrl: item.source_url,
+      title: item.title,
+      updatedAt: item.updated_at,
+    };
+    const api = {
+      clearPersonalizationExamples: vi.fn(async () => {
+        throw new Error("synthetic clear failure");
+      }),
+      listRecommendations: vi.fn(async () => [completed]),
+      reviewRecommendation: vi.fn(async () => {
+        throw new Error("synthetic update failure");
+      }),
+      status: vi.fn(async () => ({
+        apiVersion: "1.0.0",
+        appEnvironment: "test" as const,
+        database: "ready" as const,
+        generatorMode: "fake" as const,
+        generatorModel: "deterministic-fake",
+        status: "ready" as const,
+      })),
+    } as unknown as LocalApiClient;
+    const controller = new HistoryController(view, api, {
+      removeRecommendation: vi.fn(async () => undefined),
+    });
+
+    await controller.refresh();
+    view.actions?.togglePersonalization(id);
+
+    await vi.waitFor(() =>
+      expect(view.states.at(-1)).toMatchObject({
+        items: [completed],
+        kind: "ready",
+        notice: expect.stringContaining("바꾸지 못했습니다"),
+      }),
+    );
+
+    view.actions?.clearPersonalization();
+    await vi.waitFor(() =>
+      expect(view.states.at(-1)).toMatchObject({
+        items: [completed],
+        kind: "ready",
+        notice: expect.stringContaining("정리하지 못했습니다"),
+      }),
+    );
   });
 });

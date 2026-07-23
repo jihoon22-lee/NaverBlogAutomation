@@ -25,6 +25,7 @@ import {
   appendClosingPhrase,
   isCommentLength,
   isCommentMood,
+  isPersonalizationMode,
   isRelationshipLevel,
   isSpeechStyle,
   normalizeClosingPhrase,
@@ -124,6 +125,7 @@ export class SidePanelController {
       copy: () => void this.copy(),
       changeCommentLength: (value) => this.changeCommentLength(value),
       changeCommentMood: (value) => this.changeCommentMood(value),
+      changePersonalizationMode: (value) => this.changePersonalizationMode(value),
       changeClosingPhrase: (value) => this.changeClosingPhrase(value),
       changeRelationship: (value) => this.changeRelationship(value),
       changeSpeechStyle: (value) => this.changeSpeechStyle(value),
@@ -132,6 +134,7 @@ export class SidePanelController {
       regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
       retry: () => void this.captureActivePost(),
+      refill: () => void this.refill(),
       savePreferences: () => void this.savePreferences(),
       select: (candidateId) => this.select(candidateId),
       useCandidate: (candidateId) => void this.useCandidate(candidateId),
@@ -228,6 +231,13 @@ export class SidePanelController {
   changeCommentMood(value: string): void {
     if (this.#busy || this.#preview === null || !isCommentMood(value)) return;
     this.#preferences = { ...this.#preferences, commentMood: value };
+    this.#preferenceNotice = undefined;
+    this.#renderPreview();
+  }
+
+  changePersonalizationMode(value: string): void {
+    if (this.#busy || this.#preview === null || !isPersonalizationMode(value)) return;
+    this.#preferences = { ...this.#preferences, personalizationMode: value };
     this.#preferenceNotice = undefined;
     this.#renderPreview();
   }
@@ -479,6 +489,23 @@ export class SidePanelController {
     );
   }
 
+  async refill(): Promise<void> {
+    const recommendation = this.#recommendation;
+    if (this.#busy || recommendation === null || recommendation.reviewStatus !== "approved") {
+      return;
+    }
+    const operation = this.#beginOperation();
+    this.#busy = true;
+    try {
+      await this.#fillApprovedComment(recommendation, operation);
+    } catch (error) {
+      if (operation !== this.#operation || error instanceof StaleOperation) return;
+      this.#renderReview("댓글 입력을 다시 시도하지 못했습니다. 복사해서 붙여넣어 주세요.");
+    } finally {
+      if (operation === this.#operation) this.#busy = false;
+    }
+  }
+
   async complete(): Promise<void> {
     const recommendation = this.#recommendation;
     if (this.#busy || recommendation === null || recommendation.reviewStatus !== "approved") {
@@ -573,6 +600,7 @@ export class SidePanelController {
     const preferences: GenerationPreferences = Object.freeze({
       commentLength: recommendation.commentLength,
       commentMood: recommendation.commentMood,
+      personalizationMode: recommendation.personalizationMode,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     });
@@ -873,6 +901,7 @@ export class SidePanelController {
     this.#preferences = {
       commentLength: recommendation.commentLength,
       commentMood: recommendation.commentMood,
+      personalizationMode: recommendation.personalizationMode,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     };
@@ -962,6 +991,7 @@ export class SidePanelController {
     const actual: GenerationPreferences = {
       commentLength: recommendation.commentLength,
       commentMood: recommendation.commentMood,
+      personalizationMode: recommendation.personalizationMode,
       relationshipLevel: recommendation.relationshipLevel,
       speechStyle: recommendation.speechStyle,
     };

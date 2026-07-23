@@ -26,6 +26,10 @@ const recommendation = {
   created_at: "2026-07-17T00:00:00Z",
   edited_comment: null,
   id: "00000000-0000-4000-8000-000000000010",
+  personalization_applied: false,
+  personalization_eligible: true,
+  personalization_mode: "completed_examples",
+  personalization_sample_count: 0,
   review_status: "drafted",
   selected_candidate_id: null,
   source_url: "https://blog.naver.com/synthetic/10",
@@ -115,6 +119,10 @@ describe("LocalApiClient", () => {
       qualityWarnings: [],
       relationshipLevel: "friendly",
       speechStyle: "honorific",
+      personalizationApplied: false,
+      personalizationEligible: true,
+      personalizationMode: "completed_examples",
+      personalizationSampleCount: 0,
     });
     expect(created.value.candidates[0]?.referencedDetail).toBe("합성 본문의 전시 동선");
     expect(approved.reviewStatus).toBe("approved");
@@ -140,6 +148,7 @@ describe("LocalApiClient", () => {
       source_url: recommendation.source_url,
       title: recommendation.title,
       updated_at: "2026-07-17T00:01:00Z",
+      personalization_eligible: true,
     };
     const fetcher = vi
       .fn<typeof fetch>()
@@ -171,6 +180,7 @@ describe("LocalApiClient", () => {
         sourceUrl: historyItem.source_url,
         title: historyItem.title,
         updatedAt: historyItem.updated_at,
+        personalizationEligible: true,
       },
     ]);
     await expect(client.deleteRecommendation(recommendation.id)).resolves.toBeUndefined();
@@ -195,6 +205,21 @@ describe("LocalApiClient", () => {
         vi.fn<typeof fetch>().mockResolvedValue(json({}, { status: 200 })),
       ).deleteRecommendation(recommendation.id),
     ).rejects.toBeInstanceOf(ApiClientError);
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 })),
+      ).clearPersonalizationExamples(),
+    ).rejects.toBeInstanceOf(ApiClientError);
+  });
+
+  it("clears completed-comment style examples without deleting recommendation history", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(
+      new LocalApiClient(fetcher).clearPersonalizationExamples(),
+    ).resolves.toBeUndefined();
+    expect(fetcher.mock.calls[0]?.[0]).toContain("/api/v1/personalization/examples");
+    expect(fetcher.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: "DELETE" }));
   });
 
   it("treats a 200 replay like a successful create and reads the exposed header", async () => {
@@ -262,6 +287,23 @@ describe("LocalApiClient", () => {
     for (const preferences of invalidPreferences) {
       const client = new LocalApiClient(
         vi.fn<typeof fetch>().mockResolvedValue(json({ ...recommendation, ...preferences })),
+      );
+      await expect(client.getRecommendation(recommendation.id)).rejects.toBeInstanceOf(
+        ApiClientError,
+      );
+    }
+  });
+
+  it("rejects malformed personalization response provenance", async () => {
+    const invalidProvenance = [
+      { personalization_applied: "yes" },
+      { personalization_mode: "unknown" },
+      { personalization_sample_count: 6 },
+      { personalization_eligible: null },
+    ];
+    for (const provenance of invalidProvenance) {
+      const client = new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(json({ ...recommendation, ...provenance })),
       );
       await expect(client.getRecommendation(recommendation.id)).rejects.toBeInstanceOf(
         ApiClientError,

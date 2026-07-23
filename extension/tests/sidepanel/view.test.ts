@@ -26,6 +26,10 @@ const recommendation: ReviewPresentation = {
     id: "recommendation",
     relationshipLevel: "friendly",
     qualityWarnings: [],
+    personalizationApplied: false,
+    personalizationEligible: true,
+    personalizationMode: "completed_examples",
+    personalizationSampleCount: 0,
     reviewStatus: "drafted",
     selectedCandidateId: null,
     sourceUrl: "https://blog.naver.com/synthetic/1",
@@ -48,6 +52,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     copy: vi.fn(),
     changeCommentLength: vi.fn(),
     changeCommentMood: vi.fn(),
+    changePersonalizationMode: vi.fn(),
     changeClosingPhrase: vi.fn(),
     changeRelationship: vi.fn(),
     changeSpeechStyle: vi.fn(),
@@ -56,6 +61,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     regenerate: vi.fn(),
     replace: vi.fn(),
     retry: vi.fn(),
+    refill: vi.fn(),
     savePreferences: vi.fn(),
     select: vi.fn(),
     useCandidate: vi.fn(),
@@ -92,6 +98,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview: {
         body: "구체적인 전시 감상과 관람 동선을 정리한 합성 본문입니다. ".repeat(40),
@@ -125,6 +132,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview: {
         body: "충분한 길이의 합성 본문 내용입니다.",
@@ -169,6 +177,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview,
     });
@@ -187,6 +196,7 @@ describe("DomPanelView", () => {
         commentMood: "lively",
         relationshipLevel: "close",
         speechStyle: "banmal",
+        personalizationMode: "completed_examples",
       },
       preview,
     });
@@ -211,6 +221,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview: {
         body: "충분한 길이의 합성 본문 내용입니다.",
@@ -246,6 +257,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview: {
         body: "충분한 길이의 합성 본문 내용입니다.",
@@ -470,6 +482,7 @@ describe("DomPanelView", () => {
         commentMood: "warm",
         relationshipLevel: "friendly",
         speechStyle: "honorific",
+        personalizationMode: "completed_examples",
       },
       preview: {
         body: "민감하지 않은 합성 본문이지만 메모리 해제를 검증할 충분한 길이입니다.",

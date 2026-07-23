@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 
 from naver_blog_assistant.application import (
+    ClearPersonalizationExamples,
     ConcurrentReviewError,
     DeleteRecommendation,
     GenerateRecommendation,
@@ -28,6 +29,7 @@ from naver_blog_assistant.domain import (
     GeneratedComment,
     GenerationOutput,
     GenerationPreferences,
+    PersonalizationMode,
     Recommendation,
     Relationship,
     ReviewPatch,
@@ -54,6 +56,7 @@ class FakeGenerator:
     calls: int = 0
     received_post: CapturedPost | None = None
     received_preferences: GenerationPreferences | None = None
+    received_style_examples: tuple[str, ...] | None = None
 
     def generate(self, post: CapturedPost, preferences: GenerationPreferences) -> GenerationOutput:
         self.calls += 1
@@ -62,6 +65,15 @@ class FakeGenerator:
         if self.error is not None:
             raise self.error
         return self.output
+
+    def generate_with_style(
+        self,
+        post: CapturedPost,
+        preferences: GenerationPreferences,
+        style_examples: tuple[str, ...],
+    ) -> GenerationOutput:
+        self.received_style_examples = style_examples
+        return self.generate(post, preferences)
 
 
 class FakeRecommendationRepository:
@@ -86,6 +98,21 @@ class FakeRecommendationRepository:
 
     def delete(self, recommendation_id: UUID) -> bool:
         return self.items.pop(recommendation_id, None) is not None
+
+
+class FakePersonalizationRepository:
+    def __init__(self, examples: tuple[str, ...] = ()) -> None:
+        self.examples = examples
+        self.limits: list[int] = []
+        self.clear_calls = 0
+
+    def list_personalization_examples(self, limit: int) -> tuple[str, ...]:
+        self.limits.append(limit)
+        return self.examples[:limit]
+
+    def clear_personalization_examples(self) -> int:
+        self.clear_calls += 1
+        return len(self.examples)
 
 
 class FakeIdempotencyRepository:
@@ -197,7 +224,10 @@ def captured_post(
 
 
 def build_generation_use_case(
-    *, output: GenerationOutput | None = None, error: Exception | None = None
+    *,
+    output: GenerationOutput | None = None,
+    error: Exception | None = None,
+    personalization: FakePersonalizationRepository | None = None,
 ) -> tuple[
     GenerateRecommendation,
     FakeGenerator,
@@ -210,6 +240,7 @@ def build_generation_use_case(
     use_case = GenerateRecommendation(
         generator=generator,
         idempotency=idempotency,
+        personalization=personalization,
         clock=lambda: NOW,
         id_factory=lambda: next(IDS),
     )
@@ -272,6 +303,41 @@ def test_generate_passes_and_persists_explicit_preferences() -> None:
     assert generator.received_preferences is preferences
     assert result.recommendation.preferences is preferences
     assert idempotency.records[KEY][0] == post.request_hash_for(preferences)
+
+
+def test_generate_uses_up_to_five_completed_comment_examples_when_enabled() -> None:
+    personalization = FakePersonalizationRepository(("첫 댓글", "둘째 댓글", "셋째 댓글"))
+    use_case, generator, _, _ = build_generation_use_case(personalization=personalization)
+
+    result = use_case.execute(post=captured_post(), idempotency_key=KEY)
+
+    assert personalization.limits == [5]
+    assert generator.received_style_examples == personalization.examples
+    assert result.recommendation.personalization_mode is PersonalizationMode.COMPLETED_EXAMPLES
+    assert result.recommendation.personalization_sample_count == 3
+
+
+def test_generate_does_not_load_examples_when_personalization_is_disabled() -> None:
+    personalization = FakePersonalizationRepository(("보내면 안 되는 댓글",))
+    use_case, generator, _, _ = build_generation_use_case(personalization=personalization)
+
+    result = use_case.execute(
+        post=captured_post(),
+        idempotency_key=KEY,
+        personalization_mode=PersonalizationMode.OFF,
+    )
+
+    assert personalization.limits == []
+    assert generator.received_style_examples == ()
+    assert result.recommendation.personalization_mode is PersonalizationMode.OFF
+    assert result.recommendation.personalization_sample_count == 0
+
+
+def test_clear_personalization_examples_delegates_without_deleting_history() -> None:
+    repository = FakePersonalizationRepository(("완료 댓글",))
+
+    assert ClearPersonalizationExamples(repository).execute() == 1
+    assert repository.clear_calls == 1
 
 
 def test_generate_replays_completed_request_without_calling_generator() -> None:
