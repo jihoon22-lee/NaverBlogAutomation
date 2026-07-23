@@ -22,7 +22,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # The tag provenance check fetches origin/main below. Keep the
+          # short-lived Actions token available for that authenticated fetch.
+          persist-credentials: true
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
