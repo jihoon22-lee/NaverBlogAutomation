@@ -70,64 +70,28 @@ scripts/start-macos.command
 Extension ID가 바뀌면 setup launcher를 다시 실행합니다. macOS가 처음 실행을 확인하면 Finder에서
 script를 control-click한 뒤 **열기**를 선택할 수 있습니다.
 
-### Linux 및 수동 설정
+### Linux·WSL 간편 설정
 
-Repository root에서 locked dependency를 설치하고 extension을 먼저 build합니다.
-
-```bash
-uv sync --frozen
-npm ci --prefix extension
-npm --prefix extension run build
-```
-
-Chrome `chrome://extensions`에서 Developer mode를 켜고 **Load unpacked**로
-`extension/dist`를 선택합니다. 표시된 32자 extension ID를 복사한 뒤 private environment
-file을 만듭니다. Script는 기존 파일을 덮어쓰지 않으며 POSIX에서는 mode `0600`을 강제합니다.
+CPython 3.14, `uv`, Node.js 24와 npm 11을 설치한 뒤 Linux terminal 또는 Ubuntu WSL에서
+다음을 실행합니다.
 
 ```bash
-uv run --frozen python -m scripts.init_local_env
+scripts/setup-linux.sh
 ```
 
-Repository가 WSL의 `/mnt/e` 같은 DrvFs에 있어 `0600`을 보장하지 못하면 Linux filesystem의
-XDG config directory를 사용합니다.
+이 launcher는 dependency 설치와 extension build 뒤 Chrome extension ID를 물어보고,
+`${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env`에 mode `0600`의 private 설정을
+만듭니다. WSL에서는 Windows Chrome의 **Load unpacked**에 사용할 `extension/dist` Windows 경로를
+표시하고 가능한 경우 Explorer를 엽니다. `/mnt/e` 같은 DrvFs에 credential을 만들지 않습니다.
+
+설정 뒤에는 다음 launcher로 API를 시작하고, 사용하는 동안 terminal을 유지합니다.
 
 ```bash
-ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env"
-uv run --frozen python -m scripts.init_local_env --target "$ENV_FILE"
+scripts/start-linux.sh
 ```
 
-생성한 file에서 `CHROME_EXTENSION_ORIGIN`을
-`chrome-extension://<복사한-extension-id>`로 바꿉니다. 첫 실행은 다음 설정을 유지하세요.
-
-```dotenv
-APP_ENV=development
-COMMENT_GENERATOR_MODE=fake
-API_HOST=127.0.0.1
-API_PORT=8765
-```
-
-Default `.env.local`을 사용한다면 setup을 검증하고 API를 시작합니다. Application은 `.env`를
-암묵적으로 읽지 않으므로 `--env-file`을 생략하지 않습니다.
-
-```bash
-uv run --frozen --env-file .env.local python -m scripts.check_local_setup
-uv run --frozen --env-file .env.local naver-blog-api
-```
-
-XDG fallback을 사용했다면 다음처럼 setup tool에도 선택한 path를 알려 줍니다.
-
-```bash
-uv run --frozen --env-file "$ENV_FILE" \
-  python -m scripts.check_local_setup --env-file "$ENV_FILE"
-uv run --frozen --env-file "$ENV_FILE" naver-blog-api
-```
-
-API 시작 후 별도 terminal에서 CORS까지 확인할 수 있습니다.
-
-```bash
-uv run --frozen --env-file .env.local \
-  python -m scripts.check_local_setup --require-api
-```
+Extension ID가 바뀌면 setup launcher를 다시 실행합니다. 수동 설정이 필요하면
+[`docs/local-operations.md`](docs/local-operations.md)의 XDG env 규칙과 setup 검사 명령을 따르세요.
 
 ## 사용 순서
 
@@ -140,8 +104,9 @@ uv run --frozen --env-file .env.local \
    저장할 수 있습니다. 자주 쓰는 마무리 문구도 선택적으로 함께 저장할 수 있습니다.
 5. **추천 댓글 만들기**를 눌러 세 후보를 생성하고 적용된 옵션을 확인합니다.
 6. 후보의 **이 댓글 사용**을 누르거나 내용을 다듬은 뒤 **다듬은 댓글 사용**을 누릅니다.
-7. 열려 있는 비어 있는 댓글 입력란이 정확히 하나이면 초안이 입력됩니다. 입력란을 찾지
-   못하거나 기존 내용이 있으면 복사 버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
+7. 열려 있는 비어 있는 댓글 입력란이 정확히 하나이면 초안이 입력됩니다. 입력란이 닫혀 있으면
+   표준 **댓글쓰기** 버튼을 한 번 열어 봅니다. 입력란을 찾지 못하거나 기존 내용이 있으면 복사
+   버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
 8. 실제 수동 절차를 마친 경우에만 **수동 등록 완료로 표시**를 누릅니다.
 
 Side Panel 상단의 연결 표시에서 local API와 적용 중인 generator model을 확인할 수 있습니다.
@@ -156,8 +121,9 @@ API 요청을 시작합니다. 글이 달라졌으면 Preview에서 멈춥니다
 품질 안내를 표시합니다.
 
 입력 보조, 복사와 완료 표시는 댓글을 게시하지 않습니다. 입력 보조는 visible하고 비어 있는
-댓글 입력란 하나만 채우며 기존 text를 덮어쓰거나 등록 버튼을 누르지 않습니다. Tab 이동이나
-navigation 뒤에는 toolbar action을 다시 눌러 `activeTab` 권한을 갱신하세요.
+댓글 입력란 하나만 채우며, 입력란이 없을 때 확인된 표준 댓글쓰기 버튼 하나만 누릅니다. 기존
+text를 덮어쓰거나 등록 버튼을 누르지 않습니다. Tab 이동이나 navigation 뒤에는 toolbar action을
+다시 눌러 `activeTab` 권한을 갱신하세요.
 
 마무리 문구는 최대 50자로 정규화해 Chrome local storage에만 기본값으로 저장하며 생성 API나
 OpenAI에는 전송하지 않습니다. 후보를 선택하면 편집 영역 끝에 문구가 붙으므로 승인 전에 제거하거나
@@ -193,6 +159,13 @@ Pytest는 85% branch coverage를 강제합니다. System E2E는 synthetic fixtur
 사용하며 build된 production Side Panel을 실제 loopback API에 연결합니다. 자세한 운영,
 troubleshooting, data cleanup과 opt-in smoke 절차는
 [Local Operations](docs/local-operations.md)에 있습니다.
+
+## Release
+
+정식 릴리스는 `v0.2.0`처럼 stable SemVer tag를 사용합니다. 버전과 CHANGELOG를 갱신하고 main에
+병합한 뒤 annotated tag를 push하면 GitHub Actions가 검증, wheel·extension ZIP build, checksum 생성,
+GitHub Release 게시를 수행합니다. 절차와 asset 설명은 [Release Guide](docs/releasing.md)를
+참고하세요.
 
 ## 범위와 Privacy
 

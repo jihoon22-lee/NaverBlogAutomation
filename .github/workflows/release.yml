@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Verify tag source and install locked dependencies
+        shell: bash
+        run: |
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          uv sync --frozen
+          npm ci --prefix extension
+
+      - name: Verify version metadata
+        id: version
+        shell: bash
+        run: |
+          uv run --frozen python -m scripts.check_release_version --tag "$GITHUB_REF_NAME"
+          echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Python quality checks
+        run: |
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+          uv run --frozen ty check
+          uv run --frozen pytest
+
+      - name: Run extension quality checks
+        run: npm --prefix extension run check
+
+      - name: Build release assets
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p release-assets wheel
+          uv build --wheel --out-dir wheel
+          wheel="$(find wheel -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          cp "$wheel" "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl"
+          uv run --frozen python -c 'import shutil; shutil.make_archive("release-assets/naver-blog-assistant-extension-" + __import__("os").environ["VERSION"], "zip", "extension/dist")'
+          (
+            cd release-assets
+            sha256sum ./*.whl ./*.zip > SHA256SUMS.txt
+          )
+          uv run --frozen python -m scripts.extract_release_notes \
+            --version "$VERSION" --output release-assets/release-notes.md
+
+      - name: Keep release assets with the workflow run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets-${{ github.ref_name }}
+          path: release-assets/
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite published assets." >&2
+            exit 1
+          fi
+          notes="$(cat release-assets/release-notes.md)"
+          gh release create "$TAG" \
+            "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl#Python wheel" \
+            "release-assets/naver-blog-assistant-extension-${VERSION}.zip#Chrome extension (Load unpacked)" \
+            "release-assets/SHA256SUMS.txt#SHA-256 checksums" \
+            --title "Naver Blog Assistant $TAG" \
+            --notes "$notes" \
+            --generate-notes \
+            --verify-tag \
+            --fail-on-no-commits

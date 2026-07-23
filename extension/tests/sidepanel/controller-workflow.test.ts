@@ -735,6 +735,22 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
   });
 
+  it("explains when the comment editor could not be opened", async () => {
+    const fill = vi.fn(async (): Promise<CommentInputResult> => "open_failed");
+    const fixture = setup({ commentInput: { fill } });
+    await extractAndGenerate(fixture.view, fixture.controller);
+
+    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        kind: "approved",
+        notice: expect.stringContaining("댓글 쓰기를 열었지만"),
+      }),
+    );
+    expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
+  });
+
   it("refreshes GET after review_conflict without reapplying stale edits", async () => {
     const latest = {
       ...drafted,

@@ -11,12 +11,16 @@ function apiFixture(
     activeId?: number;
     activeUrl?: string;
     frames?: Array<{ frameId: number; result: { count: number; empty: boolean } }>;
-    fillResult?: "ambiguous" | "filled" | "not_found" | "occupied";
+    openers?: Array<{ frameId: number; result: { count: number; empty: boolean } }>;
+    fillResult?: "ambiguous" | "filled" | "not_found" | "occupied" | "open_failed";
   } = {},
 ) {
   const executeScript = vi.fn(
     async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
       if ("allFrames" in injection.target && injection.target.allFrames) {
+        if (injection.func?.name === "probeCommentOpener") {
+          return options.openers ?? [];
+        }
         return options.frames ?? [{ frameId: 3, result: { count: 1, empty: true } }];
       }
       return [{ frameId: 3, result: options.fillResult ?? "filled" }];
@@ -50,7 +54,6 @@ describe("ChromeCommentInputGateway", () => {
   });
 
   it.each([
-    [[], "not_found"],
     [[{ frameId: 0, result: { count: 1, empty: false } }], "occupied"],
     [
       [
@@ -64,6 +67,44 @@ describe("ChromeCommentInputGateway", () => {
 
     await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe(expected);
     expect(executeScript).toHaveBeenCalledOnce();
+  });
+
+  it("returns not_found when neither an input nor a trusted opener exists", async () => {
+    const { api, executeScript } = apiFixture({ frames: [], openers: [] });
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe(
+      "not_found",
+    );
+    expect(executeScript).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the sole trusted comment opener before filling its exact frame", async () => {
+    const { api, executeScript } = apiFixture({
+      frames: [],
+      openers: [{ frameId: 4, result: { count: 1, empty: false } }],
+    });
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe("filled");
+    expect(executeScript).toHaveBeenCalledTimes(3);
+    expect(executeScript.mock.calls[2]?.[0]).toMatchObject({
+      args: ["합성 댓글"],
+      target: { frameIds: [4], tabId: 7 },
+    });
+  });
+
+  it("rejects multiple trusted comment openers without clicking either one", async () => {
+    const { api, executeScript } = apiFixture({
+      frames: [],
+      openers: [
+        { frameId: 0, result: { count: 1, empty: false } },
+        { frameId: 1, result: { count: 1, empty: false } },
+      ],
+    });
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe(
+      "ambiguous",
+    );
+    expect(executeScript).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a changed or unsupported active page before injection", async () => {
@@ -99,7 +140,7 @@ describe("ChromeCommentInputGateway", () => {
     expect(executeScript).not.toHaveBeenCalled();
   });
 
-  it.each(["ambiguous", "not_found", "occupied"] as const)(
+  it.each(["ambiguous", "not_found", "occupied", "open_failed"] as const)(
     "returns a changed target state from the fill phase: %s",
     async (fillResult) => {
       const { api } = apiFixture({ fillResult });
@@ -110,15 +151,15 @@ describe("ChromeCommentInputGateway", () => {
 });
 
 describe("injected comment target functions", () => {
-  it("sets a textarea through its native setter and dispatches input without submit", async () => {
+  it("sets the current Naver contenteditable input and dispatches input without submit", async () => {
     const dom = new JSDOM(
-      '<form><textarea class="u_cbox_text"></textarea><button type="submit">등록</button></form>',
+      '<form><div class="u_cbox_text u_cbox_text_mention" contenteditable="true"></div><button type="submit">등록</button></form>',
       { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
     );
     const submitted = vi.fn((event: Event) => event.preventDefault());
     dom.window.document.querySelector("form")?.addEventListener("submit", submitted);
     const input = vi.fn();
-    dom.window.document.querySelector("textarea")?.addEventListener("input", input);
+    dom.window.document.querySelector("div")?.addEventListener("input", input);
     const { api } = apiFixture();
     const execute = api.scripting.executeScript as ReturnType<typeof vi.fn>;
     execute.mockImplementation(
@@ -128,17 +169,19 @@ describe("injected comment target functions", () => {
           InputEvent: globalThis.InputEvent,
           document: globalThis.document,
           getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
         };
         Object.assign(globalThis, {
           HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
           InputEvent: dom.window.InputEvent,
           document: dom.window.document,
           getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: dom.window,
         });
         try {
           if (injection.func === undefined) throw new Error("Synthetic function is missing");
           const args = "args" in injection && Array.isArray(injection.args) ? injection.args : [];
-          const result = (injection.func as (...values: unknown[]) => unknown)(...args);
+          const result = await (injection.func as (...values: unknown[]) => unknown)(...args);
           return [{ frameId: 0, result }];
         } finally {
           Object.assign(globalThis, previous);
@@ -147,10 +190,57 @@ describe("injected comment target functions", () => {
     );
 
     await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe("filled");
-    expect((dom.window.document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
-      "합성 댓글",
-    );
+    expect(dom.window.document.querySelector("div")?.textContent).toBe("합성 댓글");
     expect(input).toHaveBeenCalledOnce();
+    expect(submitted).not.toHaveBeenCalled();
+  });
+
+  it("clicks the trusted opener and fills the rendered input without submitting", async () => {
+    const dom = new JSDOM(
+      '<form><a class="btn_write_comment _naverCommentWriteBtn">댓글쓰기</a><button type="submit">등록</button></form>',
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const form = dom.window.document.querySelector("form");
+    const opener = dom.window.document.querySelector("a");
+    const submitted = vi.fn((event: Event) => event.preventDefault());
+    form?.addEventListener("submit", submitted);
+    opener?.addEventListener("click", () => {
+      const input = dom.window.document.createElement("div");
+      input.className = "u_cbox_text u_cbox_text_mention";
+      input.setAttribute("contenteditable", "true");
+      form?.prepend(input);
+    });
+    const { api } = apiFixture();
+    const execute = api.scripting.executeScript as ReturnType<typeof vi.fn>;
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        const previous = {
+          HTMLTextAreaElement: globalThis.HTMLTextAreaElement,
+          InputEvent: globalThis.InputEvent,
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+          InputEvent: dom.window.InputEvent,
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: dom.window,
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          const args = "args" in injection && Array.isArray(injection.args) ? injection.args : [];
+          const result = await (injection.func as (...values: unknown[]) => unknown)(...args);
+          return [{ frameId: 0, result }];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe("filled");
+    expect(dom.window.document.querySelector(".u_cbox_text")?.textContent).toBe("합성 댓글");
     expect(submitted).not.toHaveBeenCalled();
   });
 });
