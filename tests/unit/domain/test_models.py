@@ -86,7 +86,7 @@ def test_captured_post_hashes_content_without_exposing_body_in_repr() -> None:
                 "title": " 주말\n전시\t후기 ",
                 "body": "푸른\u00a0조각과 😀 작품을\n 자세히 소개한 합성 본문입니다.",
             },
-            "920a07add94ede0e0cc81c5d3492d71fc63d2d50fe5b117e2de3812a3bb2e100",
+            "822c3c39d1f9934a7c2f54a7b2eb01eb2e9985f1f2b33c3ae9ae597f81b60603",
         ),
         (
             {

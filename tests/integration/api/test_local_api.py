@@ -138,6 +138,7 @@ def test_history_lists_final_comment_and_delete_clears_local_record(client: Test
                 "comment": edited,
                 "created_at": payload["created_at"],
                 "updated_at": reviewed.json()["updated_at"],
+                "personalization_eligible": True,
             }
         ]
     }
