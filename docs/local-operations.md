@@ -36,7 +36,9 @@ Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, st
 최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
 길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 마무리 문구는 생성 요청이나
 OpenAI에 전송되지 않고 후보 선택 후 local 편집 단계에서만 붙습니다. 본문, URL과 생성·편집된
-댓글은 extension storage에 저장하지 않습니다.
+댓글은 extension storage에 저장하지 않습니다. 반면 SQLite에 보관된 완료 댓글은 개인화가 켜진
+생성에서 최대 5개까지 OpenAI 스타일 예시로 전송될 수 있습니다. **최근 작업**에서 댓글별로
+포함·제외할 수 있고, **스타일 예시 정리**는 모든 완료 댓글을 제외하지만 기록은 보존합니다.
 Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.
 Active, reviewing, terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해
 자동 만료되지 않습니다. Retained entry 20개가 남아 있거나 registry가 invalid이면 Side Panel이
@@ -73,7 +75,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
   가능성을 이해한 경우에만 승인합니다.
 - **댓글 입력 실패:** 입력 보조는 열린 입력란을 먼저 찾고, 없을 때만 표준 댓글쓰기 버튼 하나를
-  눌러 최대 2초간 기다립니다. 입력란이 여러 개이거나 기존 text가 있으면 안전을 위해 덮어쓰지
+  눌러 최대 2초간 기다립니다. 실패 뒤 **다시 입력**은 같은 승인 댓글로만 탐색을 한 번 반복하며
+  새 추천을 만들지 않습니다. 입력란이 여러 개이거나 기존 text가 있으면 안전을 위해 덮어쓰지
   않으므로 승인된 댓글을 복사해 직접 붙여넣습니다. 로그인·댓글 허용 상태도 확인하세요.
 - **Clipboard 실패:** 편집 영역에 선택된 text를 OS copy command로 직접 복사합니다. 자동 게시로
   전환되지 않습니다.

@@ -17,6 +17,8 @@ tags:
     description: Local process diagnostics.
   - name: Recommendations
     description: Generate, retrieve, and review comment recommendations.
+  - name: Personalization
+    description: Control the local completed-comment style sample set.
 security: []
 paths:
   /health:
@@ -175,6 +177,19 @@ paths:
           $ref: "#/components/responses/ReviewConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+  /api/v1/personalization/examples:
+    delete:
+      operationId: clearPersonalizationExamples
+      tags: [Personalization]
+      summary: Exclude all completed comments from future style-example use
+      description: >-
+        Preserves local recommendation history while preventing every completed comment from being
+        sent as a future provider style example.
+      responses:
+        "204":
+          description: Completed comments were excluded from future personalization.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
 components:
   parameters:
     IdempotencyKey:
@@ -273,6 +288,11 @@ components:
           enum: [calm, warm, lively]
           default: warm
           description: Overall expressive mood applied to all three role-specific candidates.
+        personalization_mode:
+          type: string
+          enum: [off, completed_examples]
+          default: completed_examples
+          description: Whether the local service may send up to five eligible completed comments as style examples.
     RecommendationResponse:
       type: object
       additionalProperties: false
@@ -288,6 +308,10 @@ components:
         - comment_length
         - comment_mood
         - quality_warnings
+        - personalization_applied
+        - personalization_mode
+        - personalization_sample_count
+        - personalization_eligible
         - review_status
         - created_at
       properties:
@@ -339,6 +363,17 @@ components:
           items:
             type: string
             enum: [length_target_missed, candidate_roles_blurred, candidates_too_similar]
+        personalization_applied:
+          type: boolean
+        personalization_mode:
+          type: string
+          enum: [off, completed_examples]
+        personalization_sample_count:
+          type: integer
+          minimum: 0
+          maximum: 5
+        personalization_eligible:
+          type: boolean
         selected_candidate_id:
           oneOf:
             - type: string
@@ -376,7 +411,7 @@ components:
     RecommendationHistoryItemResponse:
       type: object
       additionalProperties: false
-      required: [id, source_url, title, review_status, comment, created_at, updated_at]
+      required: [id, source_url, title, review_status, comment, created_at, updated_at, personalization_eligible]
       properties:
         id:
           type: string
@@ -407,6 +442,8 @@ components:
               format: date-time
             - type: "null"
           default: null
+        personalization_eligible:
+          type: boolean
     CommentCandidate:
       type: object
       additionalProperties: false
@@ -448,6 +485,8 @@ components:
             - type: "null"
         review_status:
           $ref: "#/components/schemas/ReviewStatus"
+        personalization_eligible:
+          type: boolean
     ProblemDetails:
       type: object
       additionalProperties: false

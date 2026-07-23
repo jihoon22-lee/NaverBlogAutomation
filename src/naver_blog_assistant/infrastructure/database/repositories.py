@@ -10,11 +10,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, Engine, delete, func, insert, select, update
+from sqlalchemy import Connection, Engine, and_, delete, func, insert, select, update
 
 from naver_blog_assistant.domain import (
     CandidateTone,
     CommentCandidate,
+    PersonalizationMode,
     Recommendation,
     ReviewStatus,
 )
@@ -108,6 +109,7 @@ class SqliteRepository:
                         else None
                     ),
                     edited_comment=recommendation.edited_comment,
+                    personalization_eligible=recommendation.personalization_eligible,
                     review_status=recommendation.review_status.value,
                     updated_at=(
                         format_timestamp(recommendation.updated_at)
@@ -157,6 +159,53 @@ class SqliteRepository:
                 delete(recommendations).where(recommendations.c.id == str(recommendation_id))
             )
             return result.rowcount == 1
+
+    def list_personalization_examples(self, limit: int) -> tuple[str, ...]:
+        """Return newest final comments explicitly eligible for provider style examples."""
+        if not 1 <= limit <= 5:
+            raise ValueError("personalization example limit must be between 1 and 5")
+        final_comment = func.coalesce(
+            recommendations.c.edited_comment,
+            comment_candidates.c.comment,
+        )
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(final_comment)
+                .select_from(
+                    recommendations.join(
+                        comment_candidates,
+                        and_(
+                            comment_candidates.c.recommendation_id == recommendations.c.id,
+                            comment_candidates.c.id == recommendations.c.selected_candidate_id,
+                        ),
+                    )
+                )
+                .where(
+                    recommendations.c.review_status == ReviewStatus.COMPLETED.value,
+                    recommendations.c.personalization_eligible.is_(True),
+                )
+                .order_by(
+                    func.coalesce(
+                        recommendations.c.updated_at, recommendations.c.created_at
+                    ).desc(),
+                    recommendations.c.id.desc(),
+                )
+                .limit(limit)
+            ).scalars()
+            return tuple(str(comment) for comment in rows)
+
+    def clear_personalization_examples(self) -> int:
+        """Keep history while excluding completed comments from future generations."""
+        with self._immediate_connection() as connection:
+            result = connection.execute(
+                update(recommendations)
+                .where(
+                    recommendations.c.review_status == ReviewStatus.COMPLETED.value,
+                    recommendations.c.personalization_eligible.is_(True),
+                )
+                .values(personalization_eligible=False)
+            )
+            return result.rowcount
 
     def reserve(self, key: UUID, request_hash: str) -> IdempotencyReservation:
         """Reserve a key under a SQLite write lock or classify the existing record."""
@@ -443,6 +492,9 @@ def _recommendation_values(recommendation: Recommendation) -> dict[str, Any]:
         ),
         "version": recommendation.version,
         "generation_preferences_json": serialize_generation_preferences(recommendation.preferences),
+        "personalization_mode": recommendation.personalization_mode.value,
+        "personalization_sample_count": recommendation.personalization_sample_count,
+        "personalization_eligible": recommendation.personalization_eligible,
     }
 
 
@@ -470,6 +522,9 @@ def _map_recommendation(
         review_status=ReviewStatus(row["review_status"]),
         created_at=parse_timestamp(row["created_at"]),
         preferences=deserialize_generation_preferences(row["generation_preferences_json"]),
+        personalization_mode=PersonalizationMode(row["personalization_mode"]),
+        personalization_sample_count=row["personalization_sample_count"],
+        personalization_eligible=bool(row["personalization_eligible"]),
         selected_candidate_id=(
             UUID(row["selected_candidate_id"]) if row["selected_candidate_id"] is not None else None
         ),
@@ -491,4 +546,6 @@ def _generated_fields(recommendation: Recommendation) -> tuple[Any, ...]:
         recommendation.candidates,
         recommendation.created_at,
         recommendation.preferences,
+        recommendation.personalization_mode,
+        recommendation.personalization_sample_count,
     )

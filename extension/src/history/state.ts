@@ -5,6 +5,7 @@ export type HistoryState =
   | { kind: "error"; message: string }
   | {
       busyId?: string;
+      clearingPersonalization?: boolean;
       items: readonly RecommendationHistoryItem[];
       kind: "ready";
       notice?: string;
@@ -13,8 +14,10 @@ export type HistoryState =
 
 export interface HistoryActions {
   copy(id: string): void;
+  clearPersonalization(): void;
   delete(id: string): void;
   refresh(): void;
+  togglePersonalization(id: string): void;
 }
 
 export interface HistoryView {

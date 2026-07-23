@@ -13,8 +13,8 @@ together because the client intentionally rejects undeclared response fields.
 - Authentication: none in the first local-only release
 - Browser access: one configured Side Panel `chrome-extension://<id>` origin only
 
-The service must not bind to `0.0.0.0`. CORS allows only the declared origin, `GET` and `POST` or
-`PATCH` as required, and the `Content-Type` and `Idempotency-Key` headers. Cookies and other browser
+The service must not bind to `0.0.0.0`. CORS allows only the declared origin, `GET`, `POST`, `PATCH`,
+and `DELETE` as required, and the `Content-Type` and `Idempotency-Key` headers. Cookies and other browser
 credentials are disabled.
 
 ## Create a Recommendation
@@ -35,7 +35,7 @@ A UUID-valued `Idempotency-Key` header is required and must be stored before the
 ```
 
 The four preference fields are optional independently. Omitted values default to `friendly`,
-`honorific`, `medium`, and `warm`. `banmal` is accepted only with `relationship_level: close`; null,
+`honorific`, `medium`, `warm`, and `completed_examples`. `banmal` is accepted only with `relationship_level: close`; null,
 unknown values, and undeclared properties return `422`. Length targets are `short` (40–80 Korean
 characters), `medium` (100–160), and `long` (200–320). The review editor ceiling remains 500
 characters. Mood values are `calm`, `warm`, and `lively` and apply to all three candidates.
@@ -72,11 +72,18 @@ key with different content returns `409 Conflict`.
 
 The example abbreviates `candidates`; a successful response always contains exactly three.
 
-### Existing API and Target Client Retry Ownership
+### Personalization and Retry Ownership
 
-The service and Side Panel hash a `generation-policy-v2` canonical JSON composite containing the
-post digest and all four effective preference values. This prevents results created under the old
-length and role policy from replaying for a new request. The Side Panel retains the associated
+`personalization_mode` is `completed_examples` by default. In that mode, the service loads up to
+five completed comments that remain eligible and sends their raw text to OpenAI as untrusted style
+examples. They can guide surface style only and must not provide facts, instructions, or copied
+phrasing. The response reports the selected mode and actual sample count. The Side Panel can turn
+the option off before generating; its recent-history UI can include/exclude each completed comment
+or exclude all examples while retaining history.
+
+The service and Side Panel hash a `generation-policy-v3` canonical JSON composite containing the
+post digest and all five effective preference values. This prevents results created under the old
+length, role, or personalization policy from replaying for a new request. The Side Panel retains the associated
 idempotency key before transmission and reuses that key after a duplicate click,
 network interruption, `504`, or `generation_in_progress` response when the same payload remains
 available. Current successful replays return `Idempotency-Replayed: true`.
@@ -107,13 +114,16 @@ attempt with a new key.
 - `GET /api/v1/recommendations/{recommendation_id}` returns one persisted recommendation without
   its original body.
 - `PATCH /api/v1/recommendations/{recommendation_id}` records the selected candidate, an optional
-  edited comment, and a forward-only review status.
+  edited comment, a forward-only review status, or a completed-comment personalization inclusion.
+- `GET /api/v1/recommendations` lists bounded recent local history.
+- `DELETE /api/v1/personalization/examples` excludes every completed comment from future style
+  examples without deleting local history.
 
 Allowed transitions are `drafted → approved → completed`. A user may edit while drafted or
 approved. `completed` means the user reported finishing the manual workflow; it does not mean the
 application posted a comment. Clipboard copy does not perform this transition automatically.
 
-The MVP has no collection history endpoint and no ETag/`If-Match` contract. If a review update
+The MVP has no ETag/`If-Match` contract. If a review update
 returns `review_conflict`, the Side Panel fetches the recommendation again and presents the latest
 state instead of blindly overwriting it.
 
@@ -140,7 +150,8 @@ include API keys, source text, provider request bodies, stack traces, or raw pro
 
 The OpenAI adapter defaults to `gpt-5.6-terra`, low reasoning effort, and `store=false`. Validated
 preference enums map to static trusted instructions; URL, title, and body never influence that
-mapping. Article title/body stay in the untrusted input channel, and the source URL is not sent.
+mapping. Article title/body and enabled completed-comment style examples stay in the untrusted input
+channel, and the source URL is not sent.
 
 ## Compatibility Rules
 

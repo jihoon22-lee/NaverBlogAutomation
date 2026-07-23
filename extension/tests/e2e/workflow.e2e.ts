@@ -257,8 +257,9 @@ test("built production Side Panel completes, replays, and restores the reviewed 
       closingPhrase,
       commentLength: "short",
       commentMood: "lively",
+      personalizationMode: "completed_examples",
       relationshipLevel: "close",
-      schemaVersion: 4,
+      schemaVersion: 5,
       speechStyle: "banmal",
     });
     const stored = JSON.stringify(storedValue);

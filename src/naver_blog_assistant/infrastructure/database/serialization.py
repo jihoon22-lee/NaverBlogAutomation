@@ -15,6 +15,7 @@ from naver_blog_assistant.domain import (
     CommentLength,
     CommentMood,
     GenerationPreferences,
+    PersonalizationMode,
     Recommendation,
     Relationship,
     ReviewStatus,
@@ -121,6 +122,9 @@ def serialize_snapshot(recommendation: Recommendation) -> str:
         "generation_preferences": json.loads(
             serialize_generation_preferences(recommendation.preferences)
         ),
+        "personalization_mode": recommendation.personalization_mode.value,
+        "personalization_sample_count": recommendation.personalization_sample_count,
+        "personalization_eligible": recommendation.personalization_eligible,
         "selected_candidate_id": (
             str(recommendation.selected_candidate_id)
             if recommendation.selected_candidate_id is not None
@@ -183,6 +187,11 @@ def _recommendation_from_mapping(data: Mapping[str, Any]) -> Recommendation:
         review_status=ReviewStatus(str(data["review_status"])),
         created_at=parse_timestamp(str(data["created_at"])),
         preferences=preferences,
+        personalization_mode=PersonalizationMode(
+            str(data.get("personalization_mode", PersonalizationMode.OFF.value))
+        ),
+        personalization_sample_count=int(data.get("personalization_sample_count", 0)),
+        personalization_eligible=bool(data.get("personalization_eligible", True)),
         selected_candidate_id=(
             UUID(str(data["selected_candidate_id"]))
             if data.get("selected_candidate_id") is not None

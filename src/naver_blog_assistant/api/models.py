@@ -23,6 +23,7 @@ from naver_blog_assistant.domain import (
     CommentLength,
     CommentMood,
     GenerationPreferences,
+    PersonalizationMode,
     Recommendation,
     Relationship,
     ReviewStatus,
@@ -71,6 +72,7 @@ class CreateRecommendationRequest(StrictModel):
     speech_style: Literal["honorific", "banmal"] = "honorific"
     comment_length: Literal["short", "medium", "long"] = "medium"
     comment_mood: Literal["calm", "warm", "lively"] = "warm"
+    personalization_mode: Literal["off", "completed_examples"] = "completed_examples"
 
     @field_validator("source_url", "title", "body", mode="before")
     @classmethod
@@ -94,6 +96,9 @@ class CreateRecommendationRequest(StrictModel):
             length=CommentLength(self.comment_length),
             mood=CommentMood(self.comment_mood),
         )
+
+    def to_personalization_mode(self) -> PersonalizationMode:
+        return PersonalizationMode(self.personalization_mode)
 
 
 class CommentCandidateResponse(StrictModel):
@@ -126,6 +131,10 @@ class RecommendationResponse(StrictModel):
     quality_warnings: Annotated[
         list[QualityWarning], Field(max_length=3, json_schema_extra={"uniqueItems": True})
     ]
+    personalization_applied: bool
+    personalization_mode: Literal["off", "completed_examples"]
+    personalization_sample_count: Annotated[int, Field(ge=0, le=5)]
+    personalization_eligible: bool
 
     @classmethod
     def from_domain(cls, recommendation: Recommendation) -> Self:
@@ -155,6 +164,13 @@ class RecommendationResponse(StrictModel):
             comment_length=recommendation.preferences.length.value,
             comment_mood=recommendation.preferences.mood.value,
             quality_warnings=_quality_warnings(recommendation),
+            personalization_applied=(
+                recommendation.personalization_mode is PersonalizationMode.COMPLETED_EXAMPLES
+                and recommendation.personalization_sample_count > 0
+            ),
+            personalization_sample_count=recommendation.personalization_sample_count,
+            personalization_mode=recommendation.personalization_mode.value,
+            personalization_eligible=recommendation.personalization_eligible,
         )
 
 
@@ -170,6 +186,7 @@ class RecommendationHistoryItemResponse(StrictModel):
     comment: CommentText | None
     created_at: datetime
     updated_at: datetime | None
+    personalization_eligible: bool
 
     @classmethod
     def from_domain(cls, recommendation: Recommendation) -> Self:
@@ -188,6 +205,7 @@ class RecommendationHistoryItemResponse(StrictModel):
             comment=comment,
             created_at=recommendation.created_at,
             updated_at=recommendation.updated_at,
+            personalization_eligible=recommendation.personalization_eligible,
         )
 
 
@@ -234,6 +252,7 @@ class ReviewRecommendationRequest(StrictModel):
     selected_candidate_id: UUID | None = None
     edited_comment: CommentText | None = None
     review_status: ReviewStatus | None = None
+    personalization_eligible: bool | None = None
 
     @model_validator(mode="after")
     def require_one_property(self) -> Self:
@@ -241,6 +260,11 @@ class ReviewRecommendationRequest(StrictModel):
             raise ValueError("at least one review property is required")
         if "review_status" in self.model_fields_set and self.review_status is None:
             raise ValueError("review_status must not be null")
+        if (
+            "personalization_eligible" in self.model_fields_set
+            and self.personalization_eligible is None
+        ):
+            raise ValueError("personalization_eligible must not be null")
         return self
 
 

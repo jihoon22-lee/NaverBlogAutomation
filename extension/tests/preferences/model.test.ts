@@ -25,6 +25,7 @@ describe("generation preferences", () => {
       isValidGenerationPreferences({
         commentLength: "long",
         commentMood: "lively",
+        personalizationMode: "completed_examples",
         relationshipLevel: "close",
         speechStyle: "banmal",
       }),
@@ -33,6 +34,7 @@ describe("generation preferences", () => {
       isValidGenerationPreferences({
         commentLength: "long",
         commentMood: "warm",
+        personalizationMode: "completed_examples",
         relationshipLevel: "friendly",
         speechStyle: "banmal",
       }),
@@ -44,12 +46,14 @@ describe("generation preferences", () => {
       requestPreferenceFields({
         commentLength: "short",
         commentMood: "calm",
+        personalizationMode: "off",
         relationshipLevel: "polite",
         speechStyle: "honorific",
       }),
     ).toEqual({
       comment_length: "short",
       comment_mood: "calm",
+      personalization_mode: "off",
       relationship_level: "polite",
       speech_style: "honorific",
     });

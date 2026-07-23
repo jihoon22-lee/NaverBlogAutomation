@@ -98,21 +98,24 @@ Extension ID가 바뀌면 setup launcher를 다시 실행합니다. 수동 설�
 1. 지원되는 HTTPS Naver Blog 글을 현재 tab에 엽니다.
 2. Extension toolbar action을 눌러 Side Panel을 엽니다.
 3. 추출된 title과 bounded body preview가 맞는지 확인합니다.
-4. 저장된 빠른 설정을 확인하거나 상세 설정에서 관계, 말투, 분위기와 댓글 길이를 선택합니다.
+4. 저장된 빠른 설정을 확인하거나 상세 설정에서 관계, 말투, 분위기, 댓글 길이와 **스타일 개인화**를
+   선택합니다. 개인화는 최근 완료 댓글 최대 5개를 OpenAI에 원문 그대로 보내 말투·문장 길이·문장부호
+   같은 표면적 스타일만 참고하게 하며, 필요하면 생성 전에 끌 수 있습니다.
    반말은 **가까운 사이**에서만 사용할 수 있습니다. 길이 목표는 **짧게 40~80자**,
    **보통 100~160자**, **길게 200~320자**입니다. 원하는 조합은 명시적으로 기본값으로
    저장할 수 있습니다. 자주 쓰는 마무리 문구도 선택적으로 함께 저장할 수 있습니다.
 5. **추천 댓글 만들기**를 눌러 세 후보를 생성하고 적용된 옵션을 확인합니다.
 6. 후보의 **이 댓글 사용**을 누르거나 내용을 다듬은 뒤 **다듬은 댓글 사용**을 누릅니다.
 7. 열려 있는 비어 있는 댓글 입력란이 정확히 하나이면 초안이 입력됩니다. 입력란이 닫혀 있으면
-   표준 **댓글쓰기** 버튼을 한 번 열어 봅니다. 입력란을 찾지 못하거나 기존 내용이 있으면 복사
-   버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
+   표준 **댓글쓰기** 버튼을 한 번 열어 봅니다. 입력란을 찾지 못하거나 기존 내용이 있으면 **다시 입력**을
+   한 번 시도하거나 복사 버튼으로 직접 붙여넣습니다. 등록은 항상 직접 수행합니다.
 8. 실제 수동 절차를 마친 경우에만 **수동 등록 완료로 표시**를 누릅니다.
 
 Side Panel 상단의 연결 표시에서 local API와 적용 중인 generator model을 확인할 수 있습니다.
-**최근 작업**에는 최신 20개의 title, review 상태와 최종 댓글이 표시됩니다. 이전 댓글을 다시
-복사하거나 원문을 열 수 있고, 더 이상 보관하지 않을 기록은 확인 후 해당 recommendation과
-retry metadata를 함께 삭제할 수 있습니다.
+**최근 작업**에는 최신 20개의 title, review 상태와 최종 댓글이 표시됩니다. 완료 댓글은 스타일 예시에
+포함하거나 제외할 수 있으며, **스타일 예시 정리**는 기록을 지우지 않고 모든 완료 댓글을 예시에서만
+제외합니다. 이전 댓글을 다시 복사하거나 원문을 열 수 있고, 더 이상 보관하지 않을 기록은 확인 후
+해당 recommendation과 retry metadata를 함께 삭제할 수 있습니다.
 
 **같은 설정으로 새 후보 만들기**는 현재 글을 다시 확인한 뒤 내용이 같으면 곧바로 새 OpenAI
 API 요청을 시작합니다. 글이 달라졌으면 Preview에서 멈춥니다. **설정 바꾸기**는 API를 호출하지
@@ -140,7 +143,9 @@ OPENAI_API_KEY=<private-key>
 ```
 
 기본 adapter는 `gpt-5.6-terra`, low reasoning, `store=false`를 사용합니다. 생성 버튼을 누르면
-현재 글의 title과 body가 OpenAI API로 전송되며 source URL은 전송하지 않습니다. Key를
+현재 글의 title과 body, 그리고 개인화가 켜진 경우 최근 완료 댓글 최대 5개의 원문이 OpenAI API로
+전송되며 source URL은 전송하지 않습니다. 개인화는 상세 설정에서 끄거나 최근 작업에서 댓글별·전체로
+제외할 수 있습니다. Key를
 extension file, shell history, screenshot, log 또는 commit에 남기지 마세요.
 
 ## 품질 검사
@@ -162,7 +167,7 @@ troubleshooting, data cleanup과 opt-in smoke 절차는
 
 ## Release
 
-정식 릴리스는 `v0.2.0`처럼 stable SemVer tag를 사용합니다. 버전과 CHANGELOG를 갱신하고 main에
+정식 릴리스는 `v0.3.0`처럼 stable SemVer tag를 사용합니다. 버전과 CHANGELOG를 갱신하고 main에
 병합한 뒤 annotated tag를 push하면 GitHub Actions가 검증, wheel·extension ZIP build, checksum 생성,
 GitHub Release 게시를 수행합니다. 절차와 asset 설명은 [Release Guide](docs/releasing.md)를
 참고하세요.
@@ -173,7 +178,8 @@ GitHub Release 게시를 수행합니다. 절차와 asset 설명은 [Release Gui
 - Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 등록, unattended browsing은 제외합니다.
 - Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다. 사용자가
   기본값으로 저장한 생성 옵션과 최대 50자의 마무리 문구는 예외입니다.
-- SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다.
+- SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다. 완료
+  댓글은 명시적으로 제외하기 전까지 개인화 스타일 예시로도 사용될 수 있습니다.
 - 최근 작업 삭제는 선택한 SQLite recommendation, candidates와 연결된 idempotency snapshot만
   제거하며 다른 기록에는 영향을 주지 않습니다.
 - Private/unpublished content, 실제 account identifier나 secret을 test fixture·artifact에 넣지 않습니다.

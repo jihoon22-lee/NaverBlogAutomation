@@ -4,6 +4,7 @@ export type RelationshipLevel = "close" | "friendly" | "new" | "polite";
 export type SpeechStyle = "banmal" | "honorific";
 export type CommentLength = "long" | "medium" | "short";
 export type CommentMood = "calm" | "lively" | "warm";
+export type PersonalizationMode = "completed_examples" | "off";
 export type QualityWarning =
   | "candidate_roles_blurred"
   | "candidates_too_similar"
@@ -33,6 +34,10 @@ export interface Recommendation {
   commentLength: CommentLength;
   commentMood: CommentMood;
   qualityWarnings: readonly QualityWarning[];
+  personalizationApplied: boolean;
+  personalizationMode: PersonalizationMode;
+  personalizationSampleCount: number;
+  personalizationEligible: boolean;
 }
 
 export interface CreateRecommendationRequest {
@@ -42,6 +47,7 @@ export interface CreateRecommendationRequest {
   relationship_level?: RelationshipLevel;
   source_url: string;
   speech_style?: SpeechStyle;
+  personalization_mode?: PersonalizationMode;
   title: string;
 }
 
@@ -49,6 +55,7 @@ export interface ReviewRecommendationRequest {
   edited_comment?: string | null;
   review_status?: ReviewStatus;
   selected_candidate_id?: string | null;
+  personalization_eligible?: boolean;
 }
 
 export interface ProblemDetails {
@@ -82,4 +89,5 @@ export interface RecommendationHistoryItem {
   sourceUrl: string;
   title: string;
   updatedAt: string | null;
+  personalizationEligible: boolean;
 }

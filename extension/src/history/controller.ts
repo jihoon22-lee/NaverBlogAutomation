@@ -26,8 +26,10 @@ export class HistoryController {
     this.#view = view;
     this.#view.bind({
       copy: (id) => void this.copy(id),
+      clearPersonalization: () => void this.clearPersonalization(),
       delete: (id) => void this.delete(id),
       refresh: () => void this.refresh(),
+      togglePersonalization: (id) => void this.togglePersonalization(id),
     });
   }
 
@@ -109,6 +111,59 @@ export class HistoryController {
         items: this.#items,
         kind: "ready",
         notice: "기록을 삭제하지 못했습니다. 서비스 상태를 확인한 뒤 다시 시도해 주세요.",
+        service: this.#service,
+      });
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  async togglePersonalization(id: string): Promise<void> {
+    if (this.#busy || this.#service === null) return;
+    const item = this.#items.find((candidate) => candidate.id === id);
+    if (item === undefined || item.reviewStatus !== "completed" || item.comment === null) return;
+    this.#busy = true;
+    this.#view.render({ busyId: id, items: this.#items, kind: "ready", service: this.#service });
+    try {
+      await this.#api.reviewRecommendation(id, {
+        personalization_eligible: !item.personalizationEligible,
+      });
+      this.#busy = false;
+      await this.refresh(
+        item.personalizationEligible
+          ? "선택한 완료 댓글을 스타일 예시에서 제외했습니다."
+          : "선택한 완료 댓글을 스타일 예시에 다시 포함했습니다.",
+      );
+    } catch {
+      this.#view.render({
+        items: this.#items,
+        kind: "ready",
+        notice: "스타일 예시 설정을 바꾸지 못했습니다. 서비스 상태를 확인해 주세요.",
+        service: this.#service,
+      });
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  async clearPersonalization(): Promise<void> {
+    if (this.#busy || this.#service === null) return;
+    this.#busy = true;
+    this.#view.render({
+      clearingPersonalization: true,
+      items: this.#items,
+      kind: "ready",
+      service: this.#service,
+    });
+    try {
+      await this.#api.clearPersonalizationExamples();
+      this.#busy = false;
+      await this.refresh("완료 댓글 기록은 보존하고 스타일 예시에서 모두 제외했습니다.");
+    } catch {
+      this.#view.render({
+        items: this.#items,
+        kind: "ready",
+        notice: "스타일 예시를 정리하지 못했습니다. 서비스 상태를 확인해 주세요.",
         service: this.#service,
       });
     } finally {

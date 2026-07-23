@@ -60,6 +60,16 @@ class DeterministicFakeGenerator:
             ),
         )
 
+    def generate_with_style(
+        self,
+        post: CapturedPost,
+        preferences: GenerationPreferences,
+        style_examples: tuple[str, ...],
+    ) -> GenerationOutput:
+        """Keep the deterministic development adapter independent of private examples."""
+        del style_examples
+        return self.generate(post, preferences)
+
 
 def _comments(detail: str, preferences: GenerationPreferences) -> tuple[str, str, str]:
     prefix = _RELATIONSHIP_PREFIX[preferences.relationship]

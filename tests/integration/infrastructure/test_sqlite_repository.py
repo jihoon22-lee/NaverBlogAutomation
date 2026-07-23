@@ -185,6 +185,43 @@ def test_recent_history_and_delete_remove_retry_metadata(
     assert repository.reserve(KEY, REQUEST_HASH).outcome is IdempotencyOutcome.STARTED
 
 
+def test_completed_comments_can_be_listed_or_excluded_from_personalization(
+    migrated_database: tuple[str, Engine],
+) -> None:
+    _, engine = migrated_database
+    repository = SqliteRepository(engine, clock=lambda: NOW)
+    drafted = complete_generation(repository)
+    approved = repository.update(
+        drafted.apply_review(
+            ReviewPatch(selected_candidate_index=0, review_status=ReviewStatus.APPROVED),
+            reviewed_at=NOW + timedelta(minutes=1),
+        )
+    )
+    completed = repository.update(
+        approved.apply_review(
+            ReviewPatch(
+                edited_comment="완료 후 다듬은 댓글",
+                review_status=ReviewStatus.COMPLETED,
+            ),
+            reviewed_at=NOW + timedelta(minutes=2),
+        )
+    )
+
+    assert repository.list_personalization_examples(5) == ("완료 후 다듬은 댓글",)
+    assert repository.clear_personalization_examples() == 1
+    assert repository.list_personalization_examples(5) == ()
+    stored = repository.get(completed.id)
+    assert stored is not None
+    restored = repository.update(
+        stored.apply_review(
+            ReviewPatch(personalization_eligible=True),
+            reviewed_at=NOW + timedelta(minutes=3),
+        )
+    )
+    assert restored.personalization_eligible
+    assert repository.list_personalization_examples(1) == ("완료 후 다듬은 댓글",)
+
+
 @pytest.mark.parametrize("limit", [0, 51])
 def test_recent_history_rejects_out_of_range_limit(
     migrated_database: tuple[str, Engine], limit: int
@@ -519,6 +556,9 @@ def test_v3_downgrade_refuses_non_default_preference_provenance(tmp_path: Path) 
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
             == "20260719_0003"
         )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
     persisted = SqliteRepository(engine, clock=lambda: NOW).get(item.id)
     assert persisted is not None
     assert persisted.preferences == preferences
@@ -553,6 +593,9 @@ def test_v4_downgrade_refuses_non_default_generation_mood(tmp_path: Path) -> Non
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
             == "20260719_0004"
         )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(database_url)
     persisted = SqliteRepository(engine, clock=lambda: NOW).get(item.id)
     assert persisted is not None
     assert persisted.preferences == preferences

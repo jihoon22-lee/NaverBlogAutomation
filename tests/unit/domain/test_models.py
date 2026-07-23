@@ -131,7 +131,9 @@ def test_preference_aware_request_hash_matches_shared_contract_vectors() -> None
             title=payload.title,
             body=payload.body,
         )
-        hashes[vector["id"]] = post.request_hash_for(payload.to_generation_preferences())
+        hashes[vector["id"]] = post.request_hash_for(
+            payload.to_generation_preferences(), payload.to_personalization_mode()
+        )
         assert hashes[vector["id"]] == vector["expected_hash"]
 
     assert hashes["omitted-defaults"] == hashes["explicit-defaults"]

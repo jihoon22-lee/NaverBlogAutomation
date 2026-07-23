@@ -99,6 +99,18 @@ class RecommendationRepository(Protocol):
         ...
 
 
+class PersonalizationRepository(Protocol):
+    """Read and update the local completed-comment style sample set."""
+
+    def list_personalization_examples(self, limit: int) -> tuple[str, ...]:
+        """Return newest eligible completed comments without article content."""
+        ...
+
+    def clear_personalization_examples(self) -> int:
+        """Exclude every completed comment from future personalization."""
+        ...
+
+
 class IdempotencyRepository(Protocol):
     """Coordinate safe retries around an otherwise expensive generation call."""
 

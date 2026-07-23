@@ -102,24 +102,24 @@ describe("IdempotencyRegistry", () => {
     await subject.cleanupInvalid();
     expect(storage.value[KEY]).toEqual({
       entries: [],
-      policyVersion: "generation-policy-v2",
+      policyVersion: "generation-policy-v3",
       schemaVersion: 2,
     });
   });
 
-  it("migrates only an empty legacy V1 registry to the V2 policy", async () => {
+  it("migrates only an empty legacy V1 registry to the V3 policy", async () => {
     const storage = new MemoryStorage();
     storage.value[KEY] = { entries: [], schemaVersion: 1 };
 
     await expect(registry(storage).find(digest(41))).resolves.toBeNull();
     expect(storage.value[KEY]).toEqual({
       entries: [],
-      policyVersion: "generation-policy-v2",
+      policyVersion: "generation-policy-v3",
       schemaVersion: 2,
     });
   });
 
-  it("quarantines legacy attempts until explicit cleanup before creating a V2 key", async () => {
+  it("quarantines legacy attempts until explicit cleanup before creating a V3 key", async () => {
     const storage = new MemoryStorage();
     const legacyKey = "00000000-0000-4000-8000-000000000041";
     storage.value[KEY] = {
@@ -147,7 +147,7 @@ describe("IdempotencyRegistry", () => {
     });
     expect(JSON.stringify(storage.value)).not.toContain(legacyKey);
     expect(storage.value[KEY]).toMatchObject({
-      policyVersion: "generation-policy-v2",
+      policyVersion: "generation-policy-v3",
       schemaVersion: 2,
     });
   });
@@ -156,7 +156,7 @@ describe("IdempotencyRegistry", () => {
     const storage = new MemoryStorage();
     storage.value[KEY] = {
       entries: [],
-      policyVersion: "generation-policy-v3",
+      policyVersion: "generation-policy-unknown",
       schemaVersion: 2,
     };
 

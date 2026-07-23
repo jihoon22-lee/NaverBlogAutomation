@@ -6,6 +6,7 @@ from naver_blog_assistant.ports.repositories import (
     IdempotencyOutcome,
     IdempotencyRepository,
     IdempotencyReservation,
+    PersonalizationRepository,
     RecommendationRepository,
     RecommendationVersionConflictError,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "IdempotencyOutcome",
     "IdempotencyRepository",
     "IdempotencyReservation",
+    "PersonalizationRepository",
     "RecommendationRepository",
     "RecommendationVersionConflictError",
 ]

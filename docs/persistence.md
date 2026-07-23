@@ -23,6 +23,11 @@ schema를 그대로 유지합니다.
 재요청에는 최초 응답을 정확히 반환합니다. SQLite 연결에는 외래 키, WAL, 5초 busy timeout을
 활성화하고 SQL 오류의 파라미터 출력을 숨깁니다.
 
+완료 상태의 최종 댓글은 사용자가 개인화를 켠 뒤 생성할 때 최대 5개까지 스타일 예시로 조회할 수
+있습니다. 각 기록은 예시 포함 여부를 별도로 보존하며, 전체 예시 정리는 recommendation과 retry
+snapshot을 삭제하지 않고 포함 여부만 해제합니다. 이 예시 원문은 SQLite에 이미 보존된 최종 댓글을
+사용하며 extension storage에는 복제하지 않습니다.
+
 예약은 모델 호출 전 `reserved`, 호출 직전부터 `generating`, 저장 완료 후 `completed` 상태를
 사용합니다. 안전한 refusal/invalid 응답은 `failed`, timeout·connection·5xx처럼 결과를 알 수
 없는 호출은 `indeterminate`로 전이하고 provider 원문이 아닌 고정된 problem snapshot만

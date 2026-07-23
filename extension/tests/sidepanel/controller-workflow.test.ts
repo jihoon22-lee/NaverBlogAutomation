@@ -58,6 +58,10 @@ const drafted: Recommendation = {
   id: "00000000-0000-4000-8000-000000000070",
   relationshipLevel: "friendly",
   qualityWarnings: [],
+  personalizationApplied: false,
+  personalizationEligible: true,
+  personalizationMode: "completed_examples",
+  personalizationSampleCount: 0,
   reviewStatus: "drafted",
   selectedCandidateId: null,
   sourceUrl: tab.url,
@@ -273,6 +277,7 @@ describe("integrated Side Panel workflow", () => {
       body: frames[0]?.result?.body,
       comment_length: "medium",
       comment_mood: "warm",
+      personalization_mode: "completed_examples",
       relationship_level: "friendly",
       source_url: tab.url,
       speech_style: "honorific",
@@ -299,6 +304,7 @@ describe("integrated Side Panel workflow", () => {
         ...drafted,
         commentLength: "long",
         commentMood: "lively",
+        personalizationMode: "completed_examples",
         relationshipLevel: "close",
         speechStyle: "banmal",
       },
@@ -312,6 +318,20 @@ describe("integrated Side Panel workflow", () => {
       relationship_level: "close",
       speech_style: "banmal",
     });
+  });
+
+  it("sends an explicit opt-out when style personalization is turned off", async () => {
+    const fixture = setup();
+    await fixture.controller.captureActivePost();
+    fixture.view.actions?.changePersonalizationMode("off");
+    fixture.api.create.mockResolvedValue({
+      replayed: false,
+      value: { ...drafted, personalizationMode: "off" },
+    });
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+
+    expect(fixture.api.create.mock.calls[0]?.[0]).toMatchObject({ personalization_mode: "off" });
   });
 
   it("resets banmal synchronously when the relationship is no longer close", async () => {
@@ -341,8 +361,9 @@ describe("integrated Side Panel workflow", () => {
         closingPhrase: "오늘도 좋은 하루 보내세요!",
         commentLength: "long",
         commentMood: "lively",
+        personalizationMode: "completed_examples",
         relationshipLevel: "close",
-        schemaVersion: 4,
+        schemaVersion: 5,
         speechStyle: "banmal",
       }),
     );
@@ -733,6 +754,47 @@ describe("integrated Side Panel workflow", () => {
       }),
     );
     expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
+  });
+
+  it("retries page insertion for the approved comment without another review request", async () => {
+    const fill = vi
+      .fn<() => Promise<CommentInputResult>>()
+      .mockResolvedValueOnce("not_found")
+      .mockResolvedValueOnce("filled");
+    const fixture = setup({ commentInput: { fill } });
+    await extractAndGenerate(fixture.view, fixture.controller);
+
+    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+    fixture.view.actions?.refill();
+
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(2));
+    expect(fixture.api.review).toHaveBeenCalledOnce();
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "approved",
+      notice: expect.stringContaining("입력란에 초안을"),
+    });
+  });
+
+  it("keeps copy fallback guidance when retrying approved page insertion fails", async () => {
+    const fill = vi
+      .fn<() => Promise<CommentInputResult>>()
+      .mockResolvedValueOnce("filled")
+      .mockRejectedValueOnce(new Error("synthetic injection failure"));
+    const fixture = setup({ commentInput: { fill } });
+    await extractAndGenerate(fixture.view, fixture.controller);
+
+    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+    fixture.view.actions?.refill();
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        kind: "approved",
+        notice: expect.stringContaining("복사해서 붙여넣어"),
+      }),
+    );
+    expect(fixture.api.review).toHaveBeenCalledOnce();
   });
 
   it("explains when the comment editor could not be opened", async () => {
