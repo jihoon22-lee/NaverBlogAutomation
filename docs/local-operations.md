@@ -72,6 +72,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
   확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
   않습니다.
+- **대기열 글을 연 뒤 preview가 갱신되지 않음:** 페이지가 완료될 때까지 기다린 뒤 다시 시도합니다.
+  **새 탭 열기**도 같은 흐름으로 동작하며, 네이버 접근 권한이 없으면 Side Panel에서 한 번 허용합니다.
 - **자동 탐색 결과가 비어 있음:** 내 블로그 ID와 저장한 검색어를 확인한 뒤 **지금 동기화**를 누릅니다.
   신규 이웃 검색은 `NAVER_SEARCH_CLIENT_ID`와 `NAVER_SEARCH_CLIENT_SECRET`가 모두 필요합니다.
   공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
