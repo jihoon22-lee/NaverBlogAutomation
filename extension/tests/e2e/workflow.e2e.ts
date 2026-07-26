@@ -117,7 +117,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expectPreviewState(panel);
     await expect(panel.locator("#post-title")).toHaveText("합성 전시 후기");
     await expect(panel.locator("#body-preview")).toContainText("관람 동선");
-    await panel.locator(".advanced-preferences > summary").click();
+    await panel.locator("#preview-panel .advanced-preferences > summary").click();
     await panel.locator('input[name="relationship"][value="close"]').check();
     await panel.locator('input[name="speech-style"][value="banmal"]').check();
     await panel.locator('input[name="comment-length"][value="long"]').check();

@@ -53,6 +53,7 @@ markers = ["live_openai: opt-in test that makes a real OpenAI API request"]
 [tool.coverage.run]
 branch = true
 source = ["naver_blog_assistant"]
+omit = ["src/naver_blog_assistant/infrastructure/database/migrations/*"]
 
 [tool.coverage.report]
 fail_under = 85
