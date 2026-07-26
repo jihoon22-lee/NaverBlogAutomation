@@ -87,9 +87,10 @@ extension을 다시 설치해 ID가 바뀌면 해당 환경의 setup launcher를
 
 ## 자동 글 탐색 설정
 
-Side Panel의 **글 탐색 대기열**에서 내 블로그 URL의 `blogId`를 한 번 입력하고 **매일 자동 탐색**을
-켜세요. 기본 시각은 `Asia/Seoul` 오전 9시이며, **지금 동기화**를 누르면 바로 공개 이웃 목록·등록
-이웃 RSS를 대기열에 모읍니다. 로컬 API가 실행 중일 때만 예약 동기화가 실행됩니다.
+Side Panel의 **글 탐색 대기열**에서 **탐색 설정과 알림**을 열고 내 블로그 URL의 `blogId`를 한 번
+입력한 뒤 **매일 자동 탐색**을 켜세요. 설정은 대기열을 우선 확인할 수 있도록 기본으로 접혀 있습니다.
+기본 시각은 `Asia/Seoul` 오전 9시이며, **지금 동기화**를 누르면 바로 공개 이웃 목록·등록 이웃 RSS를
+대기열에 모읍니다. 로컬 API가 실행 중일 때만 예약 동기화가 실행됩니다.
 
 신규 이웃 검색도 사용하려면 [Naver Developers 검색 API](https://developers.naver.com/docs/serviceapi/search/blog/blog.md)에서
 application을 만든 뒤 private env file에 아래 두 값을 함께 넣고 API를 재시작하세요. 하나만 넣으면

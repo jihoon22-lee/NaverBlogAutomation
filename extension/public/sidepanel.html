@@ -33,17 +33,22 @@
           </div>
           <button id="discovery-sync-button" class="text-button" type="button">지금 동기화</button>
         </div>
-        <form id="discovery-automation-form" class="discovery-form discovery-automation-form">
-          <p id="discovery-automation-status" class="help" role="status" aria-live="polite"></p>
-          <label>내 블로그 ID <input name="own-blog-id" maxlength="100" placeholder="blogId" /></label>
-          <label class="option"><input name="automation-enabled" type="checkbox" /> 매일 자동 탐색</label>
-          <label>시간대 <input name="automation-timezone" value="Asia/Seoul" required maxlength="64" /></label>
-          <div class="discovery-time-fields">
-            <label>시 <input name="automation-hour" type="number" min="0" max="23" value="9" required /></label>
-            <label>분 <input name="automation-minute" type="number" min="0" max="59" value="0" required /></label>
+        <details id="discovery-settings" class="discovery-settings">
+          <summary>탐색 설정과 알림</summary>
+          <div class="discovery-settings-body">
+            <form id="discovery-automation-form" class="discovery-form discovery-automation-form">
+              <p id="discovery-automation-status" class="help" role="status" aria-live="polite"></p>
+              <label>내 블로그 ID <input name="own-blog-id" maxlength="100" placeholder="blogId" /></label>
+              <label class="option"><input name="automation-enabled" type="checkbox" /> 매일 자동 탐색</label>
+              <label>시간대 <input name="automation-timezone" value="Asia/Seoul" required maxlength="64" /></label>
+              <div class="discovery-time-fields">
+                <label>시 <input name="automation-hour" type="number" min="0" max="23" value="9" required /></label>
+                <label>분 <input name="automation-minute" type="number" min="0" max="59" value="0" required /></label>
+              </div>
+              <button id="discovery-automation-save" class="secondary" type="submit">자동 탐색 설정 저장</button>
+            </form>
           </div>
-          <button id="discovery-automation-save" class="secondary" type="submit">자동 탐색 설정 저장</button>
-        </form>
+        </details>
         <div class="discovery-actions">
           <button id="discovery-neighbor-tab" class="secondary" type="button" aria-pressed="true">이웃 새 글</button>
           <button id="discovery-search-tab" class="secondary" type="button" aria-pressed="false">신규 이웃 찾기</button>
