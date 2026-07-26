@@ -133,6 +133,23 @@ def _api_key_check() -> CheckResult:
     return CheckResult("OpenAI credential presence", configured, detail)
 
 
+def _naver_search_api_check() -> CheckResult:
+    """Report optional Search API readiness without retaining either credential."""
+    client_id = bool(os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip())
+    client_secret = bool(os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip())
+    if client_id and client_secret:
+        return CheckResult(
+            "Naver Search API", True, "both required environment variables are configured"
+        )
+    if client_id or client_secret:
+        return CheckResult(
+            "Naver Search API", False, "configure NAVER_SEARCH_CLIENT_ID and SECRET together"
+        )
+    return CheckResult(
+        "Naver Search API", True, "optional; configure both variables to use 신규 이웃 검색"
+    )
+
+
 def _database_check(root: Path) -> CheckResult:
     try:
         path = repo_database_path(
@@ -203,6 +220,7 @@ def collect_checks(
         _configuration_check(),
         _origin_check(),
         _api_key_check(),
+        _naver_search_api_check(),
         _database_check(root),
         _extension_build_check(root),
     ]

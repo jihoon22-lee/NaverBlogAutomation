@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from naver_blog_assistant.domain.models import DomainValidationError
@@ -93,6 +93,7 @@ class DiscoveredPost:
     source_url: str
     title: str
     publisher_name: str | None
+    publisher_blog_id: str | None
     published_at: datetime | None
     neighbor_id: UUID | None
     search_id: UUID | None
@@ -105,6 +106,10 @@ class DiscoveredPost:
             raise DomainValidationError(
                 "discovered post title must be between 1 and 300 characters"
             )
+        if self.publisher_blog_id is not None and (
+            not self.publisher_blog_id.strip() or len(self.publisher_blog_id) > 100
+        ):
+            raise DomainValidationError("publisher blog id is invalid")
         if self.source is DiscoverySource.NEIGHBOR and self.neighbor_id is None:
             raise DomainValidationError("neighbor posts require a neighbor id")
         if self.source is DiscoverySource.SEARCH and self.search_id is None:
@@ -118,6 +123,7 @@ class ImportedDiscoveryPost:
     source_url: str
     title: str
     publisher_name: str | None = None
+    publisher_blog_id: str | None = None
     published_at: datetime | None = None
 
     def __post_init__(self) -> None:
@@ -126,6 +132,24 @@ class ImportedDiscoveryPost:
             raise DomainValidationError("imported post title must be between 1 and 300 characters")
         if self.publisher_name is not None and len(self.publisher_name.strip()) > 120:
             raise DomainValidationError("publisher name must not exceed 120 characters")
+        blog_id = self.publisher_blog_id or _blog_id_from_post_url(self.source_url)
+        if not blog_id or len(blog_id) > 100:
+            raise DomainValidationError("publisher blog id is invalid")
+        object.__setattr__(self, "publisher_blog_id", blog_id)
+
+
+def _blog_id_from_post_url(value: str) -> str:
+    """Extract one Naver blog identifier from a validated public post URL."""
+    parsed = urlsplit(value)
+    query_id = parse_qs(parsed.query).get("blogId", [""])[0].strip()
+    if query_id:
+        return query_id
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.hostname == "blog.naver.com" and len(parts) >= 2:
+        return parts[0]
+    if parsed.hostname == "m.blog.naver.com" and parts:
+        return parts[0]
+    return ""
 
 
 @dataclass(frozen=True, slots=True)

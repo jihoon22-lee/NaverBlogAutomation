@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from html import unescape
@@ -76,22 +77,71 @@ def buddy_list_url(blog_id: str) -> str:
     return f"https://m.blog.naver.com/BuddyList.naver?{urlencode({'blogId': blog_id})}"
 
 
-def search_url(query: str) -> str:
-    """Return Naver's public blog-search URL for an explicitly saved query."""
-    return f"https://search.naver.com/search.naver?{urlencode({'where': 'blog', 'query': query})}"
-
-
 def fetch_public_html(url: str, *, timeout: float = 10.0) -> str:
     """Read a bounded public HTML document without cookies or credentials."""
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in {
-        "m.blog.naver.com",
-        "search.naver.com",
-    }:
+    if parsed.scheme != "https" or parsed.hostname != "m.blog.naver.com":
         raise ValueError("public discovery URL is not allowed")
     request = Request(url, headers={"User-Agent": "NaverBlogAssistant/0.5"})
     with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed allowlisted public host
         return response.read(1_000_000).decode("utf-8", errors="replace")
+
+
+def fetch_naver_blog_search(
+    query: str,
+    *,
+    client_id: str,
+    client_secret: str,
+    timeout: float = 10.0,
+) -> tuple[ImportedDiscoveryPost, ...]:
+    """Read bounded public blog metadata through Naver's documented Search API."""
+    if not client_id.strip() or not client_secret.strip():
+        raise ValueError("Naver Blog Search API credentials are required")
+    url = "https://openapi.naver.com/v1/search/blog.json?" + urlencode(
+        {"query": query, "display": "50", "sort": "date"}
+    )
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "NaverBlogAssistant/0.5",
+            "X-Naver-Client-Id": client_id,
+            "X-Naver-Client-Secret": client_secret,
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - documented fixed API host
+        payload = response.read(1_000_000)
+    try:
+        decoded = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise ValueError("Naver Blog Search API returned invalid JSON") from error
+    if not isinstance(decoded, dict) or not isinstance(decoded.get("items"), list):
+        raise ValueError("Naver Blog Search API response is invalid")
+    posts: list[ImportedDiscoveryPost] = []
+    for item in decoded["items"][:50]:
+        if not isinstance(item, dict):
+            continue
+        link = item.get("link")
+        title = item.get("title")
+        blogger_name = item.get("bloggername")
+        blogger_link = item.get("bloggerlink")
+        if not isinstance(link, str) or not isinstance(title, str):
+            continue
+        published_at = _parse_search_date(item.get("postdate"))
+        blog_id = _blog_id_from_profile_url(blogger_link) if isinstance(blogger_link, str) else ""
+        publisher_name = _plain_text(blogger_name) if isinstance(blogger_name, str) else ""
+        try:
+            posts.append(
+                ImportedDiscoveryPost(
+                    source_url=link,
+                    title=_plain_text(title)[:300],
+                    publisher_name=publisher_name[:120] or None,
+                    publisher_blog_id=blog_id or None,
+                    published_at=published_at,
+                )
+            )
+        except Exception:
+            continue
+    return tuple(posts)
 
 
 def parse_buddy_list(html: str, *, limit: int = 50) -> tuple[tuple[str, str, str], ...]:
@@ -114,24 +164,6 @@ def parse_buddy_list(html: str, *, limit: int = 50) -> tuple[tuple[str, str, str
     return tuple(profiles.values())
 
 
-def parse_search_posts(html: str, *, limit: int = 50) -> tuple[ImportedDiscoveryPost, ...]:
-    """Extract direct public Naver post links from a saved-search result document."""
-    parser = _AnchorParser()
-    parser.feed(html)
-    posts: dict[str, ImportedDiscoveryPost] = {}
-    for href, text in parser.anchors:
-        url = _supported_naver_url(href, "https://search.naver.com/")
-        if url is None or not _is_post_url(url) or not text or url.geturl() in posts:
-            continue
-        try:
-            posts[url.geturl()] = ImportedDiscoveryPost(source_url=url.geturl(), title=text[:300])
-        except Exception:
-            continue
-        if len(posts) >= limit:
-            break
-    return tuple(posts.values())
-
-
 def filter_saved_search_posts(
     search: SavedSearch,
     posts: tuple[ImportedDiscoveryPost, ...],
@@ -149,7 +181,41 @@ def filter_saved_search_posts(
         if post.published_at is not None and post.published_at.astimezone(UTC) < cutoff:
             continue
         allowed.append(post)
-    return tuple(allowed)
+    return _one_post_per_blog(allowed)
+
+
+def _one_post_per_blog(posts: list[ImportedDiscoveryPost]) -> tuple[ImportedDiscoveryPost, ...]:
+    """Keep the first (newest from a provider) eligible post for each blog."""
+    selected: dict[str, ImportedDiscoveryPost] = {}
+    for post in posts:
+        assert post.publisher_blog_id is not None
+        selected.setdefault(post.publisher_blog_id.casefold(), post)
+    return tuple(selected.values())
+
+
+def _plain_text(value: str) -> str:
+    parser = _TextParser()
+    parser.feed(value)
+    return " ".join(unescape("".join(parser.parts)).split())
+
+
+def _parse_search_date(value: object) -> datetime | None:
+    if not isinstance(value, str) or len(value) != 8 or not value.isdigit():
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _blog_id_from_profile_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or parsed.hostname not in {"blog.naver.com", "m.blog.naver.com"}:
+        return ""
+    query_id = parse_qs(parsed.query).get("blogId", [""])[0]
+    if query_id:
+        return query_id
+    return _path_blog_id(parsed)
 
 
 def _parse_rss_date(value: str | None) -> datetime | None:
@@ -196,6 +262,17 @@ class _AnchorParser(HTMLParser):
         self._parts = []
 
 
+class _TextParser(HTMLParser):
+    """Discard API result markup without trusting it as HTML content."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
 def _supported_naver_url(value: str, base: str):
     url = urlsplit(urljoin(base, value))
     if url.scheme != "https" or url.hostname not in {"blog.naver.com", "m.blog.naver.com"}:
@@ -206,11 +283,6 @@ def _supported_naver_url(value: str, base: str):
 def _path_blog_id(url) -> str:
     parts = [part for part in url.path.split("/") if part]
     return parts[0] if parts else ""
-
-
-def _is_post_url(url) -> bool:
-    parts = [part for part in url.path.split("/") if part]
-    return "PostView" in url.path or "logNo" in parse_qs(url.query) or len(parts) >= 2
 
 
 class SmtpDigestSender:

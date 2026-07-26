@@ -48,6 +48,7 @@ from naver_blog_assistant.api.models import (
     DiscoveryPostResponse,
     DiscoveryPostStateRequest,
     DiscoveryQueueResponse,
+    DiscoverySearchRefreshResponse,
     HealthResponse,
     NeighborListResponse,
     NeighborRequest,
@@ -85,13 +86,12 @@ from naver_blog_assistant.application import (
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
     buddy_list_url,
+    fetch_naver_blog_search,
     fetch_public_html,
     fetch_rss_posts,
     filter_saved_search_posts,
     parse_buddy_list,
-    parse_search_posts,
     rss_url_for,
-    search_url,
 )
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
@@ -104,6 +104,7 @@ from naver_blog_assistant.domain import (
     ImportedDiscoveryPost,
     ReviewPatch,
     ReviewTransitionError,
+    SavedSearch,
 )
 from naver_blog_assistant.infrastructure.database import (
     SqliteDiscoveryRepository,
@@ -117,6 +118,11 @@ SUPPORTED_HOSTS: Final = frozenset({"blog.naver.com", "m.blog.naver.com"})
 EXTENSION_ORIGIN_PATTERN: Final = re.compile(r"chrome-extension://[a-p]{32}\Z")
 DEFAULT_DATABASE_URL: Final = "sqlite:///data/naver_blog_assistant.db"
 logger = logging.getLogger("naver_blog_assistant.api")
+
+
+class SearchProviderNotConfiguredError(ValueError):
+    """Raised when a saved search is used without the documented API credentials."""
+
 
 IDEMPOTENCY_REPLAYED_HEADER: Final = {
     "description": "True when returning a stored result for a repeated request.",
@@ -214,6 +220,8 @@ class ApiSettings:
     digest_smtp_password: str = field(default="", repr=False)
     digest_email_from: str = ""
     digest_email_to: str = ""
+    naver_search_client_id: str = field(default="", repr=False)
+    naver_search_client_secret: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -266,6 +274,16 @@ class ApiSettings:
             raise ValueError("DIGEST_SMTP_PORT must be between 1 and 65535")
         if self.digest_smtp_security not in {"starttls", "ssl"}:
             raise ValueError("DIGEST_SMTP_SECURITY must be starttls or ssl")
+        configured_search_values = (
+            self.naver_search_client_id.strip(),
+            self.naver_search_client_secret.strip(),
+        )
+        if any(configured_search_values) and not all(configured_search_values):
+            raise ValueError(
+                "NAVER_SEARCH_CLIENT_ID and NAVER_SEARCH_CLIENT_SECRET must be configured together"
+            )
+        if any(len(value) > 200 for value in configured_search_values):
+            raise ValueError("Naver Search API credentials must not exceed 200 characters")
 
     @classmethod
     def from_environment(cls) -> ApiSettings:
@@ -314,6 +332,8 @@ class ApiSettings:
             digest_smtp_password=os.getenv("DIGEST_SMTP_PASSWORD", "").strip(),
             digest_email_from=os.getenv("DIGEST_EMAIL_FROM", "").strip(),
             digest_email_to=os.getenv("DIGEST_EMAIL_TO", "").strip(),
+            naver_search_client_id=os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip(),
+            naver_search_client_secret=os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip(),
         )
 
 
@@ -346,6 +366,35 @@ def create_app(
     review = ReviewRecommendation(repository)
     clear_personalization_examples = ClearPersonalizationExamples(repository)
     pending_generations: set[asyncio.Task[GenerationResult]] = set()
+
+    async def refresh_saved_search(search: SavedSearch) -> int:
+        """Import one saved search exclusively through Naver's documented API."""
+        if not settings.naver_search_client_id:
+            raise SearchProviderNotConfiguredError(
+                "NAVER_SEARCH_CLIENT_ID and NAVER_SEARCH_CLIENT_SECRET are required"
+            )
+        posts = await asyncio.to_thread(
+            fetch_naver_blog_search,
+            search.query,
+            client_id=settings.naver_search_client_id,
+            client_secret=settings.naver_search_client_secret,
+        )
+
+        eligible = filter_saved_search_posts(search, posts, now=datetime.now(UTC))
+        excluded = discovery.excluded_search_blog_ids(
+            own_blog_id=discovery.get_automatic_settings().own_blog_id
+        )
+        candidates = tuple(
+            post
+            for post in eligible
+            if post.publisher_blog_id is not None
+            and post.publisher_blog_id.casefold() not in excluded
+        )
+        return discovery.import_posts(
+            source=DiscoverySource.SEARCH,
+            search_id=search.id,
+            posts=candidates,
+        )
 
     async def refresh_neighbors_from_rss() -> int:
         imported_count = 0
@@ -388,6 +437,7 @@ def create_app(
                 neighbors_added=0,
                 neighbor_posts_added=0,
                 search_posts_added=0,
+                search_provider="none",
                 status="failed",
                 detail=detail,
             )
@@ -408,21 +458,15 @@ def create_app(
 
         neighbor_posts_added = await refresh_neighbors_from_rss()
         search_posts_added = 0
+        search_provider_used = False
         for search in discovery.list_searches():
             if not search.enabled:
                 continue
             try:
-                html = await asyncio.to_thread(fetch_public_html, search_url(search.query))
-                posts = filter_saved_search_posts(
-                    search,
-                    parse_search_posts(html),
-                    now=datetime.now(UTC),
-                )
-                search_posts_added += discovery.import_posts(
-                    source=DiscoverySource.SEARCH,
-                    search_id=search.id,
-                    posts=posts,
-                )
+                search_posts_added += await refresh_saved_search(search)
+                search_provider_used = True
+            except SearchProviderNotConfiguredError:
+                failures.append("네이버 검색 API 설정")
             except Exception:
                 logger.warning("automatic_discovery_search_failed search_id=%s", search.id)
                 failures.append("검색 결과")
@@ -438,11 +482,15 @@ def create_app(
                 f"이웃 {neighbors_added}개, 이웃 새 글 {neighbor_posts_added}개, "
                 f"검색 후보 {search_posts_added}개를 확인했습니다."
             )
+        search_provider: Literal["naver_open_api", "none"] = (
+            "naver_open_api" if search_provider_used else "none"
+        )
         discovery.record_automatic_sync(status=status, detail=detail)
         return AutomaticDiscoverySyncResponse(
             neighbors_added=neighbors_added,
             neighbor_posts_added=neighbor_posts_added,
             search_posts_added=search_posts_added,
+            search_provider=search_provider,
             status=status,
             detail=detail,
         )
@@ -875,6 +923,49 @@ def create_app(
                 422, "invalid_search", "Invalid saved search", "Saved search data is invalid."
             ) from error
         return SavedSearchResponse.from_domain(result)
+
+    @app.post(
+        "/api/v1/discovery/searches/{search_id}/refresh",
+        response_model=DiscoverySearchRefreshResponse,
+        responses={404: _problem_metadata("The selected saved search was not found.")},
+        tags=["Discovery"],
+        operation_id="refreshDiscoverySearch",
+    )
+    async def refresh_discovery_search(search_id: UUID) -> DiscoverySearchRefreshResponse:
+        search = next((item for item in discovery.list_searches() if item.id == search_id), None)
+        if search is None:
+            raise _discovery_not_found()
+        if not search.enabled:
+            return DiscoverySearchRefreshResponse(
+                imported_count=0,
+                provider="naver_open_api",
+                detail="비활성화된 검색어는 갱신하지 않습니다.",
+            )
+        try:
+            imported = await refresh_saved_search(search)
+        except SearchProviderNotConfiguredError:
+            raise ApiError(
+                409,
+                "discovery_search_not_configured",
+                "Naver Search API is not configured",
+                (
+                    "신규 이웃 검색에는 NAVER_SEARCH_CLIENT_ID와 "
+                    "NAVER_SEARCH_CLIENT_SECRET 설정이 필요합니다."
+                ),
+            ) from None
+        except Exception:
+            logger.warning("discovery_search_refresh_failed search_id=%s", search_id)
+            raise ApiError(
+                502,
+                "discovery_search_unavailable",
+                "Discovery search is unavailable",
+                "신규 이웃 검색 결과를 가져오지 못했습니다.",
+            ) from None
+        return DiscoverySearchRefreshResponse(
+            imported_count=imported,
+            provider="naver_open_api",
+            detail=f"공식 네이버 검색 API에서 검색 후보 {imported}개를 확인했습니다.",
+        )
 
     @app.post(
         "/api/v1/discovery/import",

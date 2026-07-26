@@ -216,6 +216,7 @@ class SqliteDiscoveryRepository:
                         source_url=post.source_url,
                         title=post.title,
                         publisher_name=post.publisher_name,
+                        publisher_blog_id=post.publisher_blog_id,
                         published_at=format_timestamp(post.published_at)
                         if post.published_at
                         else None,
@@ -267,6 +268,30 @@ class SqliteDiscoveryRepository:
                 .one()
             )
         return _post(row)
+
+    def excluded_search_blog_ids(self, *, own_blog_id: str, cooldown_days: int = 30) -> set[str]:
+        """Return blogs that should not receive another new-neighbor candidate."""
+        cutoff = self._clock() - timedelta(days=cooldown_days)
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(discovered_posts.c.publisher_blog_id)
+                .where(discovered_posts.c.source == DiscoverySource.SEARCH.value)
+                .where(discovered_posts.c.publisher_blog_id.is_not(None))
+                .where(
+                    discovered_posts.c.state.in_(
+                        [DiscoveryState.QUEUED.value, DiscoveryState.OPENED.value]
+                    )
+                    | (
+                        (discovered_posts.c.state == DiscoveryState.COMPLETED.value)
+                        & (discovered_posts.c.updated_at >= format_timestamp(cutoff))
+                    )
+                )
+            ).scalars()
+        excluded = {value.casefold() for value in rows if isinstance(value, str) and value}
+        excluded.update(item.blog_id.casefold() for item in self.list_neighbors())
+        if own_blog_id.strip():
+            excluded.add(own_blog_id.strip().casefold())
+        return excluded
 
     def update_neighbor_feed_status(
         self, neighbor_id: UUID, *, status: str, checked_at: datetime
@@ -469,6 +494,7 @@ def _post(row: Any) -> DiscoveredPost:
         source_url=data["source_url"],
         title=data["title"],
         publisher_name=data["publisher_name"],
+        publisher_blog_id=data["publisher_blog_id"],
         published_at=parse_timestamp(data["published_at"]) if data["published_at"] else None,
         neighbor_id=UUID(data["neighbor_id"]) if data["neighbor_id"] else None,
         search_id=UUID(data["search_id"]) if data["search_id"] else None,

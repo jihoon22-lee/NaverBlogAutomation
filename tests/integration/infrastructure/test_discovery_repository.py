@@ -89,3 +89,56 @@ def test_discovery_repository_deduplicates_metadata_and_preserves_queue_state(
         assert repository.delete_neighbor(neighbor.id)
     finally:
         engine.dispose()
+
+
+def test_search_candidate_exclusions_cover_own_neighbor_queued_and_recently_completed_blogs(
+    tmp_path: Path,
+) -> None:
+    url = f"sqlite:///{tmp_path / 'discovery-exclusions.db'}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(url)
+    try:
+        clock_value = [NOW]
+        repository = SqliteDiscoveryRepository(engine, clock=lambda: clock_value[0])
+        repository.save_neighbor(
+            name="저장 이웃", blog_url="https://blog.naver.com/neighbor", blog_id="neighbor"
+        )
+        search = repository.save_search(query="전시", excluded_terms=(), freshness_days=14)
+        queued = ImportedDiscoveryPost(
+            source_url="https://blog.naver.com/queued/1", title="대기 중 후보"
+        )
+        completed = ImportedDiscoveryPost(
+            source_url="https://blog.naver.com/completed/1", title="완료한 후보"
+        )
+        assert (
+            repository.import_posts(
+                source=DiscoverySource.SEARCH,
+                search_id=search.id,
+                posts=(queued, completed),
+            )
+            == 2
+        )
+        completed_id = next(
+            item.id
+            for item in repository.list_posts(DiscoverySource.SEARCH)
+            if item.publisher_blog_id == "completed"
+        )
+        assert repository.update_post_state(completed_id, DiscoveryState.COMPLETED) is not None
+
+        assert repository.excluded_search_blog_ids(own_blog_id="MINE") == {
+            "mine",
+            "neighbor",
+            "queued",
+            "completed",
+        }
+
+        clock_value[0] = NOW + timedelta(days=31)
+        assert repository.excluded_search_blog_ids(own_blog_id="MINE") == {
+            "mine",
+            "neighbor",
+            "queued",
+        }
+    finally:
+        engine.dispose()

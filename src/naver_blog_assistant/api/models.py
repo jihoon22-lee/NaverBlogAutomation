@@ -298,6 +298,7 @@ class DiscoveryPostImport(StrictModel):
     source_url: DiscoveryUrl
     title: ShortText
     publisher_name: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
+    publisher_blog_id: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None = None
     published_at: datetime | None = None
 
     def to_domain(self) -> ImportedDiscoveryPost:
@@ -305,6 +306,7 @@ class DiscoveryPostImport(StrictModel):
             source_url=self.source_url,
             title=self.title,
             publisher_name=self.publisher_name,
+            publisher_blog_id=self.publisher_blog_id,
             published_at=self.published_at,
         )
 
@@ -335,6 +337,7 @@ class DiscoveryPostResponse(StrictModel):
     source_url: DiscoveryUrl
     title: ShortText
     publisher_name: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None
+    publisher_blog_id: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None
     published_at: datetime | None
     neighbor_id: UUID | None
     search_id: UUID | None
@@ -350,6 +353,7 @@ class DiscoveryPostResponse(StrictModel):
             source_url=post.source_url,
             title=post.title,
             publisher_name=post.publisher_name,
+            publisher_blog_id=post.publisher_blog_id,
             published_at=post.published_at,
             neighbor_id=post.neighbor_id,
             search_id=post.search_id,
@@ -440,7 +444,14 @@ class AutomaticDiscoverySyncResponse(StrictModel):
     neighbors_added: Annotated[int, Field(ge=0, le=50)]
     neighbor_posts_added: Annotated[int, Field(ge=0, le=50)]
     search_posts_added: Annotated[int, Field(ge=0, le=50)]
+    search_provider: Literal["naver_open_api", "none"]
     status: Literal["success", "partial", "failed"]
+    detail: str
+
+
+class DiscoverySearchRefreshResponse(StrictModel):
+    imported_count: Annotated[int, Field(ge=0, le=50)]
+    provider: Literal["naver_open_api"]
     detail: str
 
 
