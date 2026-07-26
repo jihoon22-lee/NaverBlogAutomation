@@ -212,7 +212,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
       button.click();
     });
     await expectPreviewState(panel);
-    await panel.locator(".advanced-preferences > summary").click();
+    await panel.locator("#preview-panel .advanced-preferences > summary").click();
     await panel.locator('input[name="comment-length"][value="short"]').check();
     await panel.locator("#save-preferences-button").click();
     await expect(panel.locator("#preference-notice")).toContainText("기본값으로 저장");
