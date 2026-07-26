@@ -1,16 +1,27 @@
 import { LocalApiClient } from "../api/client";
 import type { AutomaticDiscoverySettings, DiscoveryPost, DiscoverySource } from "../api/types";
+import {
+  ChromeDiscoveryTabNavigator,
+  type DiscoveryNavigationTarget,
+  type DiscoveryTabNavigator,
+} from "../browser/discovery-tab-navigator";
 
 type QueueTab = DiscoverySource;
 
 export class DiscoveryController {
   readonly #api: LocalApiClient;
   readonly #document: Document;
+  readonly #navigator: DiscoveryTabNavigator;
   #tab: QueueTab = "neighbor";
 
-  constructor(document: Document, api: LocalApiClient = new LocalApiClient()) {
+  constructor(
+    document: Document,
+    api: LocalApiClient = new LocalApiClient(),
+    navigator: DiscoveryTabNavigator = new ChromeDiscoveryTabNavigator(),
+  ) {
     this.#document = document;
     this.#api = api;
+    this.#navigator = navigator;
   }
 
   start(): void {
@@ -193,9 +204,10 @@ export class DiscoveryController {
       }
       const post = button.closest<HTMLLIElement>("li")?.dataset.url;
       if (!post) return;
+      const target: DiscoveryNavigationTarget = action === "open-new" ? "new" : "current";
+      const tabId = await this.#navigator.open(post, target);
       await this.#api.updateDiscoveryPostState(id, "opened");
-      await chrome.tabs.update({ url: post });
-      window.dispatchEvent(new Event("discovery-open-post"));
+      window.dispatchEvent(new CustomEvent("discovery-open-post", { detail: { tabId } }));
     } catch (error) {
       this.#notice(error instanceof Error ? error.message : "글을 열지 못했습니다.");
     }
@@ -239,6 +251,7 @@ export class DiscoveryController {
         actions.className = "actions";
         actions.append(
           queueButton(item.id, "open", "이 글 열기"),
+          queueButton(item.id, "open-new", "새 탭 열기"),
           queueButton(item.id, "skip", "건너뛰기"),
         );
         row.append(actions);
@@ -304,7 +317,11 @@ function listItem(text: string): HTMLLIElement {
   item.textContent = text;
   return item;
 }
-function queueButton(id: string, action: "open" | "skip", text: string): HTMLButtonElement {
+function queueButton(
+  id: string,
+  action: "open" | "open-new" | "skip",
+  text: string,
+): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "text-button";

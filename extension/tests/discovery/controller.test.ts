@@ -24,6 +24,7 @@ const client = {
   syncAutomaticDiscovery: vi.fn(),
   updateDiscoveryPostState: vi.fn(),
 };
+const navigator = { open: vi.fn() };
 
 beforeEach(async () => {
   const dom = new JSDOM(await readFile(htmlPath, "utf8"), {
@@ -92,6 +93,7 @@ beforeEach(async () => {
   });
   client.saveDigestSettings.mockResolvedValue({});
   client.updateDiscoveryPostState.mockResolvedValue({});
+  navigator.open.mockResolvedValue(7);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -101,7 +103,7 @@ async function settle(): Promise<void> {
 
 describe("DiscoveryController", () => {
   it("onboards automatic discovery, synchronizes, and renders the local queue", async () => {
-    const controller = new DiscoveryController(document, client as never);
+    const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
     expect(document.querySelector("#discovery-queue")?.textContent).toContain("대기 글");
@@ -126,7 +128,7 @@ describe("DiscoveryController", () => {
   });
 
   it("keeps failures understandable and leaves queue actions safe", async () => {
-    const controller = new DiscoveryController(document, client as never);
+    const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
     client.syncAutomaticDiscovery.mockRejectedValueOnce(new Error("동기화 실패"));
@@ -141,7 +143,7 @@ describe("DiscoveryController", () => {
   });
 
   it("refreshes a saved search immediately and preserves a useful setup failure", async () => {
-    const controller = new DiscoveryController(document, client as never);
+    const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
     const form = document.querySelector("#discovery-search-form") as HTMLFormElement;
@@ -189,7 +191,7 @@ describe("DiscoveryController", () => {
         sourceUrl: "https://blog.naver.com/friend/2",
       },
     ]);
-    const controller = new DiscoveryController(document, client as never);
+    const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
 
@@ -203,7 +205,19 @@ describe("DiscoveryController", () => {
 
     (document.querySelector("[data-action=open]") as HTMLButtonElement).click();
     await settle();
-    expect(chrome.tabs.update).toHaveBeenCalledWith({ url: "https://blog.naver.com/friend/2" });
+    expect(navigator.open).toHaveBeenCalledWith("https://blog.naver.com/friend/2", "current");
+    expect(client.updateDiscoveryPostState).toHaveBeenCalledWith(id, "opened");
+  });
+
+  it("keeps the current post available while opening a queue item in a new tab", async () => {
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    (document.querySelector("[data-action=open-new]") as HTMLButtonElement).click();
+    await settle();
+
+    expect(navigator.open).toHaveBeenCalledWith("https://blog.naver.com/friend/1", "new");
     expect(client.updateDiscoveryPostState).toHaveBeenCalledWith(id, "opened");
   });
 });
