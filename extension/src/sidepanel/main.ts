@@ -75,6 +75,7 @@ window.addEventListener(
   { once: true },
 );
 
-window.addEventListener("discovery-open-post", () => {
-  window.setTimeout(() => void controller?.captureActivePost(), 450);
+window.addEventListener("discovery-open-post", (event) => {
+  const detail = (event as CustomEvent<{ tabId?: unknown }>).detail;
+  if (typeof detail?.tabId === "number") void controller?.captureActivePost();
 });
