@@ -327,11 +327,11 @@ describe("DomPanelView", () => {
     expect(retry).toHaveBeenCalledOnce();
   });
 
-  it("guides a missing active-tab grant back to the toolbar action", () => {
+  it("guides a missing active tab back to the persistent Naver permission", () => {
     view.render({ failure: { code: "no_active_tab" }, kind: "error" });
 
     expect(document.querySelector("#error-message")?.textContent).toBe(
-      "네이버 글 탭을 활성화한 뒤 확장 프로그램 toolbar 아이콘을 다시 클릭해 주세요.",
+      "네이버 글 탭을 열고, 위의 ‘네이버 접근 허용’을 선택한 뒤 다시 시도해 주세요.",
     );
   });
 

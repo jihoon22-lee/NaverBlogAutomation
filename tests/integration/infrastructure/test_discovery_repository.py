@@ -8,7 +8,12 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-from naver_blog_assistant.domain import DiscoverySource, DiscoveryState, ImportedDiscoveryPost
+from naver_blog_assistant.domain import (
+    AutoDiscoverySettings,
+    DiscoverySource,
+    DiscoveryState,
+    ImportedDiscoveryPost,
+)
 from naver_blog_assistant.infrastructure.database import (
     SqliteDiscoveryRepository,
     create_sqlite_engine,
@@ -70,6 +75,14 @@ def test_discovery_repository_deduplicates_metadata_and_preserves_queue_state(
         assert repository.claim_digest_run("2026-07-26", neighbor_post_count=1)
         assert not repository.claim_digest_run("2026-07-26", neighbor_post_count=1)
         repository.mark_digest_email_sent("2026-07-26")
+        automation = AutoDiscoverySettings(own_blog_id="mine", enabled=True, hour=8, minute=30)
+        assert repository.save_automatic_settings(automation).own_blog_id == "mine"
+        assert repository.claim_automatic_sync_run("2026-07-26")
+        assert not repository.claim_automatic_sync_run("2026-07-26")
+        assert (
+            repository.record_automatic_sync(status="success", detail="동기화 완료").last_detail
+            == "동기화 완료"
+        )
         clock_value[0] = NOW + timedelta(days=31)
         assert repository.cleanup_old_posts() == 1
         assert repository.delete_search(search.id)

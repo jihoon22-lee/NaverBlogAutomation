@@ -16,6 +16,13 @@
 
       <p id="status" class="status" role="status" aria-live="polite">본문을 확인하고 있습니다.</p>
 
+      <section id="naver-permission-card" class="card" aria-labelledby="naver-permission-title" hidden>
+        <h2 id="naver-permission-title">네이버 페이지 접근 허용</h2>
+        <p class="help">탭을 옮겨도 글 읽기와 댓글 입력을 계속 도우려면 네이버 블로그 페이지 접근을 한 번 허용해 주세요.</p>
+        <button id="naver-permission-button" class="secondary" type="button">네이버 접근 허용</button>
+        <p id="naver-permission-notice" class="help" role="status" aria-live="polite"></p>
+      </section>
+
       <section id="discovery-panel" class="card discovery-card" aria-labelledby="discovery-title">
         <div class="section-heading">
           <div>
@@ -24,10 +31,20 @@
               이웃 새 글과 검색 후보를 모아 직접 확인하세요.
             </p>
           </div>
-          <button id="discovery-refresh-button" class="text-button" type="button">이웃 새 글 갱신</button>
+          <button id="discovery-sync-button" class="text-button" type="button">지금 동기화</button>
         </div>
+        <form id="discovery-automation-form" class="discovery-form discovery-automation-form">
+          <p id="discovery-automation-status" class="help" role="status" aria-live="polite"></p>
+          <label>내 블로그 ID <input name="own-blog-id" maxlength="100" placeholder="blogId" /></label>
+          <label class="option"><input name="automation-enabled" type="checkbox" /> 매일 자동 탐색</label>
+          <label>시간대 <input name="automation-timezone" value="Asia/Seoul" required maxlength="64" /></label>
+          <div class="discovery-time-fields">
+            <label>시 <input name="automation-hour" type="number" min="0" max="23" value="9" required /></label>
+            <label>분 <input name="automation-minute" type="number" min="0" max="59" value="0" required /></label>
+          </div>
+          <button id="discovery-automation-save" class="secondary" type="submit">자동 탐색 설정 저장</button>
+        </form>
         <div class="discovery-actions">
-          <button id="import-neighbors-button" class="secondary" type="button">열린 이웃 목록 가져오기</button>
           <button id="discovery-neighbor-tab" class="secondary" type="button" aria-pressed="true">이웃 새 글</button>
           <button id="discovery-search-tab" class="secondary" type="button" aria-pressed="false">신규 이웃 찾기</button>
         </div>
@@ -51,7 +68,7 @@
             <label>최신성(일) <input name="freshness-days" type="number" min="1" max="90" value="14" /></label>
             <button class="secondary" type="submit">검색어 저장</button>
           </form>
-          <p class="help">검색어를 저장한 뒤 네이버 검색 결과 페이지를 열고 ‘현재 검색 결과 가져오기’를 누르세요.</p>
+          <p class="help">저장한 검색어는 자동 탐색과 지금 동기화에 바로 반영됩니다.</p>
           <ul id="discovery-searches" class="discovery-settings-list"></ul>
         </details>
         <details class="advanced-preferences">

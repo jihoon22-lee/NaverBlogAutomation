@@ -239,6 +239,24 @@ paths:
         "200": {description: Discovery post state updated.}
         "404": {$ref: "#/components/responses/NotFound"}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/automation-settings:
+    get:
+      operationId: getAutomaticDiscoverySettings
+      tags: [Discovery]
+      responses:
+        "200": {description: Current automatic discovery settings.}
+    put:
+      operationId: saveAutomaticDiscoverySettings
+      tags: [Discovery]
+      responses:
+        "200": {description: Automatic discovery settings saved.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/sync:
+    post:
+      operationId: syncAutomaticDiscovery
+      tags: [Discovery]
+      responses:
+        "200": {description: Public discovery sources synchronized.}
   /api/v1/discovery/digest-settings:
     get:
       operationId: getDiscoveryDigestSettings

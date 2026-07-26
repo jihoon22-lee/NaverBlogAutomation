@@ -16,3 +16,4 @@ data/*.sqlite*
 extension/coverage/
 extension/dist/
 extension/node_modules/
+node_modules/

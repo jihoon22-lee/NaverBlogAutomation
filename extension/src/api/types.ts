@@ -136,3 +136,24 @@ export interface DigestSettings {
   emailEnabled: boolean;
   smtpConfigured: boolean;
 }
+
+export type AutomaticDiscoveryStatus = "failed" | "never" | "partial" | "success";
+
+export interface AutomaticDiscoverySettings {
+  ownBlogId: string;
+  enabled: boolean;
+  timezone: string;
+  hour: number;
+  minute: number;
+  lastSyncedAt: string | null;
+  lastStatus: AutomaticDiscoveryStatus;
+  lastDetail: string;
+}
+
+export interface AutomaticDiscoverySyncResult {
+  neighborsAdded: number;
+  neighborPostsAdded: number;
+  searchPostsAdded: number;
+  status: Exclude<AutomaticDiscoveryStatus, "never">;
+  detail: string;
+}

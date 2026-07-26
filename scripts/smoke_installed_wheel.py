@@ -12,7 +12,7 @@ import yaml
 from naver_blog_assistant.api import ApiSettings, create_app
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_MIGRATION_HEAD = "20260726_0006"
+EXPECTED_MIGRATION_HEAD = "20260727_0007"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
@@ -50,6 +50,8 @@ def main() -> None:
                 "discovered_posts",
                 "digest_settings",
                 "digest_runs",
+                "automatic_discovery_settings",
+                "automatic_discovery_runs",
             } <= tables
             assert migration_head == (EXPECTED_MIGRATION_HEAD,)
         finally:

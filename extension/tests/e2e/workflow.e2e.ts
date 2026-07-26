@@ -318,11 +318,16 @@ async function stageExtension(): Promise<StagedExtension> {
     "activeTab",
     "alarms",
     "notifications",
+    "permissions",
     "scripting",
     "sidePanel",
     "storage",
   ]);
   expect(productionManifest.host_permissions).toEqual(["http://127.0.0.1:8765/*"]);
+  expect(productionManifest.optional_host_permissions).toEqual([
+    "https://blog.naver.com/*",
+    "https://m.blog.naver.com/*",
+  ]);
   return {
     directory,
     dispose: () => rm(directory, { force: true, recursive: true }),

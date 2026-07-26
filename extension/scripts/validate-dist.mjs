@@ -5,11 +5,16 @@ const EXPECTED_PERMISSIONS = [
   "activeTab",
   "alarms",
   "notifications",
+  "permissions",
   "scripting",
   "sidePanel",
   "storage",
 ];
 const EXPECTED_HOST_PERMISSIONS = ["http://127.0.0.1:8765/*"];
+const EXPECTED_OPTIONAL_HOST_PERMISSIONS = [
+  "https://blog.naver.com/*",
+  "https://m.blog.naver.com/*",
+];
 
 function assert(condition, message) {
   if (!condition) {
@@ -35,11 +40,15 @@ export async function validateDist(outputDirectory) {
   assert(manifest.manifest_version === 3, "manifest_version must be 3");
   assert(
     sameValues(manifest.permissions ?? [], EXPECTED_PERMISSIONS),
-    "permissions must be activeTab, alarms, notifications, scripting, sidePanel, and storage",
+    "permissions must include only the required browser capabilities",
   );
   assert(
     sameValues(manifest.host_permissions ?? [], EXPECTED_HOST_PERMISSIONS),
     "only the loopback API host permission is allowed",
+  );
+  assert(
+    sameValues(manifest.optional_host_permissions ?? [], EXPECTED_OPTIONAL_HOST_PERMISSIONS),
+    "optional host permissions must include only the two Naver Blog origins",
   );
   assert(manifest.action?.default_popup === undefined, "default_popup must not be present");
 

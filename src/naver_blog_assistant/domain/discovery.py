@@ -140,3 +140,31 @@ class DigestSettings:
             raise DomainValidationError("digest timezone is invalid")
         if not 0 <= self.hour <= 23 or not 0 <= self.minute <= 59:
             raise DomainValidationError("digest time is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class AutoDiscoverySettings:
+    """One local user's opt-in schedule for public discovery metadata."""
+
+    own_blog_id: str = ""
+    enabled: bool = False
+    timezone: str = "Asia/Seoul"
+    hour: int = 9
+    minute: int = 0
+    last_synced_at: datetime | None = None
+    last_status: str = "never"
+    last_detail: str = ""
+
+    def __post_init__(self) -> None:
+        if len(self.own_blog_id.strip()) > 100:
+            raise DomainValidationError("own blog id must not exceed 100 characters")
+        if self.enabled and not self.own_blog_id.strip():
+            raise DomainValidationError("enabled automatic discovery requires an own blog id")
+        if not self.timezone.strip() or len(self.timezone) > 64:
+            raise DomainValidationError("automation timezone is invalid")
+        if not 0 <= self.hour <= 23 or not 0 <= self.minute <= 59:
+            raise DomainValidationError("automation time is invalid")
+        if self.last_status not in {"never", "success", "partial", "failed"}:
+            raise DomainValidationError("automation status is invalid")
+        if len(self.last_detail) > 300:
+            raise DomainValidationError("automation detail must not exceed 300 characters")

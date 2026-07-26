@@ -213,3 +213,31 @@ digest_runs = Table(
     Column("neighbor_post_count", Integer, nullable=False),
     Column("email_sent", Boolean, nullable=False, server_default="0"),
 )
+
+automatic_discovery_settings = Table(
+    "automatic_discovery_settings",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("own_blog_id", String(100), nullable=False, server_default=""),
+    Column("enabled", Boolean, nullable=False, server_default="0"),
+    Column("timezone", String(64), nullable=False, server_default="Asia/Seoul"),
+    Column("hour", Integer, nullable=False, server_default="9"),
+    Column("minute", Integer, nullable=False, server_default="0"),
+    Column("last_synced_at", String(32), nullable=True),
+    Column("last_status", String(16), nullable=False, server_default="never"),
+    Column("last_detail", String(300), nullable=False, server_default=""),
+    CheckConstraint("id = 1", name="ck_automatic_discovery_settings_singleton"),
+    CheckConstraint("hour BETWEEN 0 AND 23", name="ck_automatic_discovery_hour"),
+    CheckConstraint("minute BETWEEN 0 AND 59", name="ck_automatic_discovery_minute"),
+    CheckConstraint(
+        "last_status IN ('never', 'success', 'partial', 'failed')",
+        name="ck_automatic_discovery_status",
+    ),
+)
+
+automatic_discovery_runs = Table(
+    "automatic_discovery_runs",
+    metadata,
+    Column("local_date", String(10), primary_key=True),
+    Column("created_at", String(32), nullable=False),
+)

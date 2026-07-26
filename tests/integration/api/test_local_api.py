@@ -112,6 +112,84 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     assert client.get(f"/api/v1/recommendations/{recommendation_id}").json() == payload
 
 
+def test_automatic_discovery_settings_are_opt_in_and_preserve_last_run_state(
+    client: TestClient,
+) -> None:
+    assert client.get("/api/v1/discovery/automation-settings").json() == {
+        "own_blog_id": "",
+        "enabled": False,
+        "timezone": "Asia/Seoul",
+        "hour": 9,
+        "minute": 0,
+        "last_synced_at": None,
+        "last_status": "never",
+        "last_detail": "",
+    }
+    missing_source = client.post("/api/v1/discovery/sync")
+    assert missing_source.status_code == 200
+    assert missing_source.json()["status"] == "failed"
+    missing_blog_id = client.put(
+        "/api/v1/discovery/automation-settings",
+        json={"own_blog_id": "", "enabled": True},
+    )
+    assert_problem(missing_blog_id, status=422, code="invalid_automatic_discovery_settings")
+    saved = client.put(
+        "/api/v1/discovery/automation-settings",
+        json={
+            "own_blog_id": "my-blog",
+            "enabled": True,
+            "timezone": "Asia/Seoul",
+            "hour": 8,
+            "minute": 30,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["own_blog_id"] == "my-blog"
+    assert saved.json()["enabled"] is True
+    assert saved.json()["last_status"] == "failed"
+
+
+def test_automatic_discovery_sync_collects_public_metadata_without_browser_state(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def public_html(url: str) -> str:
+        if "BuddyList.naver" in url:
+            return '<a href="https://m.blog.naver.com/PostList.naver?blogId=friend">친한 이웃</a>'
+        return '<a href="https://blog.naver.com/newfriend/456">새 전시 후기</a>'
+
+    monkeypatch.setattr("naver_blog_assistant.api.factory.fetch_public_html", public_html)
+    monkeypatch.setattr(
+        "naver_blog_assistant.api.factory.fetch_rss_posts",
+        lambda _url: (("https://blog.naver.com/friend/123", "이웃 새 글", None),),
+    )
+    settings = client.put(
+        "/api/v1/discovery/automation-settings",
+        json={"own_blog_id": "mine", "enabled": True},
+    )
+    assert settings.status_code == 200
+    assert (
+        client.post(
+            "/api/v1/discovery/searches",
+            json={"query": "전시", "excluded_terms": [], "freshness_days": 14},
+        ).status_code
+        == 201
+    )
+
+    response = client.post("/api/v1/discovery/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "neighbors_added": 1,
+        "neighbor_posts_added": 1,
+        "search_posts_added": 1,
+        "status": "success",
+        "detail": "이웃 1개, 이웃 새 글 1개, 검색 후보 1개를 확인했습니다.",
+    }
+    settings_after = client.get("/api/v1/discovery/automation-settings").json()
+    assert settings_after["last_status"] == "success"
+    assert settings_after["last_synced_at"] is not None
+
+
 def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestClient) -> None:
     neighbor = client.post(
         "/api/v1/discovery/neighbors",
