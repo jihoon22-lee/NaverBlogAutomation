@@ -74,7 +74,7 @@ export class DiscoveryController {
       this.#notice(
         automation.enabled
           ? "자동 탐색이 설정되었습니다. 필요하면 지금 동기화로 바로 확인할 수 있습니다."
-          : "내 블로그 ID를 저장하고 자동 탐색을 켜면 매일 대기열을 갱신합니다.",
+          : "탐색 설정과 알림을 열어 내 블로그 ID를 저장하면 매일 대기열을 갱신할 수 있습니다.",
       );
     } catch (error) {
       this.#notice(error instanceof Error ? error.message : "탐색 대기열을 불러오지 못했습니다.");

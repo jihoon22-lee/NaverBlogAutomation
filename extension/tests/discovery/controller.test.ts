@@ -107,6 +107,8 @@ describe("DiscoveryController", () => {
     controller.start();
     await settle();
     expect(document.querySelector("#discovery-queue")?.textContent).toContain("대기 글");
+    expect(document.querySelector("#discovery-settings")?.hasAttribute("open")).toBe(false);
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("탐색 설정과 알림");
 
     const form = document.querySelector("#discovery-automation-form") as HTMLFormElement;
     (form.elements.namedItem("own-blog-id") as HTMLInputElement).value = "mine";
