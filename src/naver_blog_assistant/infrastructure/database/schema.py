@@ -173,6 +173,7 @@ discovered_posts = Table(
     Column("source_url", Text, nullable=False, unique=True),
     Column("title", String(300), nullable=False),
     Column("publisher_name", String(120), nullable=True),
+    Column("publisher_blog_id", String(100), nullable=True),
     Column("published_at", String(32), nullable=True),
     Column(
         "neighbor_id",

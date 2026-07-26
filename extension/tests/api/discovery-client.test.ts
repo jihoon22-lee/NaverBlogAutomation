@@ -85,6 +85,7 @@ describe("LocalApiClient discovery API", () => {
               source_url: "https://blog.naver.com/friend/123",
               title: "글",
               publisher_name: null,
+              publisher_blog_id: "friend",
               published_at: null,
               neighbor_id: null,
               search_id: id,
@@ -102,6 +103,7 @@ describe("LocalApiClient discovery API", () => {
           source_url: "https://blog.naver.com/friend/123",
           title: "글",
           publisher_name: null,
+          publisher_blog_id: "friend",
           published_at: null,
           neighbor_id: null,
           search_id: id,
@@ -157,6 +159,7 @@ describe("LocalApiClient discovery API", () => {
           neighbors_added: 1,
           neighbor_posts_added: 2,
           search_posts_added: 3,
+          search_provider: "naver_open_api",
           status: "success",
           detail: "동기화 완료",
         }),
@@ -214,9 +217,30 @@ describe("LocalApiClient discovery API", () => {
       neighborsAdded: 1,
       neighborPostsAdded: 2,
       searchPostsAdded: 3,
+      searchProvider: "naver_open_api",
       status: "success",
     });
     expect(fetch).toHaveBeenCalledTimes(13);
+  });
+
+  it("refreshes one saved search through the documented Naver API", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      json({
+        imported_count: 2,
+        provider: "naver_open_api",
+        detail: "공식 네이버 검색 API에서 검색 후보 2개를 확인했습니다.",
+      }),
+    );
+
+    await expect(new LocalApiClient(fetch).refreshDiscoverySearch(id)).resolves.toEqual({
+      importedCount: 2,
+      provider: "naver_open_api",
+      detail: "공식 네이버 검색 API에서 검색 후보 2개를 확인했습니다.",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/v1/discovery/searches/${id}/refresh`),
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("rejects malformed automatic-discovery settings and synchronization responses", async () => {
@@ -253,6 +277,7 @@ describe("LocalApiClient discovery API", () => {
       neighbors_added: 1,
       neighbor_posts_added: 2,
       search_posts_added: 3,
+      search_provider: "naver_open_api",
       status: "success",
       detail: "동기화 완료",
     };
@@ -260,6 +285,7 @@ describe("LocalApiClient discovery API", () => {
       { ...synchronization, neighbors_added: -1 },
       { ...synchronization, neighbor_posts_added: 51 },
       { ...synchronization, search_posts_added: "3" },
+      { ...synchronization, search_provider: "unknown" },
       { ...synchronization, status: "running" },
       { ...synchronization, detail: 3 },
       { ...synchronization, unexpected: true },

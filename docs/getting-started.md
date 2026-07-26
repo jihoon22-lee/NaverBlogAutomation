@@ -89,8 +89,18 @@ extension을 다시 설치해 ID가 바뀌면 해당 환경의 setup launcher를
 
 Side Panel의 **글 탐색 대기열**에서 내 블로그 URL의 `blogId`를 한 번 입력하고 **매일 자동 탐색**을
 켜세요. 기본 시각은 `Asia/Seoul` 오전 9시이며, **지금 동기화**를 누르면 바로 공개 이웃 목록·등록
-이웃 RSS·저장한 검색어의 블로그 결과를 대기열에 모읍니다. 로컬 API가 실행 중일 때만 예약 동기화가
-실행됩니다.
+이웃 RSS를 대기열에 모읍니다. 로컬 API가 실행 중일 때만 예약 동기화가 실행됩니다.
+
+신규 이웃 검색도 사용하려면 [Naver Developers 검색 API](https://developers.naver.com/docs/serviceapi/search/blog/blog.md)에서
+application을 만든 뒤 private env file에 아래 두 값을 함께 넣고 API를 재시작하세요. 하나만 넣으면
+setup check와 API가 오류를 알려 주며, HTML 검색 결과를 대체로 읽지는 않습니다.
+
+```dotenv
+NAVER_SEARCH_CLIENT_ID=<private-client-id>
+NAVER_SEARCH_CLIENT_SECRET=<private-client-secret>
+```
+
+검색어를 저장한 다음 **지금 동기화**를 누르면 공식 API의 최신 결과에서 후보를 가져옵니다.
 
 동기화는 공개 제목·URL·게시 시각 metadata만 저장합니다. 네이버 로그인 비밀번호·쿠키·본문은 읽거나
 저장하지 않으며, 댓글 등록은 계속 직접 수행합니다.

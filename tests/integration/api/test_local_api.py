@@ -29,7 +29,12 @@ from naver_blog_assistant.application import (
     GenerationRefusedError,
     GenerationUnavailableError,
 )
-from naver_blog_assistant.domain import CapturedPost, GenerationOutput, GenerationPreferences
+from naver_blog_assistant.domain import (
+    CapturedPost,
+    GenerationOutput,
+    GenerationPreferences,
+    ImportedDiscoveryPost,
+)
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 from naver_blog_assistant.ports import GenerationNotStartedError
@@ -53,6 +58,8 @@ def client(database_path: Path) -> Iterator[TestClient]:
         generator_mode="fake",
         app_environment="test",
         rate_limit_requests=20,
+        naver_search_client_id="test-client-id",
+        naver_search_client_secret="test-client-secret",
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -153,11 +160,20 @@ def test_automatic_discovery_sync_collects_public_metadata_without_browser_state
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def public_html(url: str) -> str:
-        if "BuddyList.naver" in url:
-            return '<a href="https://m.blog.naver.com/PostList.naver?blogId=friend">친한 이웃</a>'
-        return '<a href="https://blog.naver.com/newfriend/456">새 전시 후기</a>'
+        assert "BuddyList.naver" in url
+        return '<a href="https://m.blog.naver.com/PostList.naver?blogId=friend">친한 이웃</a>'
 
     monkeypatch.setattr("naver_blog_assistant.api.factory.fetch_public_html", public_html)
+    monkeypatch.setattr(
+        "naver_blog_assistant.api.factory.fetch_naver_blog_search",
+        lambda _query, **_kwargs: (
+            ImportedDiscoveryPost(
+                source_url="https://blog.naver.com/newfriend/456",
+                title="새 전시 후기",
+                publisher_blog_id="newfriend",
+            ),
+        ),
+    )
     monkeypatch.setattr(
         "naver_blog_assistant.api.factory.fetch_rss_posts",
         lambda _url: (("https://blog.naver.com/friend/123", "이웃 새 글", None),),
@@ -182,12 +198,37 @@ def test_automatic_discovery_sync_collects_public_metadata_without_browser_state
         "neighbors_added": 1,
         "neighbor_posts_added": 1,
         "search_posts_added": 1,
+        "search_provider": "naver_open_api",
         "status": "success",
         "detail": "이웃 1개, 이웃 새 글 1개, 검색 후보 1개를 확인했습니다.",
     }
     settings_after = client.get("/api/v1/discovery/automation-settings").json()
     assert settings_after["last_status"] == "success"
     assert settings_after["last_synced_at"] is not None
+
+
+def test_saved_search_refresh_explains_when_official_api_credentials_are_missing(
+    database_path: Path,
+) -> None:
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{database_path}",
+        generator_mode="fake",
+        app_environment="test",
+    )
+    with TestClient(create_app(settings)) as configured_client:
+        search = configured_client.post(
+            "/api/v1/discovery/searches",
+            json={"query": "전시", "excluded_terms": [], "freshness_days": 14},
+        )
+        assert search.status_code == 201
+
+        response = configured_client.post(
+            f"/api/v1/discovery/searches/{search.json()['id']}/refresh"
+        )
+
+    assert_problem(response, status=409, code="discovery_search_not_configured")
+    assert "NAVER_SEARCH_CLIENT_ID" in response.json()["detail"]
 
 
 def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestClient) -> None:

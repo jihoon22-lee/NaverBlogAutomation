@@ -111,7 +111,7 @@ export class DiscoveryController {
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
     try {
-      await this.#api.saveDiscoverySearch({
+      const saved = await this.#api.saveDiscoverySearch({
         query: stringField(data, "query"),
         excludedTerms: stringField(data, "excluded-terms")
           .split(",")
@@ -120,8 +120,15 @@ export class DiscoveryController {
         freshnessDays: Number(stringField(data, "freshness-days")),
       });
       form.reset();
-      this.#notice("신규 이웃 검색어를 저장했습니다.");
       await this.render();
+      try {
+        const result = await this.#api.refreshDiscoverySearch(saved.id);
+        await this.render();
+        this.#notice(result.detail);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "검색 결과를 가져오지 못했습니다.";
+        this.#notice(`신규 이웃 검색어를 저장했습니다. ${detail}`);
+      }
     } catch (error) {
       this.#notice(error instanceof Error ? error.message : "검색어를 저장하지 못했습니다.");
     }
@@ -202,7 +209,9 @@ export class DiscoveryController {
 
   #renderSearches(items: readonly { id: string; query: string; freshnessDays: number }[]): void {
     this.#element("discovery-searches").replaceChildren(
-      ...items.map((item) => listItem(`${item.query} · 최근 ${item.freshnessDays}일 · 자동 수집`)),
+      ...items.map((item) =>
+        listItem(`${item.query} · 최근 ${item.freshnessDays}일 · 공식 검색 API`),
+      ),
     );
   }
 

@@ -12,11 +12,11 @@ import pytest
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
     buddy_list_url,
+    fetch_naver_blog_search,
     fetch_public_html,
     fetch_rss_posts,
     filter_saved_search_posts,
     parse_buddy_list,
-    parse_search_posts,
     rss_url_for,
 )
 from naver_blog_assistant.domain import ImportedDiscoveryPost, SavedSearch
@@ -35,6 +35,22 @@ class FakeResponse:
           <pubDate>Sat, 26 Jul 2026 09:00:00 +0000</pubDate></item>
           <item><title></title><link>https://blog.naver.com/friend/456</link></item>
         </channel></rss>""".encode()
+
+
+class JsonResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.read_limit: int | None = None
+
+    def __enter__(self) -> JsonResponse:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def read(self, limit: int) -> bytes:
+        self.read_limit = limit
+        return self.body
 
 
 def test_rss_fetch_reads_only_bounded_post_metadata() -> None:
@@ -75,7 +91,7 @@ def test_saved_search_filters_excluded_and_stale_dated_metadata() -> None:
             published_at=datetime(2026, 7, 1, tzinfo=UTC),
         ),
         ImportedDiscoveryPost(
-            source_url="https://blog.naver.com/friend/4",
+            source_url="https://blog.naver.com/otherfriend/4",
             title="게시일을 제공하지 않는 전시",
         ),
     )
@@ -91,23 +107,46 @@ def test_public_list_parsers_keep_only_direct_bounded_naver_metadata() -> None:
       <a href="https://m.blog.naver.com/PostList.naver?blogId=friend">친한 이웃</a>
       <a href="https://example.test/friend">외부</a>
     """
-    search_html = """
-      <a href="https://blog.naver.com/friend/123">전시 후기</a>
-      <a href="https://blog.naver.com/friend">프로필</a>
-    """
-
     assert buddy_list_url("mine").endswith("blogId=mine")
     assert parse_buddy_list(buddy_html) == (
         ("친한 이웃", "friend", "https://blog.naver.com/friend"),
-    )
-    assert parse_search_posts(search_html) == (
-        ImportedDiscoveryPost(source_url="https://blog.naver.com/friend/123", title="전시 후기"),
     )
 
 
 def test_public_html_rejects_non_allowlisted_urls() -> None:
     with pytest.raises(ValueError, match="allowed"):
         fetch_public_html("https://example.test/")
+
+
+def test_public_html_rejects_search_results_html() -> None:
+    with pytest.raises(ValueError, match="allowed"):
+        fetch_public_html("https://search.naver.com/search.naver?where=blog&query=test")
+
+
+def test_naver_blog_search_uses_documented_headers_and_normalizes_metadata() -> None:
+    response = JsonResponse(
+        b'{"items":[{"title":"<b>\xec\xa0\x84\xec\x8b\x9c</b> \xed\x9b\x84\xea\xb8\xb0",'
+        b'"link":"https://blog.naver.com/friend/123","bloggername":"<b>\xec\xb9\x9c\xea\xb5\xac</b>",'
+        b'"bloggerlink":"https://blog.naver.com/friend","postdate":"20260726"}]}'
+    )
+    with patch(
+        "naver_blog_assistant.application.discovery.urlopen", return_value=response
+    ) as opened:
+        posts = fetch_naver_blog_search("전시", client_id="id", client_secret="secret")
+
+    request = opened.call_args.args[0]
+    assert request.get_header("X-naver-client-id") == "id"
+    assert request.get_header("X-naver-client-secret") == "secret"
+    assert response.read_limit == 1_000_000
+    assert posts == (
+        ImportedDiscoveryPost(
+            source_url="https://blog.naver.com/friend/123",
+            title="\uc804\uc2dc \ud6c4\uae30",
+            publisher_name="\uce5c\uad6c",
+            publisher_blog_id="friend",
+            published_at=datetime(2026, 7, 26, tzinfo=UTC),
+        ),
+    )
 
 
 @pytest.mark.parametrize("security", ["starttls", "ssl"])

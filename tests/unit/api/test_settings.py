@@ -77,9 +77,32 @@ def test_database_url_must_use_sqlite_without_echoing_its_value(database_url: st
 
 
 def test_api_key_is_hidden_from_settings_repr() -> None:
-    settings = ApiSettings(extension_origin=ORIGIN, openai_api_key="private-test-key")
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        openai_api_key="private-test-key",
+        naver_search_client_id="private-client-id",
+        naver_search_client_secret="private-client-secret",
+    )
 
     assert "private-test-key" not in repr(settings)
+    assert "private-client-id" not in repr(settings)
+    assert "private-client-secret" not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    ("client_id", "client_secret"),
+    [("id", ""), ("", "secret")],
+)
+def test_naver_search_credentials_must_be_configured_together(
+    client_id: str, client_secret: str
+) -> None:
+    with pytest.raises(ValueError, match="NAVER_SEARCH_CLIENT_ID"):
+        ApiSettings(
+            extension_origin=ORIGIN,
+            openai_api_key="test-key",
+            naver_search_client_id=client_id,
+            naver_search_client_secret=client_secret,
+        )
 
 
 @pytest.mark.parametrize(

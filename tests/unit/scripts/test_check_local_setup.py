@@ -76,6 +76,21 @@ def test_diagnostics_reject_an_empty_api_key(monkeypatch: pytest.MonkeyPatch) ->
     assert result.detail == "missing or empty"
 
 
+def test_diagnostics_reports_optional_naver_search_without_disclosing_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_id = "private-client-id"
+    client_secret = "private-client-secret"
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_ID", client_id)
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_SECRET", client_secret)
+
+    result = check_local_setup._naver_search_api_check()
+
+    assert result.ok
+    assert client_id not in result.detail
+    assert client_secret not in result.detail
+
+
 def test_environment_permission_check_rejects_broad_posix_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

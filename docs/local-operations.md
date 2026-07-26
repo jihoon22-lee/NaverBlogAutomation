@@ -73,8 +73,9 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
   않습니다.
 - **자동 탐색 결과가 비어 있음:** 내 블로그 ID와 저장한 검색어를 확인한 뒤 **지금 동기화**를 누릅니다.
-  공개 BuddyList·RSS·검색 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고 마지막
-  동기화 상태에 이유를 표시합니다.
+  신규 이웃 검색은 `NAVER_SEARCH_CLIENT_ID`와 `NAVER_SEARCH_CLIENT_SECRET`가 모두 필요합니다.
+  공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
+  마지막 동기화 상태에 이유를 표시합니다.
 - **Extension 변경이 보이지 않음:** `npm --prefix extension run build` 후 extension card의 Reload를
   누릅니다. Reload 후 ID와 env origin이 여전히 일치하는지 확인합니다.
 - **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로

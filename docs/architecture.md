@@ -123,6 +123,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Recommendation, review status, and recent-history source | SQLite | Until individually or globally removed |
 | Eligible completed-comment style examples | SQLite/OpenAI request | Until excluded; at most five per enabled generation |
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
+| `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
 | Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
 
