@@ -1,7 +1,14 @@
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const EXPECTED_PERMISSIONS = ["activeTab", "scripting", "sidePanel", "storage"];
+const EXPECTED_PERMISSIONS = [
+  "activeTab",
+  "alarms",
+  "notifications",
+  "scripting",
+  "sidePanel",
+  "storage",
+];
 const EXPECTED_HOST_PERMISSIONS = ["http://127.0.0.1:8765/*"];
 
 function assert(condition, message) {
@@ -28,7 +35,7 @@ export async function validateDist(outputDirectory) {
   assert(manifest.manifest_version === 3, "manifest_version must be 3");
   assert(
     sameValues(manifest.permissions ?? [], EXPECTED_PERMISSIONS),
-    "permissions must be activeTab, scripting, sidePanel, and storage",
+    "permissions must be activeTab, alarms, notifications, scripting, sidePanel, and storage",
   );
   assert(
     sameValues(manifest.host_permissions ?? [], EXPECTED_HOST_PERMISSIONS),

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "naver-blog-assistant"
-version = "0.3.0"
+version = "0.4.0"
 description = "Human-in-the-loop AI comment assistant for Naver Blog"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -53,6 +53,7 @@ markers = ["live_openai: opt-in test that makes a real OpenAI API request"]
 [tool.coverage.run]
 branch = true
 source = ["naver_blog_assistant"]
+omit = ["src/naver_blog_assistant/infrastructure/database/migrations/*"]
 
 [tool.coverage.report]
 fail_under = 85

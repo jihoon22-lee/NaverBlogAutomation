@@ -91,3 +91,48 @@ export interface RecommendationHistoryItem {
   updatedAt: string | null;
   personalizationEligible: boolean;
 }
+
+export type DiscoverySource = "neighbor" | "search";
+export type DiscoveryState = "queued" | "opened" | "completed" | "skipped" | "unavailable";
+
+export interface DiscoveryNeighbor {
+  id: string;
+  name: string;
+  blogUrl: string;
+  blogId: string;
+  enabled: boolean;
+  feedStatus: "ready" | "unavailable" | "unknown";
+  lastCheckedAt: string | null;
+  createdAt: string;
+}
+
+export interface DiscoverySearch {
+  id: string;
+  query: string;
+  excludedTerms: readonly string[];
+  freshnessDays: number;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface DiscoveryPost {
+  id: string;
+  source: DiscoverySource;
+  state: DiscoveryState;
+  sourceUrl: string;
+  title: string;
+  publisherName: string | null;
+  publishedAt: string | null;
+  neighborId: string | null;
+  searchId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DigestSettings {
+  timezone: string;
+  hour: number;
+  minute: number;
+  emailEnabled: boolean;
+  smtpConfigured: boolean;
+}

@@ -12,7 +12,7 @@ import yaml
 from naver_blog_assistant.api import ApiSettings, create_app
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_MIGRATION_HEAD = "20260723_0005"
+EXPECTED_MIGRATION_HEAD = "20260726_0006"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
@@ -41,7 +41,16 @@ def main() -> None:
                 migration_head = connection.execute(
                     "SELECT version_num FROM alembic_version"
                 ).fetchone()
-            assert {"recommendations", "comment_candidates", "idempotency_records"} <= tables
+            assert {
+                "recommendations",
+                "comment_candidates",
+                "idempotency_records",
+                "neighbor_blogs",
+                "saved_searches",
+                "discovered_posts",
+                "digest_settings",
+                "digest_runs",
+            } <= tables
             assert migration_head == (EXPECTED_MIGRATION_HEAD,)
         finally:
             app.state.database_engine.dispose()

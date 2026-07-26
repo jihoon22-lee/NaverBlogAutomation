@@ -10,6 +10,7 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, cast
@@ -37,12 +38,25 @@ from naver_blog_assistant.api.middleware import (
 )
 from naver_blog_assistant.api.models import (
     CreateRecommendationRequest,
+    DigestSettingsRequest,
+    DigestSettingsResponse,
+    DiscoveryImportRequest,
+    DiscoveryImportResponse,
+    DiscoveryPostResponse,
+    DiscoveryPostStateRequest,
+    DiscoveryQueueResponse,
     HealthResponse,
+    NeighborListResponse,
+    NeighborRequest,
+    NeighborResponse,
     ProblemDetails,
     RecommendationHistoryItemResponse,
     RecommendationHistoryResponse,
     RecommendationResponse,
     ReviewRecommendationRequest,
+    SavedSearchListResponse,
+    SavedSearchRequest,
+    SavedSearchResponse,
     ServiceStatusResponse,
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
@@ -65,16 +79,28 @@ from naver_blog_assistant.application import (
     ReplayedGenerationFailure,
     ReviewRecommendation,
 )
+from naver_blog_assistant.application.discovery import (
+    SmtpDigestSender,
+    fetch_rss_posts,
+    filter_saved_search_posts,
+    rss_url_for,
+)
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
     CapturedPost,
+    DiscoverySource,
+    DiscoveryState,
     DomainValidationError,
     GenerationOutput,
     GenerationPreferences,
+    ImportedDiscoveryPost,
     ReviewPatch,
     ReviewTransitionError,
 )
-from naver_blog_assistant.infrastructure.database import create_sqlite_engine
+from naver_blog_assistant.infrastructure.database import (
+    SqliteDiscoveryRepository,
+    create_sqlite_engine,
+)
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedError
@@ -173,6 +199,13 @@ class ApiSettings:
     openai_max_output_tokens: int = 3_000
     rate_limit_requests: int = 10
     rate_limit_window_seconds: float = 60.0
+    digest_smtp_host: str = ""
+    digest_smtp_port: int = 587
+    digest_smtp_security: Literal["starttls", "ssl"] = "starttls"
+    digest_smtp_username: str = field(default="", repr=False)
+    digest_smtp_password: str = field(default="", repr=False)
+    digest_email_from: str = ""
+    digest_email_to: str = ""
 
     def __post_init__(self) -> None:
         try:
@@ -210,6 +243,21 @@ class ApiSettings:
             or self.rate_limit_window_seconds <= 0
         ):
             raise ValueError("RATE_LIMIT_REQUESTS and RATE_LIMIT_WINDOW_SECONDS must be positive")
+        smtp_values = (
+            self.digest_smtp_host,
+            self.digest_smtp_username,
+            self.digest_smtp_password,
+            self.digest_email_from,
+            self.digest_email_to,
+        )
+        if any(value.strip() for value in smtp_values) and not all(
+            value.strip() for value in smtp_values
+        ):
+            raise ValueError("digest SMTP settings must be configured together")
+        if not 1 <= self.digest_smtp_port <= 65535:
+            raise ValueError("DIGEST_SMTP_PORT must be between 1 and 65535")
+        if self.digest_smtp_security not in {"starttls", "ssl"}:
+            raise ValueError("DIGEST_SMTP_SECURITY must be starttls or ssl")
 
     @classmethod
     def from_environment(cls) -> ApiSettings:
@@ -248,6 +296,16 @@ class ApiSettings:
             openai_max_output_tokens=_environment_int("OPENAI_MAX_OUTPUT_TOKENS", "3000"),
             rate_limit_requests=_environment_int("RATE_LIMIT_REQUESTS", "10"),
             rate_limit_window_seconds=_environment_float("RATE_LIMIT_WINDOW_SECONDS", "60"),
+            digest_smtp_host=os.getenv("DIGEST_SMTP_HOST", "").strip(),
+            digest_smtp_port=_environment_int("DIGEST_SMTP_PORT", "587"),
+            digest_smtp_security=cast(
+                Literal["starttls", "ssl"],
+                os.getenv("DIGEST_SMTP_SECURITY", "starttls").strip().lower(),
+            ),
+            digest_smtp_username=os.getenv("DIGEST_SMTP_USERNAME", "").strip(),
+            digest_smtp_password=os.getenv("DIGEST_SMTP_PASSWORD", "").strip(),
+            digest_email_from=os.getenv("DIGEST_EMAIL_FROM", "").strip(),
+            digest_email_to=os.getenv("DIGEST_EMAIL_TO", "").strip(),
         )
 
 
@@ -262,6 +320,7 @@ def create_app(
         upgrade_database(settings.database_url)
     engine = create_sqlite_engine(settings.database_url)
     repository = SqliteRepository(engine)
+    discovery = SqliteDiscoveryRepository(engine)
     selected_generator = generator or _configured_generator(settings)
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
@@ -280,6 +339,72 @@ def create_app(
     clear_personalization_examples = ClearPersonalizationExamples(repository)
     pending_generations: set[asyncio.Task[GenerationResult]] = set()
 
+    async def refresh_neighbors_from_rss() -> int:
+        imported_count = 0
+        for neighbor in discovery.list_neighbors():
+            if not neighbor.enabled:
+                continue
+            try:
+                rss_posts = await asyncio.to_thread(fetch_rss_posts, rss_url_for(neighbor.blog_id))
+                imported_count += discovery.import_posts(
+                    source=DiscoverySource.NEIGHBOR,
+                    neighbor_id=neighbor.id,
+                    posts=tuple(
+                        ImportedDiscoveryPost(
+                            source_url=url,
+                            title=title,
+                            publisher_name=neighbor.name,
+                            published_at=published_at,
+                        )
+                        for url, title, published_at in rss_posts
+                    ),
+                )
+                discovery.update_neighbor_feed_status(
+                    neighbor.id, status="ready", checked_at=datetime.now(UTC)
+                )
+            except Exception:
+                logger.warning("discovery_rss_refresh_failed neighbor_id=%s", neighbor.id)
+                discovery.update_neighbor_feed_status(
+                    neighbor.id, status="unavailable", checked_at=datetime.now(UTC)
+                )
+        discovery.cleanup_old_posts()
+        return imported_count
+
+    async def run_daily_digest_if_due() -> None:
+        settings_value = discovery.get_digest_settings()
+        try:
+            from zoneinfo import ZoneInfo
+
+            local_now = datetime.now(ZoneInfo(settings_value.timezone))
+        except Exception:
+            logger.warning("discovery_digest_invalid_timezone")
+            return
+        if (local_now.hour, local_now.minute) < (settings_value.hour, settings_value.minute):
+            return
+        await refresh_neighbors_from_rss()
+        queued_posts = discovery.list_posts(DiscoverySource.NEIGHBOR)
+        local_date = local_now.date().isoformat()
+        if not discovery.claim_digest_run(local_date, neighbor_post_count=len(queued_posts)):
+            return
+        if settings_value.email_enabled and _smtp_configured(settings):
+            body = _digest_email_body(queued_posts)
+            try:
+                await asyncio.to_thread(
+                    _smtp_sender(settings).send, subject="네이버 블로그 새 글 요약", body=body
+                )
+            except Exception:
+                logger.warning("discovery_digest_email_failed")
+            else:
+                discovery.mark_digest_email_sent(local_date)
+
+    async def discovery_scheduler() -> None:
+        while True:
+            try:
+                await run_daily_digest_if_due()
+            except Exception:
+                logger.exception("discovery_digest_scheduler_failed")
+            await asyncio.sleep(60)
+
     def finish_generation_task(task: asyncio.Task[GenerationResult]) -> None:
         pending_generations.discard(task)
         if not task.cancelled():
@@ -287,9 +412,17 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        scheduler_task = (
+            asyncio.create_task(discovery_scheduler())
+            if settings.app_environment != "test"
+            else None
+        )
         try:
             yield
         finally:
+            if scheduler_task is not None:
+                scheduler_task.cancel()
+                await asyncio.gather(scheduler_task, return_exceptions=True)
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
             close = getattr(selected_generator, "close", None)
@@ -582,6 +715,192 @@ def create_app(
         clear_personalization_examples.execute()
         return Response(status_code=204)
 
+    @app.get(
+        "/api/v1/discovery/neighbors",
+        response_model=NeighborListResponse,
+        tags=["Discovery"],
+        operation_id="listDiscoveryNeighbors",
+    )
+    def list_discovery_neighbors() -> NeighborListResponse:
+        return NeighborListResponse(
+            items=[NeighborResponse.from_domain(item) for item in discovery.list_neighbors()]
+        )
+
+    @app.post(
+        "/api/v1/discovery/neighbors",
+        response_model=NeighborResponse,
+        status_code=201,
+        responses={422: _problem_metadata("Neighbor data is invalid.")},
+        tags=["Discovery"],
+        operation_id="saveDiscoveryNeighbor",
+    )
+    def save_discovery_neighbor(payload: NeighborRequest) -> NeighborResponse:
+        try:
+            result = discovery.save_neighbor(
+                name=payload.name.strip(),
+                blog_url=payload.blog_url.strip(),
+                blog_id=payload.blog_id.strip(),
+                enabled=payload.enabled,
+            )
+        except DomainValidationError as error:
+            raise ApiError(
+                422, "invalid_neighbor", "Invalid neighbor", "Neighbor data is invalid."
+            ) from error
+        return NeighborResponse.from_domain(result)
+
+    @app.get(
+        "/api/v1/discovery/searches",
+        response_model=SavedSearchListResponse,
+        tags=["Discovery"],
+        operation_id="listDiscoverySearches",
+    )
+    def list_discovery_searches() -> SavedSearchListResponse:
+        return SavedSearchListResponse(
+            items=[SavedSearchResponse.from_domain(item) for item in discovery.list_searches()]
+        )
+
+    @app.post(
+        "/api/v1/discovery/searches",
+        response_model=SavedSearchResponse,
+        status_code=201,
+        responses={422: _problem_metadata("Saved search data is invalid.")},
+        tags=["Discovery"],
+        operation_id="saveDiscoverySearch",
+    )
+    def save_discovery_search(payload: SavedSearchRequest) -> SavedSearchResponse:
+        try:
+            result = discovery.save_search(
+                query=payload.query.strip(),
+                excluded_terms=tuple(term.strip() for term in payload.excluded_terms),
+                freshness_days=payload.freshness_days,
+                enabled=payload.enabled,
+            )
+        except DomainValidationError as error:
+            raise ApiError(
+                422, "invalid_search", "Invalid saved search", "Saved search data is invalid."
+            ) from error
+        return SavedSearchResponse.from_domain(result)
+
+    @app.post(
+        "/api/v1/discovery/import",
+        response_model=DiscoveryImportResponse,
+        responses={
+            404: _problem_metadata("The selected discovery owner was not found."),
+            422: _problem_metadata("Discovery import is invalid."),
+        },
+        tags=["Discovery"],
+        operation_id="importDiscoveryPosts",
+    )
+    def import_discovery_posts(payload: DiscoveryImportRequest) -> DiscoveryImportResponse:
+        source = DiscoverySource(payload.source)
+        posts = tuple(item.to_domain() for item in payload.posts)
+        if source is DiscoverySource.NEIGHBOR:
+            assert payload.neighbor_id is not None
+            if payload.neighbor_id not in {item.id for item in discovery.list_neighbors()}:
+                raise _discovery_not_found()
+        else:
+            assert payload.search_id is not None
+            search = next(
+                (item for item in discovery.list_searches() if item.id == payload.search_id), None
+            )
+            if search is None:
+                raise _discovery_not_found()
+            if not search.enabled:
+                return DiscoveryImportResponse(imported_count=0)
+            posts = filter_saved_search_posts(search, posts, now=datetime.now(UTC))
+        try:
+            count = discovery.import_posts(
+                source=source,
+                neighbor_id=payload.neighbor_id,
+                search_id=payload.search_id,
+                posts=posts,
+            )
+        except DomainValidationError as error:
+            raise ApiError(
+                422,
+                "invalid_discovery_post",
+                "Invalid discovery post",
+                "Discovery post data is invalid.",
+            ) from error
+        return DiscoveryImportResponse(imported_count=count)
+
+    @app.get(
+        "/api/v1/discovery/queue",
+        response_model=DiscoveryQueueResponse,
+        responses={422: _problem_metadata("Discovery source is invalid.")},
+        tags=["Discovery"],
+        operation_id="listDiscoveryQueue",
+    )
+    def list_discovery_queue(
+        source: Annotated[Literal["neighbor", "search"], Query()],
+    ) -> DiscoveryQueueResponse:
+        return DiscoveryQueueResponse(
+            items=[
+                DiscoveryPostResponse.from_domain(item)
+                for item in discovery.list_posts(DiscoverySource(source))
+            ]
+        )
+
+    @app.patch(
+        "/api/v1/discovery/queue/{post_id}",
+        response_model=DiscoveryPostResponse,
+        responses={
+            404: _problem_metadata("The discovery post was not found."),
+            422: _problem_metadata("Discovery post state is invalid."),
+        },
+        tags=["Discovery"],
+        operation_id="updateDiscoveryPostState",
+    )
+    def update_discovery_post_state(
+        post_id: UUID,
+        payload: DiscoveryPostStateRequest,
+    ) -> DiscoveryPostResponse:
+        result = discovery.update_post_state(post_id, DiscoveryState(payload.state))
+        if result is None:
+            raise _discovery_not_found()
+        return DiscoveryPostResponse.from_domain(result)
+
+    @app.get(
+        "/api/v1/discovery/digest-settings",
+        response_model=DigestSettingsResponse,
+        tags=["Discovery"],
+        operation_id="getDiscoveryDigestSettings",
+    )
+    def get_discovery_digest_settings() -> DigestSettingsResponse:
+        return DigestSettingsResponse.from_domain(
+            discovery.get_digest_settings(), smtp_configured=_smtp_configured(settings)
+        )
+
+    @app.put(
+        "/api/v1/discovery/digest-settings",
+        response_model=DigestSettingsResponse,
+        responses={422: _problem_metadata("Digest settings are invalid.")},
+        tags=["Discovery"],
+        operation_id="saveDiscoveryDigestSettings",
+    )
+    def save_discovery_digest_settings(payload: DigestSettingsRequest) -> DigestSettingsResponse:
+        try:
+            result = discovery.save_digest_settings(payload.to_domain())
+        except DomainValidationError as error:
+            raise ApiError(
+                422,
+                "invalid_digest_settings",
+                "Invalid digest settings",
+                "Digest settings are invalid.",
+            ) from error
+        return DigestSettingsResponse.from_domain(
+            result, smtp_configured=_smtp_configured(settings)
+        )
+
+    @app.post(
+        "/api/v1/discovery/refresh-neighbors",
+        response_model=DiscoveryImportResponse,
+        tags=["Discovery"],
+        operation_id="refreshDiscoveryNeighbors",
+    )
+    async def refresh_discovery_neighbors() -> DiscoveryImportResponse:
+        return DiscoveryImportResponse(imported_count=await refresh_neighbors_from_rss())
+
     @app.patch(
         "/api/v1/recommendations/{recommendation_id}",
         response_model=RecommendationResponse,
@@ -712,6 +1031,55 @@ def _not_found() -> ApiError:
         "Recommendation not found",
         "The requested recommendation does not exist.",
     )
+
+
+def _discovery_not_found() -> ApiError:
+    return ApiError(
+        404,
+        "discovery_not_found",
+        "Discovery item not found",
+        "The selected local discovery item was not found.",
+    )
+
+
+def _smtp_configured(settings: ApiSettings) -> bool:
+    return all(
+        value.strip()
+        for value in (
+            settings.digest_smtp_host,
+            settings.digest_smtp_username,
+            settings.digest_smtp_password,
+            settings.digest_email_from,
+            settings.digest_email_to,
+        )
+    )
+
+
+def _smtp_sender(settings: ApiSettings) -> SmtpDigestSender:
+    return SmtpDigestSender(
+        host=settings.digest_smtp_host,
+        port=settings.digest_smtp_port,
+        username=settings.digest_smtp_username,
+        password=settings.digest_smtp_password,
+        sender=settings.digest_email_from,
+        recipient=settings.digest_email_to,
+        security=settings.digest_smtp_security,
+    )
+
+
+def _digest_email_body(posts: tuple[object, ...]) -> str:
+    lines = ["오늘 확인된 이웃 블로그 대기열입니다.", ""]
+    for post in posts[:20]:
+        title = getattr(post, "title", "")
+        source_url = getattr(post, "source_url", "")
+        published_at = getattr(post, "published_at", None)
+        published_text = published_at.isoformat() if published_at is not None else "게시 시각 미상"
+        lines.extend((f"- {title} ({published_text})", str(source_url)))
+    if len(posts) > 20:
+        lines.append(f"외 {len(posts) - 20}개는 Side Panel 대기열에서 확인하세요.")
+    if not posts:
+        lines.append("현재 대기 중인 새 글이 없습니다.")
+    return "\n".join(lines)
 
 
 class _LocallyRateLimitedGenerator:

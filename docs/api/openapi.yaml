@@ -19,6 +19,8 @@ tags:
     description: Generate, retrieve, and review comment recommendations.
   - name: Personalization
     description: Control the local completed-comment style sample set.
+  - name: Discovery
+    description: Local, user-reviewed blog discovery queues and digest settings.
 security: []
 paths:
   /health:
@@ -190,6 +192,71 @@ paths:
           description: Completed comments were excluded from future personalization.
         "400":
           $ref: "#/components/responses/InvalidRequest"
+  /api/v1/discovery/neighbors:
+    get:
+      operationId: listDiscoveryNeighbors
+      tags: [Discovery]
+      responses:
+        "200": {description: Stored neighbor blogs.}
+    post:
+      operationId: saveDiscoveryNeighbor
+      tags: [Discovery]
+      responses:
+        "201": {description: Neighbor blog saved.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/searches:
+    get:
+      operationId: listDiscoverySearches
+      tags: [Discovery]
+      responses:
+        "200": {description: Stored search profiles.}
+    post:
+      operationId: saveDiscoverySearch
+      tags: [Discovery]
+      responses:
+        "201": {description: Search profile saved.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/import:
+    post:
+      operationId: importDiscoveryPosts
+      tags: [Discovery]
+      responses:
+        "200": {description: User-opened page metadata was imported.}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/queue:
+    get:
+      operationId: listDiscoveryQueue
+      tags: [Discovery]
+      responses:
+        "200": {description: Queue items for one discovery source.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/queue/{post_id}:
+    patch:
+      operationId: updateDiscoveryPostState
+      tags: [Discovery]
+      responses:
+        "200": {description: Discovery post state updated.}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/digest-settings:
+    get:
+      operationId: getDiscoveryDigestSettings
+      tags: [Discovery]
+      responses:
+        "200": {description: Current local digest schedule.}
+    put:
+      operationId: saveDiscoveryDigestSettings
+      tags: [Discovery]
+      responses:
+        "200": {description: Digest schedule saved.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/refresh-neighbors:
+    post:
+      operationId: refreshDiscoveryNeighbors
+      tags: [Discovery]
+      responses:
+        "200": {description: Public neighbor RSS feeds were refreshed.}
 components:
   parameters:
     IdempotencyKey:

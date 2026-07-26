@@ -13,10 +13,10 @@ The application helps one local user create a relevant comment draft for the Nav
 the active tab. The user opens the extension Side Panel, checks the extracted title and preview,
 explicitly requests recommendations, edits or selects a candidate, and manually publishes it.
 
-The application does not monitor blogs, traverse posts, sign in, click reactions, or publish
-comments. It provides only bounded recent local history, not remote sync or full-text history
-search, and does not provide an ETag-based multi-client editing protocol. Every extraction and
-model request starts with an explicit user action on the active page.
+The application provides a local discovery queue for manually registered neighbors and
+user-imported search results. It may check explicitly registered public RSS feeds once per day,
+but does not sign in, use cookies, traverse pages unattended, click reactions, or publish
+comments. Every article extraction and model request still starts with an explicit user action.
 
 ## System Context
 

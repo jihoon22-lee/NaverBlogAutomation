@@ -95,9 +95,14 @@ Extension ID가 바뀌면 setup launcher를 다시 실행합니다. 수동 설�
 
 ## 사용 순서
 
-1. 지원되는 HTTPS Naver Blog 글을 현재 tab에 엽니다.
-2. Extension toolbar action을 눌러 Side Panel을 엽니다.
-3. 추출된 title과 bounded body preview가 맞는지 확인합니다.
+1. Extension toolbar action을 눌러 Side Panel을 엽니다. 처음에는 **글 탐색 대기열**에서 이웃 새 글과
+   신규 이웃 후보를 확인할 수 있습니다.
+2. 이웃 목록을 현재 열린 네이버 목록에서 가져오거나 직접 등록하고, 검색어를 저장한 뒤 사용자가 연
+   네이버 검색 결과에서 후보를 가져옵니다. 각 후보는 **이 글 열기**를 눌러 직접 확인합니다.
+   저장 검색어의 제외어는 제목·표시된 작성자명에 적용되고, 검색 결과에 게시일이 표시된 후보는
+   최신성 기간을 벗어나면 가져오지 않습니다. 게시일이 표시되지 않은 후보는 사용자가 직접 확인할 수
+   있도록 대기열에 남습니다.
+3. 지원되는 HTTPS Naver Blog 글을 연 뒤 Side Panel에서 추출된 title과 body preview를 확인합니다.
 4. 저장된 빠른 설정을 확인하거나 상세 설정에서 관계, 말투, 분위기, 댓글 길이와 **스타일 개인화**를
    선택합니다. 개인화는 최근 완료 댓글 최대 5개를 OpenAI에 원문 그대로 보내 말투·문장 길이·문장부호
    같은 표면적 스타일만 참고하게 하며, 필요하면 생성 전에 끌 수 있습니다.
@@ -167,7 +172,7 @@ troubleshooting, data cleanup과 opt-in smoke 절차는
 
 ## Release
 
-정식 릴리스는 `v0.3.0`처럼 stable SemVer tag를 사용합니다. 버전과 CHANGELOG를 갱신하고 main에
+정식 릴리스는 `v0.4.0`처럼 stable SemVer tag를 사용합니다. 버전과 CHANGELOG를 갱신하고 main에
 병합한 뒤 annotated tag를 push하면 GitHub Actions가 검증, wheel·extension ZIP build, checksum 생성,
 GitHub Release 게시를 수행합니다. 절차와 asset 설명은 [Release Guide](docs/releasing.md)를
 참고하세요.
@@ -175,7 +180,8 @@ GitHub Release 게시를 수행합니다. 절차와 asset 설명은 [Release Gui
 ## 범위와 Privacy
 
 - 지원 범위는 현재 사용자가 연 Naver Blog 글의 추출, 추천, review, 안전한 입력 보조와 copy입니다.
-- Monitoring, 새 글 탐색, login, 좋아요, 댓글 자동 등록, unattended browsing은 제외합니다.
+- 공개 RSS의 하루 한 번 이웃 새 글 갱신은 opt-in으로 지원합니다. login, 쿠키 사용, 좋아요, 댓글
+  자동 등록, 무인 페이지 순회는 제외합니다.
 - Extension storage에는 body, title, URL, 후보나 편집 댓글을 저장하지 않습니다. 사용자가
   기본값으로 저장한 생성 옵션과 최대 50자의 마무리 문구는 예외입니다.
 - SQLite에는 source URL, title, content hash, bounded excerpt, 추천과 review 상태가 남습니다. 완료

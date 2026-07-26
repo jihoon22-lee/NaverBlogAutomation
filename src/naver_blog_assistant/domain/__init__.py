@@ -1,5 +1,15 @@
 """Domain models for analyzed posts and generated comments."""
 
+from naver_blog_assistant.domain.discovery import (
+    DigestSettings,
+    DiscoveredPost,
+    DiscoverySource,
+    DiscoveryState,
+    ImportedDiscoveryPost,
+    NeighborBlog,
+    SavedSearch,
+    normalize_discovery_url,
+)
 from naver_blog_assistant.domain.models import (
     DEFAULT_GENERATION_PREFERENCES,
     CandidateSelectionError,
@@ -42,4 +52,12 @@ __all__ = [
     "ReviewTransitionError",
     "SpeechStyle",
     "comment_length_bounds",
+    "DigestSettings",
+    "DiscoveredPost",
+    "DiscoverySource",
+    "DiscoveryState",
+    "ImportedDiscoveryPost",
+    "NeighborBlog",
+    "SavedSearch",
+    "normalize_discovery_url",
 ]
