@@ -91,7 +91,7 @@ def test_saved_search_filters_excluded_and_stale_dated_metadata() -> None:
             published_at=datetime(2026, 7, 1, tzinfo=UTC),
         ),
         ImportedDiscoveryPost(
-            source_url="https://blog.naver.com/friend/4",
+            source_url="https://blog.naver.com/otherfriend/4",
             title="게시일을 제공하지 않는 전시",
         ),
     )

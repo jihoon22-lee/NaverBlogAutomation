@@ -225,6 +225,7 @@ paths:
         "200": {description: Saved search metadata refreshed.}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {description: Naver Search API credentials are not configured.}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/discovery/import:
     post:
       operationId: importDiscoveryPosts

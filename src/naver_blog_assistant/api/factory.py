@@ -927,7 +927,10 @@ def create_app(
     @app.post(
         "/api/v1/discovery/searches/{search_id}/refresh",
         response_model=DiscoverySearchRefreshResponse,
-        responses={404: _problem_metadata("The selected saved search was not found.")},
+        responses={
+            404: _problem_metadata("The selected saved search was not found."),
+            409: _problem_metadata("Naver Search API credentials are not configured."),
+        },
         tags=["Discovery"],
         operation_id="refreshDiscoverySearch",
     )
