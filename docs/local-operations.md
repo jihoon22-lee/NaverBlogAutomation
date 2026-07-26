@@ -27,16 +27,8 @@ SQLite `data/naver_blog_assistant.db`에는 source URL, title, bounded excerpt, 
 candidate, edited comment, review state와 idempotency/failure metadata가 명시적 cleanup 전까지
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
-**글 탐색 대기열**은 이웃 블로그 URL·ID, 저장 검색어, 제목·URL·게시 시각·출처·상태만 저장합니다.
-대기 항목은 30일 뒤 자동 정리됩니다. 이웃의 새 글 갱신은 공개 RSS만 사용하며 RSS가 비공개이거나
-오류이면 상태를 표시합니다. 열린 이웃 목록·검색 결과 import는 사용자가 Side Panel에서 명시적으로
-시작한 현재 tab만 읽습니다.
-
-하루 요약은 Side Panel에서 시간대·시각을 설정하며 기본은 `Asia/Seoul` 오전 9시입니다. 이메일은
-`DIGEST_SMTP_HOST`, `DIGEST_SMTP_PORT`, `DIGEST_SMTP_SECURITY` (`starttls` 또는 `ssl`),
-`DIGEST_SMTP_USERNAME`, `DIGEST_SMTP_PASSWORD`, `DIGEST_EMAIL_FROM`, `DIGEST_EMAIL_TO`를 모두
-private env file에 설정한 경우에만 활성화하세요. 이메일에는 제목·게시 시각·원문 링크만 포함하며
-본문과 댓글은 포함하지 않습니다.
+글 탐색 대기열의 RSS·검색 후보, 일일 요약, SMTP 설정과 별도 보관 정책은
+[글 탐색 대기열](discovery.md)을 참고하세요.
 
 Side Panel의 **최근 작업**은 SQLite에서 최신 20개를 읽으며 browser storage에 history text를
 복제하지 않습니다. 개별 **기록 삭제**는 선택한 recommendation, candidates와 연결된 completed
