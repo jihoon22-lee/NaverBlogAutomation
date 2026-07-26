@@ -42,7 +42,8 @@ Setup launcher가 extension build와 ID 설정을 안내합니다. Chrome의 `ch
 | 기능 | 필요한 설정 | 안내 |
 | --- | --- | --- |
 | OpenAI 댓글 생성·스타일 개인화 | private env file의 `OPENAI_API_KEY` | [시작하기](docs/getting-started.md) |
-| 자동 이웃 RSS·검색 후보 탐색 | 내 블로그 ID, 별도 secret 없음 | [글 탐색 대기열](docs/discovery.md) |
+| 자동 이웃 RSS 탐색 | 내 블로그 ID | [글 탐색 대기열](docs/discovery.md) |
+| 신규 이웃 검색 후보 탐색 | 내 블로그 ID, private env file의 `NAVER_SEARCH_CLIENT_ID`·`NAVER_SEARCH_CLIENT_SECRET` | [글 탐색 대기열](docs/discovery.md#신규-이웃-검색) |
 | 이메일 일일 요약 | private env file의 `DIGEST_SMTP_*` 값 | [글 탐색 대기열](docs/discovery.md#smtp-이메일-요약-선택) |
 
 자동 탐색은 opt-in이며 공개 metadata만 사용합니다. 로그인, 쿠키 사용, 댓글 자동 등록은 지원하지

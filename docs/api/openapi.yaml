@@ -216,6 +216,15 @@ paths:
       responses:
         "201": {description: Search profile saved.}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/discovery/searches/{search_id}/refresh:
+    post:
+      operationId: refreshDiscoverySearch
+      tags: [Discovery]
+      description: Refresh one saved search through the configured documented Naver Search API.
+      responses:
+        "200": {description: Saved search metadata refreshed.}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {description: Naver Search API credentials are not configured.}
   /api/v1/discovery/import:
     post:
       operationId: importDiscoveryPosts
