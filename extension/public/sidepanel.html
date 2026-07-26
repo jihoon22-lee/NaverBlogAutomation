@@ -16,6 +16,57 @@
 
       <p id="status" class="status" role="status" aria-live="polite">본문을 확인하고 있습니다.</p>
 
+      <section id="discovery-panel" class="card discovery-card" aria-labelledby="discovery-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="discovery-title">글 탐색 대기열</h2>
+            <p id="discovery-notice" class="help" role="status" aria-live="polite">
+              이웃 새 글과 검색 후보를 모아 직접 확인하세요.
+            </p>
+          </div>
+          <button id="discovery-refresh-button" class="text-button" type="button">이웃 새 글 갱신</button>
+        </div>
+        <div class="discovery-actions">
+          <button id="import-neighbors-button" class="secondary" type="button">열린 이웃 목록 가져오기</button>
+          <button id="discovery-neighbor-tab" class="secondary" type="button" aria-pressed="true">이웃 새 글</button>
+          <button id="discovery-search-tab" class="secondary" type="button" aria-pressed="false">신규 이웃 찾기</button>
+        </div>
+        <ul id="discovery-queue" class="discovery-queue" aria-label="글 탐색 대기열"></ul>
+        <p id="discovery-empty" class="help">대기 중인 글이 없습니다.</p>
+        <details class="advanced-preferences">
+          <summary>이웃 블로그 직접 추가</summary>
+          <form id="discovery-neighbor-form" class="discovery-form">
+            <label>이름 <input name="name" required maxlength="120" /></label>
+            <label>블로그 ID <input name="blog-id" required maxlength="100" placeholder="blogId" /></label>
+            <label>블로그 URL <input name="blog-url" required type="url" maxlength="2048" placeholder="https://blog.naver.com/blogId" /></label>
+            <button class="secondary" type="submit">이웃 저장</button>
+          </form>
+          <ul id="discovery-neighbors" class="discovery-settings-list"></ul>
+        </details>
+        <details class="advanced-preferences">
+          <summary>신규 이웃 검색어</summary>
+          <form id="discovery-search-form" class="discovery-form">
+            <label>검색어 <input name="query" required maxlength="120" /></label>
+            <label>제외어 <input name="excluded-terms" maxlength="300" placeholder="쉼표로 구분" /></label>
+            <label>최신성(일) <input name="freshness-days" type="number" min="1" max="90" value="14" /></label>
+            <button class="secondary" type="submit">검색어 저장</button>
+          </form>
+          <p class="help">검색어를 저장한 뒤 네이버 검색 결과 페이지를 열고 ‘현재 검색 결과 가져오기’를 누르세요.</p>
+          <ul id="discovery-searches" class="discovery-settings-list"></ul>
+        </details>
+        <details class="advanced-preferences">
+          <summary>하루 요약 알림</summary>
+          <form id="discovery-digest-form" class="discovery-form">
+            <label>시간대 <input name="timezone" value="Asia/Seoul" required maxlength="64" /></label>
+            <label>시 <input name="hour" type="number" min="0" max="23" value="9" required /></label>
+            <label>분 <input name="minute" type="number" min="0" max="59" value="0" required /></label>
+            <label class="option"><input name="email-enabled" type="checkbox" /> SMTP 이메일 요약도 받기</label>
+            <p id="discovery-smtp-status" class="help"></p>
+            <button class="secondary" type="submit">요약 시간 저장</button>
+          </form>
+        </details>
+      </section>
+
       <section class="history-card" aria-labelledby="history-title">
         <div class="service-row">
           <span id="service-status" class="service-status" data-status="checking">로컬 서비스 확인 중</span>

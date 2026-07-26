@@ -9,6 +9,7 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -109,6 +110,130 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     }
     assert "content_hash" not in payload and "excerpt" not in payload and "body" not in payload
     assert client.get(f"/api/v1/recommendations/{recommendation_id}").json() == payload
+
+
+def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestClient) -> None:
+    neighbor = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "테스트 이웃",
+            "blog_url": "https://blog.naver.com/friend",
+            "blog_id": "friend",
+        },
+    )
+    assert neighbor.status_code == 201
+    neighbor_id = neighbor.json()["id"]
+    assert client.get("/api/v1/discovery/neighbors").json()["items"][0]["feed_status"] == "unknown"
+
+    search = client.post(
+        "/api/v1/discovery/searches",
+        json={"query": "전시 후기", "excluded_terms": ["광고"], "freshness_days": 7},
+    )
+    assert search.status_code == 201
+    search_id = search.json()["id"]
+
+    imported_neighbor = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "neighbor",
+            "neighbor_id": neighbor_id,
+            "posts": [
+                {
+                    "source_url": "https://blog.naver.com/friend/123",
+                    "title": "이웃의 새 글",
+                }
+            ],
+        },
+    )
+    assert imported_neighbor.json() == {"imported_count": 1}
+    imported_search = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "search",
+            "search_id": search_id,
+            "posts": [
+                {
+                    "source_url": "https://blog.naver.com/newfriend/456",
+                    "title": "신규 이웃 후보",
+                    "publisher_name": "새 블로거",
+                }
+            ],
+        },
+    )
+    assert imported_search.json() == {"imported_count": 1}
+    assert client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "search",
+            "search_id": search_id,
+            "posts": [{"source_url": "https://blog.naver.com/newfriend/456", "title": "중복 글"}],
+        },
+    ).json() == {"imported_count": 0}
+
+    neighbor_queue = client.get("/api/v1/discovery/queue?source=neighbor")
+    assert neighbor_queue.status_code == 200
+    assert neighbor_queue.json()["items"][0]["title"] == "이웃의 새 글"
+    post_id = neighbor_queue.json()["items"][0]["id"]
+    assert (
+        client.patch(f"/api/v1/discovery/queue/{post_id}", json={"state": "opened"}).json()["state"]
+        == "opened"
+    )
+    assert (
+        client.get("/api/v1/discovery/queue?source=search").json()["items"][0]["publisher_name"]
+        == "새 블로거"
+    )
+
+    assert client.get("/api/v1/discovery/digest-settings").json() == {
+        "timezone": "Asia/Seoul",
+        "hour": 9,
+        "minute": 0,
+        "email_enabled": False,
+        "smtp_configured": False,
+    }
+    assert (
+        client.put(
+            "/api/v1/discovery/digest-settings",
+            json={"timezone": "Asia/Seoul", "hour": 8, "minute": 30, "email_enabled": False},
+        ).json()["hour"]
+        == 8
+    )
+
+
+def test_discovery_search_import_applies_saved_exclusions_and_dated_freshness(
+    client: TestClient,
+) -> None:
+    search_id = client.post(
+        "/api/v1/discovery/searches",
+        json={"query": "전시", "excluded_terms": ["광고"], "freshness_days": 7},
+    ).json()["id"]
+    response = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "search",
+            "search_id": search_id,
+            "posts": [
+                {
+                    "source_url": "https://blog.naver.com/friend/11",
+                    "title": "새 전시 후기",
+                    "published_at": datetime.now(UTC).isoformat(),
+                },
+                {
+                    "source_url": "https://blog.naver.com/friend/12",
+                    "title": "광고 전시",
+                    "published_at": datetime.now(UTC).isoformat(),
+                },
+                {
+                    "source_url": "https://blog.naver.com/friend/13",
+                    "title": "오래된 전시",
+                    "published_at": "2000-01-01T00:00:00Z",
+                },
+            ],
+        },
+    )
+
+    assert response.json() == {"imported_count": 1}
+    queue = client.get("/api/v1/discovery/queue?source=search").json()["items"]
+    assert [item["title"] for item in queue] == ["새 전시 후기"]
 
 
 def test_history_lists_final_comment_and_delete_clears_local_record(client: TestClient) -> None:

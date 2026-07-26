@@ -15,6 +15,12 @@ import type {
   ReviewStatus,
   ServiceStatus,
   SpeechStyle,
+  DigestSettings,
+  DiscoveryNeighbor,
+  DiscoveryPost,
+  DiscoverySearch,
+  DiscoverySource,
+  DiscoveryState,
 } from "./types";
 import { LOCAL_API_ORIGIN } from "../config";
 
@@ -120,6 +126,188 @@ export class LocalApiClient {
       ...withSignal(signal),
     });
     if (response.status !== 204) throw invalidResponse(response.status);
+  }
+
+  async listDiscoveryNeighbors(signal?: AbortSignal): Promise<readonly DiscoveryNeighbor[]> {
+    const response = await this.#request("/api/v1/discovery/neighbors", {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    return discoveryNeighbors(await readJson(response));
+  }
+
+  async saveDiscoveryNeighbor(
+    value: { name: string; blogUrl: string; blogId: string; enabled?: boolean },
+    signal?: AbortSignal,
+  ): Promise<DiscoveryNeighbor> {
+    const response = await this.#request("/api/v1/discovery/neighbors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: value.name,
+        blog_url: value.blogUrl,
+        blog_id: value.blogId,
+        enabled: value.enabled ?? true,
+      }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 201) throw invalidResponse(response.status);
+    const parsed = parseDiscoveryNeighbor(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async listDiscoverySearches(signal?: AbortSignal): Promise<readonly DiscoverySearch[]> {
+    const response = await this.#request("/api/v1/discovery/searches", {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    return discoverySearches(await readJson(response));
+  }
+
+  async saveDiscoverySearch(
+    value: {
+      query: string;
+      excludedTerms?: readonly string[];
+      freshnessDays?: number;
+      enabled?: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<DiscoverySearch> {
+    const response = await this.#request("/api/v1/discovery/searches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: value.query,
+        excluded_terms: value.excludedTerms ?? [],
+        freshness_days: value.freshnessDays ?? 14,
+        enabled: value.enabled ?? true,
+      }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 201) throw invalidResponse(response.status);
+    const parsed = parseDiscoverySearch(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async importDiscoveryPosts(
+    source: DiscoverySource,
+    ownerId: string,
+    posts: readonly {
+      sourceUrl: string;
+      title: string;
+      publisherName?: string | null;
+      publishedAt?: string | null;
+    }[],
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const payload = {
+      source,
+      ...(source === "neighbor" ? { neighbor_id: ownerId } : { search_id: ownerId }),
+      posts: posts.slice(0, 50).map((post) => ({
+        source_url: post.sourceUrl,
+        title: post.title,
+        publisher_name: post.publisherName ?? null,
+        published_at: post.publishedAt ?? null,
+      })),
+    };
+    const response = await this.#request("/api/v1/discovery/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const value = await readJson(response);
+    if (
+      !isRecord(value) ||
+      !isInteger(value.imported_count) ||
+      value.imported_count < 0 ||
+      value.imported_count > 50 ||
+      !onlyKeys(value, ["imported_count"])
+    )
+      throw invalidResponse(response.status);
+    return value.imported_count;
+  }
+
+  async listDiscoveryQueue(
+    source: DiscoverySource,
+    signal?: AbortSignal,
+  ): Promise<readonly DiscoveryPost[]> {
+    const response = await this.#request(`/api/v1/discovery/queue?source=${source}`, {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    return discoveryPosts(await readJson(response));
+  }
+
+  async updateDiscoveryPostState(
+    id: string,
+    state: DiscoveryState,
+    signal?: AbortSignal,
+  ): Promise<DiscoveryPost> {
+    const response = await this.#request(`/api/v1/discovery/queue/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseDiscoveryPost(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async refreshDiscoveryNeighbors(signal?: AbortSignal): Promise<number> {
+    const response = await this.#request("/api/v1/discovery/refresh-neighbors", {
+      method: "POST",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const value = await readJson(response);
+    if (
+      !isRecord(value) ||
+      !isInteger(value.imported_count) ||
+      !onlyKeys(value, ["imported_count"])
+    )
+      throw invalidResponse(response.status);
+    return value.imported_count;
+  }
+
+  async digestSettings(signal?: AbortSignal): Promise<DigestSettings> {
+    const response = await this.#request("/api/v1/discovery/digest-settings", {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseDigestSettings(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async saveDigestSettings(
+    settings: Omit<DigestSettings, "smtpConfigured">,
+    signal?: AbortSignal,
+  ): Promise<DigestSettings> {
+    const response = await this.#request("/api/v1/discovery/digest-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        timezone: settings.timezone,
+        hour: settings.hour,
+        minute: settings.minute,
+        email_enabled: settings.emailEnabled,
+      }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseDigestSettings(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
   }
 
   async createRecommendation(
@@ -281,6 +469,211 @@ function nullableString(
   return typeof value === "string" && value.length > 0 && Array.from(value).length <= maximum
     ? value
     : undefined;
+}
+
+function isInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
+function discoveryNeighbors(value: unknown): readonly DiscoveryNeighbor[] {
+  if (!isRecord(value) || !onlyKeys(value, ["items"]) || !Array.isArray(value.items)) {
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  }
+  const items = value.items.map(parseDiscoveryNeighbor);
+  if (items.some((item) => item === null))
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  return items as DiscoveryNeighbor[];
+}
+
+function parseDiscoveryNeighbor(value: unknown): DiscoveryNeighbor | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "id",
+      "name",
+      "blog_url",
+      "blog_id",
+      "enabled",
+      "feed_status",
+      "last_checked_at",
+      "created_at",
+    ])
+  )
+    return null;
+  const id = requiredString(value, "id", 36);
+  const name = requiredString(value, "name", 120);
+  const blogUrl = requiredString(value, "blog_url", 2_048);
+  const blogId = requiredString(value, "blog_id", 100);
+  const lastCheckedAt = nullableString(value, "last_checked_at", 100);
+  const createdAt = requiredString(value, "created_at", 100);
+  const feedStatus = value.feed_status;
+  if (
+    id === null ||
+    !UUID.test(id) ||
+    name === null ||
+    blogUrl === null ||
+    blogId === null ||
+    lastCheckedAt === undefined ||
+    createdAt === null ||
+    Number.isNaN(Date.parse(createdAt)) ||
+    (lastCheckedAt !== null && Number.isNaN(Date.parse(lastCheckedAt))) ||
+    typeof value.enabled !== "boolean" ||
+    !["ready", "unavailable", "unknown"].includes(String(feedStatus))
+  )
+    return null;
+  return {
+    id,
+    name,
+    blogUrl,
+    blogId,
+    enabled: value.enabled,
+    feedStatus: feedStatus as DiscoveryNeighbor["feedStatus"],
+    lastCheckedAt,
+    createdAt,
+  };
+}
+
+function discoverySearches(value: unknown): readonly DiscoverySearch[] {
+  if (!isRecord(value) || !onlyKeys(value, ["items"]) || !Array.isArray(value.items))
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  const items = value.items.map(parseDiscoverySearch);
+  if (items.some((item) => item === null))
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  return items as DiscoverySearch[];
+}
+
+function parseDiscoverySearch(value: unknown): DiscoverySearch | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, ["id", "query", "excluded_terms", "freshness_days", "enabled", "created_at"])
+  )
+    return null;
+  const id = requiredString(value, "id", 36);
+  const query = requiredString(value, "query", 120);
+  const createdAt = requiredString(value, "created_at", 100);
+  if (
+    id === null ||
+    !UUID.test(id) ||
+    query === null ||
+    createdAt === null ||
+    Number.isNaN(Date.parse(createdAt)) ||
+    !Array.isArray(value.excluded_terms) ||
+    !value.excluded_terms.every(
+      (term) => typeof term === "string" && term.length > 0 && Array.from(term).length <= 60,
+    ) ||
+    !isInteger(value.freshness_days) ||
+    value.freshness_days < 1 ||
+    value.freshness_days > 90 ||
+    typeof value.enabled !== "boolean"
+  )
+    return null;
+  return {
+    id,
+    query,
+    excludedTerms: value.excluded_terms as string[],
+    freshnessDays: value.freshness_days,
+    enabled: value.enabled,
+    createdAt,
+  };
+}
+
+function discoveryPosts(value: unknown): readonly DiscoveryPost[] {
+  if (!isRecord(value) || !onlyKeys(value, ["items"]) || !Array.isArray(value.items))
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  const items = value.items.map(parseDiscoveryPost);
+  if (items.some((item) => item === null))
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  return items as DiscoveryPost[];
+}
+
+function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "id",
+      "source",
+      "state",
+      "source_url",
+      "title",
+      "publisher_name",
+      "published_at",
+      "neighbor_id",
+      "search_id",
+      "created_at",
+      "updated_at",
+    ])
+  )
+    return null;
+  const id = requiredString(value, "id", 36);
+  const sourceUrl = requiredString(value, "source_url", 2_048);
+  const title = requiredString(value, "title", 300);
+  const publisherName = nullableString(value, "publisher_name", 120);
+  const publishedAt = nullableString(value, "published_at", 100);
+  const neighborId = nullableString(value, "neighbor_id", 36);
+  const searchId = nullableString(value, "search_id", 36);
+  const createdAt = requiredString(value, "created_at", 100);
+  const updatedAt = requiredString(value, "updated_at", 100);
+  if (
+    id === null ||
+    !UUID.test(id) ||
+    sourceUrl === null ||
+    title === null ||
+    publisherName === undefined ||
+    publishedAt === undefined ||
+    neighborId === undefined ||
+    searchId === undefined ||
+    createdAt === null ||
+    updatedAt === null ||
+    Number.isNaN(Date.parse(createdAt)) ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    (publishedAt !== null && Number.isNaN(Date.parse(publishedAt))) ||
+    (neighborId !== null && !UUID.test(neighborId)) ||
+    (searchId !== null && !UUID.test(searchId)) ||
+    (value.source !== "neighbor" && value.source !== "search") ||
+    !["queued", "opened", "completed", "skipped", "unavailable"].includes(String(value.state))
+  )
+    return null;
+  return {
+    id,
+    source: value.source,
+    state: value.state as DiscoveryState,
+    sourceUrl,
+    title,
+    publisherName,
+    publishedAt,
+    neighborId,
+    searchId,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function parseDigestSettings(value: unknown): DigestSettings | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, ["timezone", "hour", "minute", "email_enabled", "smtp_configured"])
+  )
+    return null;
+  const timezone = requiredString(value, "timezone", 64);
+  if (
+    timezone === null ||
+    !isInteger(value.hour) ||
+    !isInteger(value.minute) ||
+    value.hour < 0 ||
+    value.hour > 23 ||
+    value.minute < 0 ||
+    value.minute > 59 ||
+    typeof value.email_enabled !== "boolean" ||
+    typeof value.smtp_configured !== "boolean"
+  )
+    return null;
+  return {
+    timezone,
+    hour: value.hour,
+    minute: value.minute,
+    emailEnabled: value.email_enabled,
+    smtpConfigured: value.smtp_configured,
+  };
 }
 
 function parseProblem(value: unknown): ProblemDetails | null {

@@ -80,6 +80,36 @@ h2 {
   background: #ffffff;
 }
 
+.discovery-card {
+  display: grid;
+  gap: 0.75rem;
+}
+.discovery-actions,
+.discovery-form {
+  display: grid;
+  gap: 0.5rem;
+}
+.discovery-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.discovery-queue,
+.discovery-settings-list {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.discovery-item {
+  border-top: 1px solid var(--border-color, #d9d9d9);
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.6rem;
+}
+.discovery-item p {
+  margin: 0;
+}
+
 .service-row,
 .history-item-heading,
 .history-actions {
@@ -427,6 +457,16 @@ summary:focus-visible,
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.discovery-form label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.discovery-item .actions {
+  margin-top: 0;
 }
 
 .stacked {

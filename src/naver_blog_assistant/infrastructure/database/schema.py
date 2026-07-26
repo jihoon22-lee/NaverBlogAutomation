@@ -135,3 +135,81 @@ idempotency_records = Table(
         name="ck_idempotency_state_payload",
     ),
 )
+
+neighbor_blogs = Table(
+    "neighbor_blogs",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("name", String(120), nullable=False),
+    Column("blog_url", Text, nullable=False, unique=True),
+    Column("blog_id", String(100), nullable=False, unique=True),
+    Column("enabled", Boolean, nullable=False, server_default="1"),
+    Column("feed_status", String(16), nullable=False, server_default="unknown"),
+    Column("last_checked_at", String(32), nullable=True),
+    Column("created_at", String(32), nullable=False),
+    CheckConstraint(
+        "feed_status IN ('ready', 'unavailable', 'unknown')", name="ck_neighbor_feed_status"
+    ),
+)
+
+saved_searches = Table(
+    "saved_searches",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("query", String(120), nullable=False, unique=True),
+    Column("excluded_terms_json", Text, nullable=False, server_default="[]"),
+    Column("freshness_days", Integer, nullable=False, server_default="14"),
+    Column("enabled", Boolean, nullable=False, server_default="1"),
+    Column("created_at", String(32), nullable=False),
+    CheckConstraint("freshness_days BETWEEN 1 AND 90", name="ck_saved_search_freshness_days"),
+)
+
+discovered_posts = Table(
+    "discovered_posts",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("source", String(16), nullable=False),
+    Column("state", String(16), nullable=False, server_default="queued"),
+    Column("source_url", Text, nullable=False, unique=True),
+    Column("title", String(300), nullable=False),
+    Column("publisher_name", String(120), nullable=True),
+    Column("published_at", String(32), nullable=True),
+    Column(
+        "neighbor_id",
+        String(36),
+        ForeignKey("neighbor_blogs.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    Column(
+        "search_id", String(36), ForeignKey("saved_searches.id", ondelete="SET NULL"), nullable=True
+    ),
+    Column("created_at", String(32), nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint("source IN ('neighbor', 'search')", name="ck_discovered_posts_source"),
+    CheckConstraint(
+        "state IN ('queued', 'opened', 'completed', 'skipped', 'unavailable')",
+        name="ck_discovered_posts_state",
+    ),
+)
+
+digest_settings = Table(
+    "digest_settings",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("timezone", String(64), nullable=False, server_default="Asia/Seoul"),
+    Column("hour", Integer, nullable=False, server_default="9"),
+    Column("minute", Integer, nullable=False, server_default="0"),
+    Column("email_enabled", Boolean, nullable=False, server_default="0"),
+    CheckConstraint("id = 1", name="ck_digest_settings_singleton"),
+    CheckConstraint("hour BETWEEN 0 AND 23", name="ck_digest_hour"),
+    CheckConstraint("minute BETWEEN 0 AND 59", name="ck_digest_minute"),
+)
+
+digest_runs = Table(
+    "digest_runs",
+    metadata,
+    Column("local_date", String(10), primary_key=True),
+    Column("created_at", String(32), nullable=False),
+    Column("neighbor_post_count", Integer, nullable=False),
+    Column("email_sent", Boolean, nullable=False, server_default="0"),
+)

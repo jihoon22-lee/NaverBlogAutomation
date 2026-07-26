@@ -7,7 +7,7 @@ import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 from itertools import combinations
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import (
@@ -22,11 +22,16 @@ from pydantic import (
 from naver_blog_assistant.domain import (
     CommentLength,
     CommentMood,
+    DigestSettings,
+    DiscoveredPost,
     GenerationPreferences,
+    ImportedDiscoveryPost,
+    NeighborBlog,
     PersonalizationMode,
     Recommendation,
     Relationship,
     ReviewStatus,
+    SavedSearch,
     SpeechStyle,
     comment_length_bounds,
 )
@@ -211,6 +216,182 @@ class RecommendationHistoryItemResponse(StrictModel):
 
 class RecommendationHistoryResponse(StrictModel):
     items: Annotated[list[RecommendationHistoryItemResponse], Field(max_length=50)]
+
+
+DiscoveryUrl = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=2048),
+    Field(json_schema_extra={"format": "uri"}),
+]
+
+
+class NeighborRequest(StrictModel):
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    blog_url: DiscoveryUrl
+    blog_id: Annotated[str, StringConstraints(min_length=1, max_length=100)]
+    enabled: bool = True
+
+
+class NeighborResponse(StrictModel):
+    id: UUID
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    blog_url: DiscoveryUrl
+    blog_id: Annotated[str, StringConstraints(min_length=1, max_length=100)]
+    enabled: bool
+    feed_status: Literal["ready", "unavailable", "unknown"]
+    last_checked_at: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, neighbor: NeighborBlog) -> Self:
+        return cls(
+            id=neighbor.id,
+            name=neighbor.name,
+            blog_url=neighbor.blog_url,
+            blog_id=neighbor.blog_id,
+            enabled=neighbor.enabled,
+            feed_status=cast(Literal["ready", "unavailable", "unknown"], neighbor.feed_status),
+            last_checked_at=neighbor.last_checked_at,
+            created_at=neighbor.created_at,
+        )
+
+
+class NeighborListResponse(StrictModel):
+    items: list[NeighborResponse]
+
+
+class SavedSearchRequest(StrictModel):
+    query: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    excluded_terms: Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=60)]], Field(max_length=20)
+    ] = []
+    freshness_days: Annotated[int, Field(ge=1, le=90)] = 14
+    enabled: bool = True
+
+
+class SavedSearchResponse(StrictModel):
+    id: UUID
+    query: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    excluded_terms: list[Annotated[str, StringConstraints(min_length=1, max_length=60)]]
+    freshness_days: Annotated[int, Field(ge=1, le=90)]
+    enabled: bool
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, search: SavedSearch) -> Self:
+        return cls(
+            id=search.id,
+            query=search.query,
+            excluded_terms=list(search.excluded_terms),
+            freshness_days=search.freshness_days,
+            enabled=search.enabled,
+            created_at=search.created_at,
+        )
+
+
+class SavedSearchListResponse(StrictModel):
+    items: list[SavedSearchResponse]
+
+
+class DiscoveryPostImport(StrictModel):
+    source_url: DiscoveryUrl
+    title: ShortText
+    publisher_name: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
+    published_at: datetime | None = None
+
+    def to_domain(self) -> ImportedDiscoveryPost:
+        return ImportedDiscoveryPost(
+            source_url=self.source_url,
+            title=self.title,
+            publisher_name=self.publisher_name,
+            published_at=self.published_at,
+        )
+
+
+class DiscoveryImportRequest(StrictModel):
+    source: Literal["neighbor", "search"]
+    neighbor_id: UUID | None = None
+    search_id: UUID | None = None
+    posts: Annotated[list[DiscoveryPostImport], Field(min_length=1, max_length=50)]
+
+    @model_validator(mode="after")
+    def validate_source_owner(self) -> Self:
+        if self.source == "neighbor" and (self.neighbor_id is None or self.search_id is not None):
+            raise ValueError("neighbor imports require only neighbor_id")
+        if self.source == "search" and (self.search_id is None or self.neighbor_id is not None):
+            raise ValueError("search imports require only search_id")
+        return self
+
+
+class DiscoveryImportResponse(StrictModel):
+    imported_count: Annotated[int, Field(ge=0, le=50)]
+
+
+class DiscoveryPostResponse(StrictModel):
+    id: UUID
+    source: Literal["neighbor", "search"]
+    state: Literal["queued", "opened", "completed", "skipped", "unavailable"]
+    source_url: DiscoveryUrl
+    title: ShortText
+    publisher_name: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None
+    published_at: datetime | None
+    neighbor_id: UUID | None
+    search_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, post: DiscoveredPost) -> Self:
+        return cls(
+            id=post.id,
+            source=post.source.value,
+            state=post.state.value,
+            source_url=post.source_url,
+            title=post.title,
+            publisher_name=post.publisher_name,
+            published_at=post.published_at,
+            neighbor_id=post.neighbor_id,
+            search_id=post.search_id,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+        )
+
+
+class DiscoveryQueueResponse(StrictModel):
+    items: list[DiscoveryPostResponse]
+
+
+class DiscoveryPostStateRequest(StrictModel):
+    state: Literal["queued", "opened", "completed", "skipped", "unavailable"]
+
+
+class DigestSettingsRequest(StrictModel):
+    timezone: Annotated[str, StringConstraints(min_length=1, max_length=64)] = "Asia/Seoul"
+    hour: Annotated[int, Field(ge=0, le=23)] = 9
+    minute: Annotated[int, Field(ge=0, le=59)] = 0
+    email_enabled: bool = False
+
+    def to_domain(self) -> DigestSettings:
+        return DigestSettings(
+            timezone=self.timezone,
+            hour=self.hour,
+            minute=self.minute,
+            email_enabled=self.email_enabled,
+        )
+
+
+class DigestSettingsResponse(DigestSettingsRequest):
+    smtp_configured: bool
+
+    @classmethod
+    def from_domain(cls, settings: DigestSettings, *, smtp_configured: bool) -> Self:
+        return cls(
+            timezone=settings.timezone,
+            hour=settings.hour,
+            minute=settings.minute,
+            email_enabled=settings.email_enabled,
+            smtp_configured=smtp_configured,
+        )
 
 
 def _quality_warnings(recommendation: Recommendation) -> list[QualityWarning]:

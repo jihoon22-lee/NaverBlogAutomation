@@ -1,4 +1,6 @@
 import { ChromeTabCaptureGateway } from "../browser/tab-capture-gateway";
+import { ChromeDiscoveryPageGateway } from "../browser/discovery-page-gateway";
+import { DiscoveryController } from "../discovery/controller";
 import { IdempotencyRegistry, restrictStorageToTrustedContexts } from "../idempotency/registry";
 import { HistoryController } from "../history/controller";
 import { DomHistoryView } from "../history/view";
@@ -8,6 +10,7 @@ import { DomPanelView } from "./view";
 const view = new DomPanelView(document);
 let controller: SidePanelController | null = null;
 let historyController: HistoryController | null = null;
+let discoveryController: DiscoveryController | null = null;
 
 void (async () => {
   try {
@@ -17,6 +20,11 @@ void (async () => {
     historyController.start();
     controller = new SidePanelController(new ChromeTabCaptureGateway(), view, { registry });
     controller.start();
+    discoveryController = new DiscoveryController(
+      document,
+      new ChromeDiscoveryPageGateway(new ChromeTabCaptureGateway()),
+    );
+    discoveryController.start();
   } catch {
     view.render({
       failure: {
@@ -41,3 +49,7 @@ window.addEventListener(
   },
   { once: true },
 );
+
+window.addEventListener("discovery-open-post", () => {
+  window.setTimeout(() => void controller?.captureActivePost(), 450);
+});

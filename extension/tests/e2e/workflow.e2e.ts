@@ -316,6 +316,8 @@ async function stageExtension(): Promise<StagedExtension> {
   const productionManifest = JSON.parse(productionManifestText) as Record<string, unknown>;
   expect(productionManifest.permissions).toEqual([
     "activeTab",
+    "alarms",
+    "notifications",
     "scripting",
     "sidePanel",
     "storage",
