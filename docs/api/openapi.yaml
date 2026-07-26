@@ -224,8 +224,8 @@ paths:
       responses:
         "200": {description: Saved search metadata refreshed.}
         "404": {$ref: "#/components/responses/NotFound"}
-        "409": {description: Naver Search API credentials are not configured.}
-        "422": {$ref: "#/components/responses/ValidationError"}
+        "409": {$ref: "#/components/responses/DiscoverySearchNotConfigured"}
+        "422": {description: Validation Error}
   /api/v1/discovery/import:
     post:
       operationId: importDiscoveryPosts
@@ -646,6 +646,12 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     ReviewConflict:
       description: The requested review conflicts with the stored state.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    DiscoverySearchNotConfigured:
+      description: Naver Search API credentials are not configured.
       content:
         application/problem+json:
           schema:
