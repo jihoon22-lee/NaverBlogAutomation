@@ -122,6 +122,7 @@ export interface DiscoveryPost {
   sourceUrl: string;
   title: string;
   publisherName: string | null;
+  publisherBlogId: string | null;
   publishedAt: string | null;
   neighborId: string | null;
   searchId: string | null;
@@ -154,6 +155,13 @@ export interface AutomaticDiscoverySyncResult {
   neighborsAdded: number;
   neighborPostsAdded: number;
   searchPostsAdded: number;
+  searchProvider: "naver_open_api" | "none";
   status: Exclude<AutomaticDiscoveryStatus, "never">;
+  detail: string;
+}
+
+export interface DiscoverySearchRefreshResult {
+  importedCount: number;
+  provider: "naver_open_api";
   detail: string;
 }

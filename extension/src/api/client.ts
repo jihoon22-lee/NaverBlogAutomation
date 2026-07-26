@@ -2,6 +2,7 @@ import type {
   ApiResult,
   AutomaticDiscoverySettings,
   AutomaticDiscoverySyncResult,
+  DiscoverySearchRefreshResult,
   CandidateTone,
   CommentLength,
   CommentMood,
@@ -202,6 +203,7 @@ export class LocalApiClient {
       sourceUrl: string;
       title: string;
       publisherName?: string | null;
+      publisherBlogId?: string | null;
       publishedAt?: string | null;
     }[],
     signal?: AbortSignal,
@@ -213,6 +215,7 @@ export class LocalApiClient {
         source_url: post.sourceUrl,
         title: post.title,
         publisher_name: post.publisherName ?? null,
+        publisher_blog_id: post.publisherBlogId ?? null,
         published_at: post.publishedAt ?? null,
       })),
     };
@@ -260,6 +263,20 @@ export class LocalApiClient {
     });
     if (response.status !== 200) throw invalidResponse(response.status);
     const parsed = parseDiscoveryPost(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async refreshDiscoverySearch(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<DiscoverySearchRefreshResult> {
+    const response = await this.#request(
+      `/api/v1/discovery/searches/${encodeURIComponent(id)}/refresh`,
+      { method: "POST", ...withSignal(signal) },
+    );
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseDiscoverySearchRefresh(await readJson(response));
     if (parsed === null) throw invalidResponse(response.status);
     return parsed;
   }
@@ -642,6 +659,7 @@ function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
       "source_url",
       "title",
       "publisher_name",
+      "publisher_blog_id",
       "published_at",
       "neighbor_id",
       "search_id",
@@ -654,6 +672,7 @@ function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
   const sourceUrl = requiredString(value, "source_url", 2_048);
   const title = requiredString(value, "title", 300);
   const publisherName = nullableString(value, "publisher_name", 120);
+  const publisherBlogId = nullableString(value, "publisher_blog_id", 100);
   const publishedAt = nullableString(value, "published_at", 100);
   const neighborId = nullableString(value, "neighbor_id", 36);
   const searchId = nullableString(value, "search_id", 36);
@@ -665,6 +684,7 @@ function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
     sourceUrl === null ||
     title === null ||
     publisherName === undefined ||
+    publisherBlogId === undefined ||
     publishedAt === undefined ||
     neighborId === undefined ||
     searchId === undefined ||
@@ -686,6 +706,7 @@ function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
     sourceUrl,
     title,
     publisherName,
+    publisherBlogId,
     publishedAt,
     neighborId,
     searchId,
@@ -782,6 +803,7 @@ function parseAutomaticDiscoverySync(value: unknown): AutomaticDiscoverySyncResu
       "neighbors_added",
       "neighbor_posts_added",
       "search_posts_added",
+      "search_provider",
       "status",
       "detail",
     ]) ||
@@ -794,6 +816,7 @@ function parseAutomaticDiscoverySync(value: unknown): AutomaticDiscoverySyncResu
     value.neighbor_posts_added > 50 ||
     value.search_posts_added < 0 ||
     value.search_posts_added > 50 ||
+    !["naver_open_api", "none"].includes(String(value.search_provider)) ||
     !["success", "partial", "failed"].includes(String(value.status)) ||
     typeof value.detail !== "string" ||
     value.detail.length > 300
@@ -803,7 +826,27 @@ function parseAutomaticDiscoverySync(value: unknown): AutomaticDiscoverySyncResu
     neighborsAdded: value.neighbors_added,
     neighborPostsAdded: value.neighbor_posts_added,
     searchPostsAdded: value.search_posts_added,
+    searchProvider: value.search_provider as AutomaticDiscoverySyncResult["searchProvider"],
     status: value.status as AutomaticDiscoverySyncResult["status"],
+    detail: value.detail,
+  };
+}
+
+function parseDiscoverySearchRefresh(value: unknown): DiscoverySearchRefreshResult | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, ["imported_count", "provider", "detail"]) ||
+    !isInteger(value.imported_count) ||
+    value.imported_count < 0 ||
+    value.imported_count > 50 ||
+    value.provider !== "naver_open_api" ||
+    typeof value.detail !== "string" ||
+    value.detail.length > 300
+  )
+    return null;
+  return {
+    importedCount: value.imported_count,
+    provider: value.provider,
     detail: value.detail,
   };
 }

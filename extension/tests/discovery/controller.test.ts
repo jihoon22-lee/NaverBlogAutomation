@@ -20,6 +20,7 @@ const client = {
   saveDigestSettings: vi.fn(),
   saveDiscoveryNeighbor: vi.fn(),
   saveDiscoverySearch: vi.fn(),
+  refreshDiscoverySearch: vi.fn(),
   syncAutomaticDiscovery: vi.fn(),
   updateDiscoveryPostState: vi.fn(),
 };
@@ -83,7 +84,12 @@ beforeEach(async () => {
     detail: "이웃 2개, 이웃 새 글 3개, 검색 후보 1개를 확인했습니다.",
   });
   client.saveDiscoveryNeighbor.mockResolvedValue({});
-  client.saveDiscoverySearch.mockResolvedValue({});
+  client.saveDiscoverySearch.mockResolvedValue({ id });
+  client.refreshDiscoverySearch.mockResolvedValue({
+    importedCount: 2,
+    provider: "naver_open_api",
+    detail: "공식 네이버 검색 API에서 검색 후보 2개를 확인했습니다.",
+  });
   client.saveDigestSettings.mockResolvedValue({});
   client.updateDiscoveryPostState.mockResolvedValue({});
 });
@@ -132,6 +138,28 @@ describe("DiscoveryController", () => {
     (document.querySelector("[data-action=skip]") as HTMLButtonElement).click();
     await settle();
     expect(document.querySelector("#discovery-notice")?.textContent).toContain("상태 실패");
+  });
+
+  it("refreshes a saved search immediately and preserves a useful setup failure", async () => {
+    const controller = new DiscoveryController(document, client as never);
+    controller.start();
+    await settle();
+    const form = document.querySelector("#discovery-search-form") as HTMLFormElement;
+    (form.elements.namedItem("query") as HTMLInputElement).value = "전시";
+    form.dispatchEvent(new domWindow.Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(client.refreshDiscoverySearch).toHaveBeenCalledWith(id);
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("검색 후보 2개");
+
+    client.refreshDiscoverySearch.mockRejectedValueOnce(
+      new Error("NAVER_SEARCH_CLIENT_ID 설정이 필요합니다."),
+    );
+    form.dispatchEvent(new domWindow.Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain(
+      "신규 이웃 검색어를 저장했습니다.",
+    );
   });
 
   it("shows persisted automatic status and opens a queued post without a page import", async () => {
