@@ -6,7 +6,7 @@ local-only 기능입니다. 저장한 블로그 ID·검색어의 공개 metadata
 
 ## 시작 조건
 
-- v0.4.0 이상의 extension과 local API를 실행합니다.
+- v0.5.0 이상의 extension과 local API를 실행합니다.
 - **네이버 접근 허용**은 댓글 본문 읽기와 입력 보조에만 쓰며, 한 번 허용하면 navigation 뒤에도
   유지됩니다.
 - 자동 탐색·이웃 RSS 갱신·일일 요약은 local API process가 실행 중일 때만 동작합니다.
