@@ -13,7 +13,7 @@ together because the client intentionally rejects undeclared response fields.
 - Authentication: none in the first local-only release
 - Browser access: one configured Side Panel `chrome-extension://<id>` origin only
 
-The service must not bind to `0.0.0.0`. CORS allows only the declared origin, `GET`, `POST`, `PATCH`,
+The service must not bind to `0.0.0.0`. CORS allows only the declared origin, `GET`, `POST`, `PUT`, `PATCH`,
 and `DELETE` as required, and the `Content-Type` and `Idempotency-Key` headers. Cookies and other browser
 credentials are disabled.
 
@@ -126,6 +126,20 @@ application posted a comment. Clipboard copy does not perform this transition au
 The MVP has no ETag/`If-Match` contract. If a review update
 returns `review_conflict`, the Side Panel fetches the recommendation again and presents the latest
 state instead of blindly overwriting it.
+
+## Automated Discovery
+
+`GET` and `PUT /api/v1/discovery/automation-settings` read and save the single local opt-in
+schedule. The setting contains `own_blog_id`, `enabled`, `timezone`, `hour`, and `minute`; the
+response also reports the last synchronization timestamp, status, and a safe human-readable
+summary. Saving the schedule preserves the previous run status.
+
+`POST /api/v1/discovery/sync` runs the same collection immediately. It reads only the public
+BuddyList for the configured blog ID, public RSS for saved neighbors, and public Naver search for
+saved queries. It returns bounded counts for added neighbors, neighbor posts, and search posts,
+plus `success`, `partial`, or `failed`. No request accepts cookies, login credentials, article
+bodies, or browser-tab data. An empty blog ID returns a successful transport response with a
+`failed` collection status and an actionable detail, allowing the Side Panel to guide setup.
 
 ## Error Contract
 

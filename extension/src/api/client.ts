@@ -1,5 +1,7 @@
 import type {
   ApiResult,
+  AutomaticDiscoverySettings,
+  AutomaticDiscoverySyncResult,
   CandidateTone,
   CommentLength,
   CommentMood,
@@ -276,6 +278,50 @@ export class LocalApiClient {
     )
       throw invalidResponse(response.status);
     return value.imported_count;
+  }
+
+  async automaticDiscoverySettings(signal?: AbortSignal): Promise<AutomaticDiscoverySettings> {
+    const response = await this.#request("/api/v1/discovery/automation-settings", {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseAutomaticDiscoverySettings(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async saveAutomaticDiscoverySettings(
+    settings: Omit<AutomaticDiscoverySettings, "lastSyncedAt" | "lastStatus" | "lastDetail">,
+    signal?: AbortSignal,
+  ): Promise<AutomaticDiscoverySettings> {
+    const response = await this.#request("/api/v1/discovery/automation-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        own_blog_id: settings.ownBlogId,
+        enabled: settings.enabled,
+        timezone: settings.timezone,
+        hour: settings.hour,
+        minute: settings.minute,
+      }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseAutomaticDiscoverySettings(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async syncAutomaticDiscovery(signal?: AbortSignal): Promise<AutomaticDiscoverySyncResult> {
+    const response = await this.#request("/api/v1/discovery/sync", {
+      method: "POST",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseAutomaticDiscoverySync(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
   }
 
   async digestSettings(signal?: AbortSignal): Promise<DigestSettings> {
@@ -673,6 +719,92 @@ function parseDigestSettings(value: unknown): DigestSettings | null {
     minute: value.minute,
     emailEnabled: value.email_enabled,
     smtpConfigured: value.smtp_configured,
+  };
+}
+
+function parseAutomaticDiscoverySettings(value: unknown): AutomaticDiscoverySettings | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "own_blog_id",
+      "enabled",
+      "timezone",
+      "hour",
+      "minute",
+      "last_synced_at",
+      "last_status",
+      "last_detail",
+    ])
+  )
+    return null;
+  const ownBlogId =
+    typeof value.own_blog_id === "string" && value.own_blog_id.length <= 100
+      ? value.own_blog_id
+      : null;
+  const timezone = requiredString(value, "timezone", 64);
+  const lastSyncedAt = nullableString(value, "last_synced_at", 100);
+  const lastDetail =
+    typeof value.last_detail === "string" && value.last_detail.length <= 300
+      ? value.last_detail
+      : null;
+  if (
+    ownBlogId === null ||
+    timezone === null ||
+    lastSyncedAt === undefined ||
+    lastDetail === null ||
+    !isInteger(value.hour) ||
+    !isInteger(value.minute) ||
+    value.hour < 0 ||
+    value.hour > 23 ||
+    value.minute < 0 ||
+    value.minute > 59 ||
+    typeof value.enabled !== "boolean" ||
+    !["never", "success", "partial", "failed"].includes(String(value.last_status)) ||
+    (lastSyncedAt !== null && Number.isNaN(Date.parse(lastSyncedAt)))
+  )
+    return null;
+  return {
+    ownBlogId,
+    enabled: value.enabled,
+    timezone,
+    hour: value.hour,
+    minute: value.minute,
+    lastSyncedAt,
+    lastStatus: value.last_status as AutomaticDiscoverySettings["lastStatus"],
+    lastDetail,
+  };
+}
+
+function parseAutomaticDiscoverySync(value: unknown): AutomaticDiscoverySyncResult | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "neighbors_added",
+      "neighbor_posts_added",
+      "search_posts_added",
+      "status",
+      "detail",
+    ]) ||
+    !isInteger(value.neighbors_added) ||
+    !isInteger(value.neighbor_posts_added) ||
+    !isInteger(value.search_posts_added) ||
+    value.neighbors_added < 0 ||
+    value.neighbors_added > 50 ||
+    value.neighbor_posts_added < 0 ||
+    value.neighbor_posts_added > 50 ||
+    value.search_posts_added < 0 ||
+    value.search_posts_added > 50 ||
+    !["success", "partial", "failed"].includes(String(value.status)) ||
+    typeof value.detail !== "string" ||
+    value.detail.length > 300
+  )
+    return null;
+  return {
+    neighborsAdded: value.neighbors_added,
+    neighborPostsAdded: value.neighbor_posts_added,
+    searchPostsAdded: value.search_posts_added,
+    status: value.status as AutomaticDiscoverySyncResult["status"],
+    detail: value.detail,
   };
 }
 

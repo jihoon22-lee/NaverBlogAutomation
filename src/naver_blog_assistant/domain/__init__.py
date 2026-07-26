@@ -1,6 +1,7 @@
 """Domain models for analyzed posts and generated comments."""
 
 from naver_blog_assistant.domain.discovery import (
+    AutoDiscoverySettings,
     DigestSettings,
     DiscoveredPost,
     DiscoverySource,
@@ -53,6 +54,7 @@ __all__ = [
     "SpeechStyle",
     "comment_length_bounds",
     "DigestSettings",
+    "AutoDiscoverySettings",
     "DiscoveredPost",
     "DiscoverySource",
     "DiscoveryState",

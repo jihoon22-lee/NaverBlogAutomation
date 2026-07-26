@@ -13,6 +13,7 @@ from sqlalchemy import Engine, delete, insert, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from naver_blog_assistant.domain import (
+    AutoDiscoverySettings,
     DigestSettings,
     DiscoveredPost,
     DiscoverySource,
@@ -22,6 +23,8 @@ from naver_blog_assistant.domain import (
     SavedSearch,
 )
 from naver_blog_assistant.infrastructure.database.schema import (
+    automatic_discovery_runs,
+    automatic_discovery_settings,
     digest_runs,
     digest_settings,
     discovered_posts,
@@ -336,6 +339,87 @@ class SqliteDiscoveryRepository:
                 .values(email_sent=True)
             )
 
+    def get_automatic_settings(self) -> AutoDiscoverySettings:
+        with self._engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(automatic_discovery_settings).where(
+                        automatic_discovery_settings.c.id == 1
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return AutoDiscoverySettings()
+        return _automatic_settings(row)
+
+    def save_automatic_settings(self, settings: AutoDiscoverySettings) -> AutoDiscoverySettings:
+        with self._immediate_transaction() as connection:
+            connection.execute(
+                sqlite_insert(automatic_discovery_settings)
+                .values(
+                    id=1,
+                    own_blog_id=settings.own_blog_id.strip(),
+                    enabled=settings.enabled,
+                    timezone=settings.timezone,
+                    hour=settings.hour,
+                    minute=settings.minute,
+                    last_synced_at=format_timestamp(settings.last_synced_at)
+                    if settings.last_synced_at
+                    else None,
+                    last_status=settings.last_status,
+                    last_detail=settings.last_detail,
+                )
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "own_blog_id": settings.own_blog_id.strip(),
+                        "enabled": settings.enabled,
+                        "timezone": settings.timezone,
+                        "hour": settings.hour,
+                        "minute": settings.minute,
+                    },
+                )
+            )
+        return self.get_automatic_settings()
+
+    def record_automatic_sync(self, *, status: str, detail: str) -> AutoDiscoverySettings:
+        now = self._clock()
+        with self._immediate_transaction() as connection:
+            connection.execute(
+                sqlite_insert(automatic_discovery_settings)
+                .values(
+                    id=1,
+                    own_blog_id="",
+                    enabled=False,
+                    timezone="Asia/Seoul",
+                    hour=9,
+                    minute=0,
+                    last_synced_at=format_timestamp(now),
+                    last_status=status,
+                    last_detail=detail[:300],
+                )
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "last_synced_at": format_timestamp(now),
+                        "last_status": status,
+                        "last_detail": detail[:300],
+                    },
+                )
+            )
+        return self.get_automatic_settings()
+
+    def claim_automatic_sync_run(self, local_date: str) -> bool:
+        with self._immediate_transaction() as connection:
+            result = connection.execute(
+                sqlite_insert(automatic_discovery_runs)
+                .values(local_date=local_date, created_at=format_timestamp(self._clock()))
+                .on_conflict_do_nothing(index_elements=["local_date"])
+            )
+            return result.rowcount == 1
+
     def cleanup_old_posts(self, *, days: int = 30) -> int:
         cutoff = self._clock() - timedelta(days=days)
         with self._immediate_transaction() as connection:
@@ -390,4 +474,18 @@ def _post(row: Any) -> DiscoveredPost:
         search_id=UUID(data["search_id"]) if data["search_id"] else None,
         created_at=parse_timestamp(data["created_at"]),
         updated_at=parse_timestamp(data["updated_at"]),
+    )
+
+
+def _automatic_settings(row: Any) -> AutoDiscoverySettings:
+    data = row
+    return AutoDiscoverySettings(
+        own_blog_id=data["own_blog_id"],
+        enabled=bool(data["enabled"]),
+        timezone=data["timezone"],
+        hour=data["hour"],
+        minute=data["minute"],
+        last_synced_at=parse_timestamp(data["last_synced_at"]) if data["last_synced_at"] else None,
+        last_status=data["last_status"],
+        last_detail=data["last_detail"],
     )

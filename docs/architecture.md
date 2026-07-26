@@ -13,10 +13,11 @@ The application helps one local user create a relevant comment draft for the Nav
 the active tab. The user opens the extension Side Panel, checks the extracted title and preview,
 explicitly requests recommendations, edits or selects a candidate, and manually publishes it.
 
-The application provides a local discovery queue for manually registered neighbors and
-user-imported search results. It may check explicitly registered public RSS feeds once per day,
-but does not sign in, use cookies, traverse pages unattended, click reactions, or publish
-comments. Every article extraction and model request still starts with an explicit user action.
+The application provides a local discovery queue using one explicitly saved own-blog ID, optional
+saved search queries, and manually added neighbors. Once enabled, the local API reads only the
+fixed public BuddyList, Naver search, and RSS metadata endpoints at the user's scheduled time. It
+does not sign in, use cookies, click reactions, or publish comments. Every article extraction and
+model request still starts with an explicit user action.
 
 ## System Context
 
@@ -26,6 +27,7 @@ flowchart LR
     P -->|activeTab + scripting| N[Current Naver Blog tab]
     N -->|title, URL, visible body| P
     P -->|status, history, preview-confirmed POST/PATCH/DELETE| A[Local FastAPI service]
+    A -->|public BuddyList, search, RSS metadata| N
     A -->|structured request| O[OpenAI Responses API]
     O -->|summary, topics, three candidates| A
     A --> D[(SQLite)]
@@ -40,12 +42,14 @@ package provides the loopback service and contains no second presentation layer.
 
 ### Side Panel and Browser Boundary
 
-The Manifest V3 TypeScript extension requests only `activeTab`, `scripting`, `sidePanel`,
-`storage`, and the loopback API host permission. Storage holds no article, generated candidate, or
-edited-comment text; it contains retry metadata and the user's explicitly saved options, including
-one bounded closing phrase. The service worker configures toolbar clicks to open the panel and
-performs only short browser-API orchestration. It never owns a model request because its lifecycle
-is ephemeral.
+The Manifest V3 TypeScript extension requests `activeTab`, `scripting`, `sidePanel`, `storage`, and
+the loopback API host permission. It offers the two Naver Blog origins as an **optional** host
+permission; accepting it makes article capture and comment-input assistance available after normal
+navigation, while declining keeps the toolbar-click `activeTab` fallback. Storage holds no article,
+generated candidate, or edited-comment text; it contains retry metadata and the user's explicitly
+saved options, including one bounded closing phrase. The service worker configures toolbar clicks
+to open the panel and performs only short browser-API orchestration. It never owns a model request
+because its lifecycle is ephemeral.
 
 The Side Panel owns UI and HTTP request lifecycles. On open, it extracts the active post and shows
 the URL, title, character count, truncation state, and a bounded preview. Transmission begins only
@@ -60,8 +64,9 @@ without an API call. The panel then supports candidate selection, editing, appro
 comment-input filling, clipboard copy, and an explicit completed action. Filling or copying alone
 never marks a recommendation completed. Copy uses the user gesture Clipboard API on a best-effort
 basis and falls back to a selectable text area; the extension does not request `clipboardWrite`.
-Input filling uses the existing `activeTab` and `scripting` grant, may click one verified standard
-comment-editor opener but never a submit control, and proceeds only when exactly one visible editable target is empty. Ambiguous,
+Input filling uses the user-granted Naver host permission or the existing `activeTab` and `scripting`
+fallback, may click one verified standard comment-editor opener but never a submit control, and
+proceeds only when exactly one visible editable target is empty. Ambiguous,
 occupied, missing, stale, and denied targets fail closed.
 
 A separate history controller reads runtime diagnostics and the latest 20 local recommendations.
@@ -74,7 +79,8 @@ the API limit. The extractor returns strings only and excludes navigation and co
 unsupported URL, image-only post, short result, or changed DOM produces a local error without an
 API call. Switching tabs or navigating marks the current preview stale. A different tab or origin
 requires the user to click the toolbar action again to grant `activeTab`; stale asynchronous
-results are discarded using the tab/document identity and an operation token.
+results are discarded using the tab/document identity and an operation token. If neither permission
+is available, the panel explains how to grant the optional Naver permission before retrying.
 
 ### Local API, Domain, and Persistence
 
@@ -170,6 +176,8 @@ comment remains selectable for manual copying.
   trusted local machine; broader distribution requires a new authentication and privacy review.
 - Only `blog.naver.com` and `m.blog.naver.com` HTTPS URLs are accepted initially.
 - The extension uses no always-on content script, cookies, history access, or remote JavaScript.
+  Persistent access to `blog.naver.com` and `m.blog.naver.com` is optional and requested only from
+  the Side Panel through a user gesture.
 - Request bodies, authorization headers, article text, and provider payloads are excluded from
   logs, browser storage, test artifacts, and screenshots.
 - Source URL, title, and a bounded excerpt are retained locally and must be disclosed to the user.

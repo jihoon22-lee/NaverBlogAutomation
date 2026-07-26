@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from naver_blog_assistant.domain import (
+    AutoDiscoverySettings,
     CommentLength,
     CommentMood,
     DigestSettings,
@@ -392,6 +393,55 @@ class DigestSettingsResponse(DigestSettingsRequest):
             email_enabled=settings.email_enabled,
             smtp_configured=smtp_configured,
         )
+
+
+class AutomaticDiscoverySettingsRequest(StrictModel):
+    own_blog_id: Annotated[str, StringConstraints(max_length=100)] = ""
+    enabled: bool = False
+    timezone: Annotated[str, StringConstraints(min_length=1, max_length=64)] = "Asia/Seoul"
+    hour: Annotated[int, Field(ge=0, le=23)] = 9
+    minute: Annotated[int, Field(ge=0, le=59)] = 0
+
+    def to_domain(self, *, previous: AutoDiscoverySettings | None = None) -> AutoDiscoverySettings:
+        return AutoDiscoverySettings(
+            own_blog_id=self.own_blog_id.strip(),
+            enabled=self.enabled,
+            timezone=self.timezone,
+            hour=self.hour,
+            minute=self.minute,
+            last_synced_at=None if previous is None else previous.last_synced_at,
+            last_status="never" if previous is None else previous.last_status,
+            last_detail="" if previous is None else previous.last_detail,
+        )
+
+
+class AutomaticDiscoverySettingsResponse(AutomaticDiscoverySettingsRequest):
+    last_synced_at: datetime | None
+    last_status: Literal["never", "success", "partial", "failed"]
+    last_detail: str
+
+    @classmethod
+    def from_domain(cls, settings: AutoDiscoverySettings) -> Self:
+        return cls(
+            own_blog_id=settings.own_blog_id,
+            enabled=settings.enabled,
+            timezone=settings.timezone,
+            hour=settings.hour,
+            minute=settings.minute,
+            last_synced_at=settings.last_synced_at,
+            last_status=cast(
+                Literal["never", "success", "partial", "failed"], settings.last_status
+            ),
+            last_detail=settings.last_detail,
+        )
+
+
+class AutomaticDiscoverySyncResponse(StrictModel):
+    neighbors_added: Annotated[int, Field(ge=0, le=50)]
+    neighbor_posts_added: Annotated[int, Field(ge=0, le=50)]
+    search_posts_added: Annotated[int, Field(ge=0, le=50)]
+    status: Literal["success", "partial", "failed"]
+    detail: str
 
 
 def _quality_warnings(recommendation: Recommendation) -> list[QualityWarning]:

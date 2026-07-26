@@ -37,6 +37,9 @@ from naver_blog_assistant.api.middleware import (
     RequestSizeLimitMiddleware,
 )
 from naver_blog_assistant.api.models import (
+    AutomaticDiscoverySettingsRequest,
+    AutomaticDiscoverySettingsResponse,
+    AutomaticDiscoverySyncResponse,
     CreateRecommendationRequest,
     DigestSettingsRequest,
     DigestSettingsResponse,
@@ -81,9 +84,14 @@ from naver_blog_assistant.application import (
 )
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
+    buddy_list_url,
+    fetch_public_html,
     fetch_rss_posts,
     filter_saved_search_posts,
+    parse_buddy_list,
+    parse_search_posts,
     rss_url_for,
+    search_url,
 )
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
@@ -370,6 +378,92 @@ def create_app(
         discovery.cleanup_old_posts()
         return imported_count
 
+    async def synchronize_automatic_discovery() -> AutomaticDiscoverySyncResponse:
+        """Refresh explicitly configured public sources without browser state or cookies."""
+        automation = discovery.get_automatic_settings()
+        if not automation.own_blog_id.strip():
+            detail = "내 블로그 ID를 저장한 뒤 자동 탐색을 시작해 주세요."
+            discovery.record_automatic_sync(status="failed", detail=detail)
+            return AutomaticDiscoverySyncResponse(
+                neighbors_added=0,
+                neighbor_posts_added=0,
+                search_posts_added=0,
+                status="failed",
+                detail=detail,
+            )
+
+        failures: list[str] = []
+        neighbors_added = 0
+        try:
+            html = await asyncio.to_thread(
+                fetch_public_html, buddy_list_url(automation.own_blog_id)
+            )
+            before = {item.blog_id for item in discovery.list_neighbors()}
+            for name, blog_id, blog_url in parse_buddy_list(html):
+                discovery.save_neighbor(name=name, blog_id=blog_id, blog_url=blog_url)
+            neighbors_added = len({item.blog_id for item in discovery.list_neighbors()} - before)
+        except Exception:
+            logger.warning("automatic_discovery_buddy_list_failed")
+            failures.append("이웃 목록")
+
+        neighbor_posts_added = await refresh_neighbors_from_rss()
+        search_posts_added = 0
+        for search in discovery.list_searches():
+            if not search.enabled:
+                continue
+            try:
+                html = await asyncio.to_thread(fetch_public_html, search_url(search.query))
+                posts = filter_saved_search_posts(
+                    search,
+                    parse_search_posts(html),
+                    now=datetime.now(UTC),
+                )
+                search_posts_added += discovery.import_posts(
+                    source=DiscoverySource.SEARCH,
+                    search_id=search.id,
+                    posts=posts,
+                )
+            except Exception:
+                logger.warning("automatic_discovery_search_failed search_id=%s", search.id)
+                failures.append("검색 결과")
+        if failures and (neighbors_added or neighbor_posts_added or search_posts_added):
+            status: Literal["success", "partial", "failed"] = "partial"
+            detail = f"일부 수집에 실패했습니다: {', '.join(sorted(set(failures)))}"
+        elif failures:
+            status = "failed"
+            detail = f"수집하지 못했습니다: {', '.join(sorted(set(failures)))}"
+        else:
+            status = "success"
+            detail = (
+                f"이웃 {neighbors_added}개, 이웃 새 글 {neighbor_posts_added}개, "
+                f"검색 후보 {search_posts_added}개를 확인했습니다."
+            )
+        discovery.record_automatic_sync(status=status, detail=detail)
+        return AutomaticDiscoverySyncResponse(
+            neighbors_added=neighbors_added,
+            neighbor_posts_added=neighbor_posts_added,
+            search_posts_added=search_posts_added,
+            status=status,
+            detail=detail,
+        )
+
+    async def run_automatic_discovery_if_due() -> None:
+        automation = discovery.get_automatic_settings()
+        if not automation.enabled or not automation.own_blog_id.strip():
+            return
+        try:
+            from zoneinfo import ZoneInfo
+
+            local_now = datetime.now(ZoneInfo(automation.timezone))
+        except Exception:
+            logger.warning("automatic_discovery_invalid_timezone")
+            return
+        if (local_now.hour, local_now.minute) < (automation.hour, automation.minute):
+            return
+        if not discovery.claim_automatic_sync_run(local_now.date().isoformat()):
+            return
+        await synchronize_automatic_discovery()
+
     async def run_daily_digest_if_due() -> None:
         settings_value = discovery.get_digest_settings()
         try:
@@ -400,9 +494,10 @@ def create_app(
     async def discovery_scheduler() -> None:
         while True:
             try:
+                await run_automatic_discovery_if_due()
                 await run_daily_digest_if_due()
             except Exception:
-                logger.exception("discovery_digest_scheduler_failed")
+                logger.exception("discovery_scheduler_failed")
             await asyncio.sleep(60)
 
     def finish_generation_task(task: asyncio.Task[GenerationResult]) -> None:
@@ -859,6 +954,46 @@ def create_app(
         if result is None:
             raise _discovery_not_found()
         return DiscoveryPostResponse.from_domain(result)
+
+    @app.get(
+        "/api/v1/discovery/automation-settings",
+        response_model=AutomaticDiscoverySettingsResponse,
+        tags=["Discovery"],
+        operation_id="getAutomaticDiscoverySettings",
+    )
+    def get_automatic_discovery_settings() -> AutomaticDiscoverySettingsResponse:
+        return AutomaticDiscoverySettingsResponse.from_domain(discovery.get_automatic_settings())
+
+    @app.put(
+        "/api/v1/discovery/automation-settings",
+        response_model=AutomaticDiscoverySettingsResponse,
+        responses={422: _problem_metadata("Automatic discovery settings are invalid.")},
+        tags=["Discovery"],
+        operation_id="saveAutomaticDiscoverySettings",
+    )
+    def save_automatic_discovery_settings(
+        payload: AutomaticDiscoverySettingsRequest,
+    ) -> AutomaticDiscoverySettingsResponse:
+        previous = discovery.get_automatic_settings()
+        try:
+            result = discovery.save_automatic_settings(payload.to_domain(previous=previous))
+        except DomainValidationError as error:
+            raise ApiError(
+                422,
+                "invalid_automatic_discovery_settings",
+                "Invalid automatic discovery settings",
+                "Automatic discovery settings are invalid.",
+            ) from error
+        return AutomaticDiscoverySettingsResponse.from_domain(result)
+
+    @app.post(
+        "/api/v1/discovery/sync",
+        response_model=AutomaticDiscoverySyncResponse,
+        tags=["Discovery"],
+        operation_id="syncAutomaticDiscovery",
+    )
+    async def sync_automatic_discovery() -> AutomaticDiscoverySyncResponse:
+        return await synchronize_automatic_discovery()
 
     @app.get(
         "/api/v1/discovery/digest-settings",

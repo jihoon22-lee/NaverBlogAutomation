@@ -9,9 +9,9 @@ Local API는 `127.0.0.1:8765`만 사용하고 한 개의 정확한
 `chrome-extension://<32-character-id>` origin만 허용합니다. Extension permission도 이 주소로
 고정되므로 host나 port를 바꾸지 마세요. Environment file은 명시적으로 전달합니다.
 
-Toolbar action은 활성화된 tab의 `activeTab` 권한을 얻고 Side Panel을 엽니다. Chrome 120에서는
-두 번째 click으로 panel을 닫는 toggle을 제공하지 않으며, 닫기는 Chrome Side Panel UI에서
-직접 수행합니다.
+Side Panel의 **네이버 접근 허용**은 `blog.naver.com`과 `m.blog.naver.com`에만 선택적으로 적용됩니다.
+허용하면 navigation 뒤에도 현재 글 읽기와 댓글 입력 보조를 계속 사용할 수 있습니다. 거부해도
+toolbar action으로 연 현재 탭에서는 `activeTab` 권한으로 사용할 수 있습니다.
 
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
@@ -70,8 +70,11 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
 - **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
-  확인합니다. Navigation 후에는 toolbar action을 다시 누릅니다. Image-only 또는 너무 짧은 글은
-  지원하지 않습니다.
+  확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
+  않습니다.
+- **자동 탐색 결과가 비어 있음:** 내 블로그 ID와 저장한 검색어를 확인한 뒤 **지금 동기화**를 누릅니다.
+  공개 BuddyList·RSS·검색 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고 마지막
+  동기화 상태에 이유를 표시합니다.
 - **Extension 변경이 보이지 않음:** `npm --prefix extension run build` 후 extension card의 Reload를
   누릅니다. Reload 후 ID와 env origin이 여전히 일치하는지 확인합니다.
 - **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로

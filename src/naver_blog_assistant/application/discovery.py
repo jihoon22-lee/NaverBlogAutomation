@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
+from html import unescape
+from html.parser import HTMLParser
 from smtplib import SMTP, SMTP_SSL
 from typing import Protocol
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -68,6 +71,67 @@ def fetch_rss_posts(
     return tuple(results)
 
 
+def buddy_list_url(blog_id: str) -> str:
+    """Return the public mobile BuddyList endpoint for one saved blog id."""
+    return f"https://m.blog.naver.com/BuddyList.naver?{urlencode({'blogId': blog_id})}"
+
+
+def search_url(query: str) -> str:
+    """Return Naver's public blog-search URL for an explicitly saved query."""
+    return f"https://search.naver.com/search.naver?{urlencode({'where': 'blog', 'query': query})}"
+
+
+def fetch_public_html(url: str, *, timeout: float = 10.0) -> str:
+    """Read a bounded public HTML document without cookies or credentials."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname not in {
+        "m.blog.naver.com",
+        "search.naver.com",
+    }:
+        raise ValueError("public discovery URL is not allowed")
+    request = Request(url, headers={"User-Agent": "NaverBlogAssistant/0.5"})
+    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed allowlisted public host
+        return response.read(1_000_000).decode("utf-8", errors="replace")
+
+
+def parse_buddy_list(html: str, *, limit: int = 50) -> tuple[tuple[str, str, str], ...]:
+    """Extract public BuddyList profile links as bounded metadata only."""
+    parser = _AnchorParser()
+    parser.feed(html)
+    profiles: dict[str, tuple[str, str, str]] = {}
+    for href, text in parser.anchors:
+        url = _supported_naver_url(href, "https://m.blog.naver.com/")
+        if url is None:
+            continue
+        blog_id = parse_qs(url.query).get("blogId", [""])[0] or _path_blog_id(url)
+        if not blog_id or blog_id in profiles:
+            continue
+        if "PostList.naver" not in url.path and len(url.path.strip("/").split("/")) != 1:
+            continue
+        profiles[blog_id] = (text[:120] or blog_id, blog_id, f"https://blog.naver.com/{blog_id}")
+        if len(profiles) >= limit:
+            break
+    return tuple(profiles.values())
+
+
+def parse_search_posts(html: str, *, limit: int = 50) -> tuple[ImportedDiscoveryPost, ...]:
+    """Extract direct public Naver post links from a saved-search result document."""
+    parser = _AnchorParser()
+    parser.feed(html)
+    posts: dict[str, ImportedDiscoveryPost] = {}
+    for href, text in parser.anchors:
+        url = _supported_naver_url(href, "https://search.naver.com/")
+        if url is None or not _is_post_url(url) or not text or url.geturl() in posts:
+            continue
+        try:
+            posts[url.geturl()] = ImportedDiscoveryPost(source_url=url.geturl(), title=text[:300])
+        except Exception:
+            continue
+        if len(posts) >= limit:
+            break
+    return tuple(posts.values())
+
+
 def filter_saved_search_posts(
     search: SavedSearch,
     posts: tuple[ImportedDiscoveryPost, ...],
@@ -100,6 +164,53 @@ def _parse_rss_date(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+class _AnchorParser(HTMLParser):
+    """Small dependency-free anchor collector for fixed public list pages."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.anchors: list[tuple[str, str]] = []
+        self._href: str | None = None
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a" or self._href is not None:
+            return
+        href = dict(attrs).get("href")
+        if href:
+            self._href = href
+            self._parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or self._href is None:
+            return
+        text = " ".join("".join(self._parts).split())
+        self.anchors.append((unescape(self._href), text))
+        self._href = None
+        self._parts = []
+
+
+def _supported_naver_url(value: str, base: str):
+    url = urlsplit(urljoin(base, value))
+    if url.scheme != "https" or url.hostname not in {"blog.naver.com", "m.blog.naver.com"}:
+        return None
+    return url._replace(fragment="")
+
+
+def _path_blog_id(url) -> str:
+    parts = [part for part in url.path.split("/") if part]
+    return parts[0] if parts else ""
+
+
+def _is_post_url(url) -> bool:
+    parts = [part for part in url.path.split("/") if part]
+    return "PostView" in url.path or "logNo" in parse_qs(url.query) or len(parts) >= 2
 
 
 class SmtpDigestSender:

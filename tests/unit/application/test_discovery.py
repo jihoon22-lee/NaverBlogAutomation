@@ -11,8 +11,12 @@ import pytest
 
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
+    buddy_list_url,
+    fetch_public_html,
     fetch_rss_posts,
     filter_saved_search_posts,
+    parse_buddy_list,
+    parse_search_posts,
     rss_url_for,
 )
 from naver_blog_assistant.domain import ImportedDiscoveryPost, SavedSearch
@@ -80,6 +84,30 @@ def test_saved_search_filters_excluded_and_stale_dated_metadata() -> None:
         posts[0],
         posts[3],
     )
+
+
+def test_public_list_parsers_keep_only_direct_bounded_naver_metadata() -> None:
+    buddy_html = """
+      <a href="https://m.blog.naver.com/PostList.naver?blogId=friend">친한 이웃</a>
+      <a href="https://example.test/friend">외부</a>
+    """
+    search_html = """
+      <a href="https://blog.naver.com/friend/123">전시 후기</a>
+      <a href="https://blog.naver.com/friend">프로필</a>
+    """
+
+    assert buddy_list_url("mine").endswith("blogId=mine")
+    assert parse_buddy_list(buddy_html) == (
+        ("친한 이웃", "friend", "https://blog.naver.com/friend"),
+    )
+    assert parse_search_posts(search_html) == (
+        ImportedDiscoveryPost(source_url="https://blog.naver.com/friend/123", title="전시 후기"),
+    )
+
+
+def test_public_html_rejects_non_allowlisted_urls() -> None:
+    with pytest.raises(ValueError, match="allowed"):
+        fetch_public_html("https://example.test/")
 
 
 @pytest.mark.parametrize("security", ["starttls", "ssl"])

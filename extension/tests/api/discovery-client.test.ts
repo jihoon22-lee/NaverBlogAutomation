@@ -127,6 +127,39 @@ describe("LocalApiClient discovery API", () => {
           email_enabled: false,
           smtp_configured: true,
         }),
+      )
+      .mockResolvedValueOnce(
+        json({
+          own_blog_id: "mine",
+          enabled: false,
+          timezone: "Asia/Seoul",
+          hour: 9,
+          minute: 0,
+          last_synced_at: null,
+          last_status: "never",
+          last_detail: "",
+        }),
+      )
+      .mockResolvedValueOnce(
+        json({
+          own_blog_id: "mine",
+          enabled: true,
+          timezone: "Asia/Seoul",
+          hour: 8,
+          minute: 30,
+          last_synced_at: timestamp,
+          last_status: "success",
+          last_detail: "동기화 완료",
+        }),
+      )
+      .mockResolvedValueOnce(
+        json({
+          neighbors_added: 1,
+          neighbor_posts_added: 2,
+          search_posts_added: 3,
+          status: "success",
+          detail: "동기화 완료",
+        }),
       );
     const client = new LocalApiClient(fetch);
 
@@ -164,6 +197,79 @@ describe("LocalApiClient discovery API", () => {
         emailEnabled: false,
       }),
     ).resolves.toMatchObject({ hour: 8 });
-    expect(fetch).toHaveBeenCalledTimes(10);
+    await expect(client.automaticDiscoverySettings()).resolves.toMatchObject({
+      ownBlogId: "mine",
+      lastStatus: "never",
+    });
+    await expect(
+      client.saveAutomaticDiscoverySettings({
+        ownBlogId: "mine",
+        enabled: true,
+        timezone: "Asia/Seoul",
+        hour: 8,
+        minute: 30,
+      }),
+    ).resolves.toMatchObject({ enabled: true, lastSyncedAt: timestamp });
+    await expect(client.syncAutomaticDiscovery()).resolves.toMatchObject({
+      neighborsAdded: 1,
+      neighborPostsAdded: 2,
+      searchPostsAdded: 3,
+      status: "success",
+    });
+    expect(fetch).toHaveBeenCalledTimes(13);
+  });
+
+  it("rejects malformed automatic-discovery settings and synchronization responses", async () => {
+    const settings = {
+      own_blog_id: "mine",
+      enabled: true,
+      timezone: "Asia/Seoul",
+      hour: 9,
+      minute: 0,
+      last_synced_at: null,
+      last_status: "success",
+      last_detail: "동기화 완료",
+    };
+    const invalidSettings = [
+      { ...settings, unexpected: true },
+      { ...settings, own_blog_id: 1 },
+      { ...settings, timezone: "" },
+      { ...settings, hour: 24 },
+      { ...settings, minute: -1 },
+      { ...settings, enabled: "true" },
+      { ...settings, last_synced_at: "not-a-date" },
+      { ...settings, last_status: "pending" },
+      { ...settings, last_detail: 1 },
+    ];
+    for (const value of invalidSettings) {
+      await expect(
+        new LocalApiClient(
+          vi.fn<typeof fetch>().mockResolvedValue(json(value)),
+        ).automaticDiscoverySettings(),
+      ).rejects.toBeDefined();
+    }
+
+    const synchronization = {
+      neighbors_added: 1,
+      neighbor_posts_added: 2,
+      search_posts_added: 3,
+      status: "success",
+      detail: "동기화 완료",
+    };
+    const invalidSynchronizations = [
+      { ...synchronization, neighbors_added: -1 },
+      { ...synchronization, neighbor_posts_added: 51 },
+      { ...synchronization, search_posts_added: "3" },
+      { ...synchronization, status: "running" },
+      { ...synchronization, detail: 3 },
+      { ...synchronization, unexpected: true },
+    ];
+    for (const value of invalidSynchronizations) {
+      await expect(
+        new LocalApiClient(
+          vi.fn<typeof fetch>().mockResolvedValue(json(value)),
+        ).syncAutomaticDiscovery(),
+      ).rejects.toBeDefined();
+    }
   });
 });
