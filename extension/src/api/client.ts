@@ -24,6 +24,9 @@ import type {
   DiscoverySearch,
   DiscoverySource,
   DiscoveryState,
+  EngagementRun,
+  EngagementStepName,
+  EngagementStepState,
 } from "./types";
 import { LOCAL_API_ORIGIN } from "../config";
 
@@ -40,6 +43,15 @@ const QUALITY_WARNINGS = new Set<QualityWarning>([
   "candidate_roles_blurred",
   "candidates_too_similar",
   "length_target_missed",
+]);
+const ENGAGEMENT_STEP_NAMES = new Set<EngagementStepName>(["like", "comment", "mutual_neighbor"]);
+const ENGAGEMENT_STEP_STATES = new Set<EngagementStepState>([
+  "pending",
+  "running",
+  "succeeded",
+  "skipped",
+  "failed",
+  "unconfirmed",
 ]);
 
 type Fetch = typeof fetch;
@@ -369,6 +381,108 @@ export class LocalApiClient {
     });
     if (response.status !== 200) throw invalidResponse(response.status);
     const parsed = parseDigestSettings(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async listEngagementRuns(limit = 20, signal?: AbortSignal): Promise<readonly EngagementRun[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+      throw new RangeError("Engagement history limit must be between 1 and 50");
+    }
+    const response = await this.#request(`/api/v1/engagement-runs?limit=${limit}`, {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    return engagementRuns(await readJson(response));
+  }
+
+  async startEngagementRun(
+    value: { approvalId: string; discoveryPostId: string; recommendationId: string },
+    signal?: AbortSignal,
+  ): Promise<ApiResult<EngagementRun>> {
+    const response = await this.#request("/api/v1/engagement-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        approval_id: value.approvalId,
+        discovery_post_id: value.discoveryPostId,
+        recommendation_id: value.recommendationId,
+      }),
+      ...withSignal(signal),
+    });
+    if (response.status !== 200 && response.status !== 201) {
+      throw invalidResponse(response.status);
+    }
+    const parsed = parseEngagementRun(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return {
+      replayed: readBooleanHeader(response, "Engagement-Replayed"),
+      value: parsed,
+    };
+  }
+
+  async getEngagementRun(id: string, signal?: AbortSignal): Promise<EngagementRun> {
+    const response = await this.#request(`/api/v1/engagement-runs/${encodeURIComponent(id)}`, {
+      method: "GET",
+      ...withSignal(signal),
+    });
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseEngagementRun(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
+  }
+
+  async getEngagementRunForPost(
+    postId: string,
+    signal?: AbortSignal,
+  ): Promise<EngagementRun | null> {
+    try {
+      const response = await this.#request(
+        `/api/v1/engagement-runs/by-post/${encodeURIComponent(postId)}`,
+        { method: "GET", ...withSignal(signal) },
+      );
+      if (response.status !== 200) throw invalidResponse(response.status);
+      const parsed = parseEngagementRun(await readJson(response));
+      if (parsed === null) throw invalidResponse(response.status);
+      return parsed;
+    } catch (error) {
+      if (
+        error instanceof ApiClientError &&
+        error.status === 404 &&
+        error.problem?.code === "engagement_run_not_found"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async transitionEngagementStep(
+    runId: string,
+    stepName: EngagementStepName,
+    value:
+      | { state: "running"; resultCode?: null }
+      | {
+          state: Exclude<EngagementStepState, "pending" | "running">;
+          resultCode: string;
+        },
+    signal?: AbortSignal,
+  ): Promise<EngagementRun> {
+    const response = await this.#request(
+      `/api/v1/engagement-runs/${encodeURIComponent(runId)}/steps/${stepName}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: value.state,
+          result_code: value.resultCode ?? null,
+        }),
+        ...withSignal(signal),
+      },
+    );
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseEngagementRun(await readJson(response));
     if (parsed === null) throw invalidResponse(response.status);
     return parsed;
   }
@@ -713,6 +827,127 @@ function parseDiscoveryPost(value: unknown): DiscoveryPost | null {
     createdAt,
     updatedAt,
   };
+}
+
+function engagementRuns(value: unknown): readonly EngagementRun[] {
+  if (!isRecord(value) || !onlyKeys(value, ["items"]) || !Array.isArray(value.items)) {
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  }
+  const items = value.items.map(parseEngagementRun);
+  if (items.some((item) => item === null)) {
+    throw new ApiClientError("로컬 API 응답 형식을 확인할 수 없습니다.");
+  }
+  return items as EngagementRun[];
+}
+
+function parseEngagementRun(value: unknown): EngagementRun | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "id",
+      "approval_id",
+      "discovery_post_id",
+      "recommendation_id",
+      "source",
+      "state",
+      "steps",
+      "created_at",
+      "updated_at",
+    ]) ||
+    !Array.isArray(value.steps) ||
+    value.steps.length < 2 ||
+    value.steps.length > 3
+  ) {
+    return null;
+  }
+  const ids = ["id", "approval_id", "discovery_post_id", "recommendation_id"].map((key) =>
+    requiredString(value, key, 36),
+  );
+  const createdAt = requiredString(value, "created_at", 100);
+  const updatedAt = requiredString(value, "updated_at", 100);
+  const steps = value.steps.map(parseEngagementStep);
+  if (
+    ids.some((id) => id === null || !UUID.test(id)) ||
+    createdAt === null ||
+    updatedAt === null ||
+    Number.isNaN(Date.parse(createdAt)) ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    (value.source !== "neighbor" && value.source !== "search") ||
+    !["running", "succeeded", "failed", "unconfirmed"].includes(String(value.state)) ||
+    steps.some((step) => step === null) ||
+    !validEngagementStepSequence(value.source, steps)
+  ) {
+    return null;
+  }
+  const [id, approvalId, discoveryPostId, recommendationId] = ids as [
+    string,
+    string,
+    string,
+    string,
+  ];
+  return {
+    id,
+    approvalId,
+    discoveryPostId,
+    recommendationId,
+    source: value.source,
+    state: value.state as EngagementRun["state"],
+    steps: steps as EngagementRun["steps"],
+    createdAt,
+    updatedAt,
+  };
+}
+
+function parseEngagementStep(value: unknown): EngagementRun["steps"][number] | null {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, ["name", "position", "state", "result_code", "updated_at"])
+  ) {
+    return null;
+  }
+  const name = value.name;
+  const state = value.state;
+  const updatedAt = requiredString(value, "updated_at", 100);
+  const resultCode = value.result_code;
+  const terminal = ["succeeded", "skipped", "failed", "unconfirmed"].includes(String(state));
+  if (
+    typeof name !== "string" ||
+    !ENGAGEMENT_STEP_NAMES.has(name as EngagementStepName) ||
+    typeof state !== "string" ||
+    !ENGAGEMENT_STEP_STATES.has(state as EngagementStepState) ||
+    !isInteger(value.position) ||
+    value.position < 0 ||
+    value.position > 2 ||
+    updatedAt === null ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    (terminal
+      ? typeof resultCode !== "string" || !PROBLEM_CODE.test(resultCode)
+      : resultCode !== null)
+  ) {
+    return null;
+  }
+  return {
+    name: name as EngagementStepName,
+    position: value.position,
+    state: state as EngagementStepState,
+    resultCode: resultCode as string | null,
+    updatedAt,
+  };
+}
+
+function validEngagementStepSequence(
+  source: unknown,
+  steps: readonly (EngagementRun["steps"][number] | null)[],
+): boolean {
+  const expected =
+    source === "neighbor" ? ["like", "comment"] : ["like", "comment", "mutual_neighbor"];
+  return (
+    steps.length === expected.length &&
+    steps.every(
+      (step, position) =>
+        step !== null && step.name === expected[position] && step.position === position,
+    )
+  );
 }
 
 function parseDigestSettings(value: unknown): DigestSettings | null {
