@@ -68,6 +68,15 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await triggerExtensionAction(context, blogPage, extensionId);
     const panel = await context.newPage();
     await panel.goto(`${extensionOrigin}/sidepanel.html`);
+    await panel.setViewportSize({ width: 360, height: 800 });
+    await expect(panel.locator("#workspace-today")).toBeVisible();
+    await expect(panel.locator("#workspace-comment")).toBeHidden();
+    expect(
+      await panel.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await openCommentWorkspace(panel);
     const apiRequests: string[] = [];
     const recommendationPosts: CapturedRecommendationPost[] = [];
     const apiResponses: Response[] = [];
@@ -164,6 +173,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
 
     await writeExtensionStorage(panel, activeRegistry ?? {});
     await panel.reload();
+    await openCommentWorkspace(panel);
     await expect(panel.locator("#preview-panel")).toBeVisible();
     await expect(panel.locator('input[name="comment-length"][value="long"]')).toBeChecked();
     await expect(panel.locator('input[name="comment-mood"][value="lively"]')).toBeChecked();
@@ -270,6 +280,7 @@ test("built production Side Panel completes, replays, and restores the reviewed 
 
     const postCountBeforeRestore = countRequests(apiRequests, "POST");
     await panel.reload();
+    await openCommentWorkspace(panel);
     await expect(panel.locator("#preview-panel")).toBeVisible();
     await expect(panel.locator('input[name="relationship"][value="close"]')).toBeChecked();
     await expect(panel.locator('input[name="speech-style"][value="banmal"]')).toBeChecked();
@@ -285,9 +296,10 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await expect(panel.locator("#edited-comment")).toHaveValue(editedComment);
     expect(countRequests(apiRequests, "POST")).toBe(postCountBeforeRestore);
 
+    await panel.locator("#workspace-history-button").click();
+    await expect(panel.locator("#workspace-history")).toBeVisible();
     await panel.locator("#history-refresh-button").click();
     await expect(panel.locator("#history-list .history-item")).toHaveCount(3);
-    await panel.locator("#history-title").click();
     await expect(panel.locator("#history-list .history-item").first()).toContainText(
       "합성 전시 후기",
     );
@@ -514,6 +526,12 @@ async function browserHealth(
     }
   }, apiOrigin);
   return "error" in result ? { ...result, messages } : result;
+}
+
+async function openCommentWorkspace(page: Page): Promise<void> {
+  await page.locator("#workspace-comment-button").click();
+  await expect(page.locator("#workspace-comment")).toBeVisible();
+  await expect(page.locator("#workspace-comment-button")).toHaveAttribute("aria-current", "page");
 }
 
 async function expectReviewState(
