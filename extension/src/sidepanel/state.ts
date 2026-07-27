@@ -1,4 +1,9 @@
-import type { DiscoveryPost, EngagementRun, Recommendation } from "../api/types";
+import type {
+  DiscoveryPost,
+  EngagementRun,
+  EngagementStepName,
+  Recommendation,
+} from "../api/types";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
 import type { GenerationPreferences } from "../preferences/model";
 
@@ -55,6 +60,7 @@ export interface PanelActions {
   edit(value: string): void;
   engage(): void;
   generate(): void;
+  manualComplete(completedSteps: readonly EngagementStepName[]): void;
   changeNeighborMessage(value: string): void;
   regenerate(): void;
   replace(): void;

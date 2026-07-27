@@ -201,6 +201,16 @@ class Api {
   >(async () => ({ replayed: false, value: drafted }));
   get = vi.fn<(id: string, signal?: AbortSignal) => Promise<Recommendation>>(async () => drafted);
   healthCheck = vi.fn<(signal?: AbortSignal) => Promise<void>>(async () => undefined);
+  completeEngagementManually =
+    vi.fn<
+      (
+        runId: string,
+        steps: readonly ("like" | "comment" | "mutual_neighbor")[],
+      ) => Promise<EngagementRun>
+    >();
+  getEngagementRunForPost = vi.fn<(postId: string) => Promise<EngagementRun | null>>(
+    async () => null,
+  );
   review = vi.fn<
     (
       id: string,
@@ -213,13 +223,17 @@ class Api {
     reviewStatus: payload.review_status ?? "drafted",
     selectedCandidateId: payload.selected_candidate_id ?? null,
   }));
+  updateDiscoveryPostState = vi.fn(async (id: string, state: string) => ({ id, state }));
 
   asClient(): LocalApiClient {
     return {
       createRecommendation: this.create,
+      completeEngagementManually: this.completeEngagementManually,
+      getEngagementRunForPost: this.getEngagementRunForPost,
       getRecommendation: this.get,
       health: this.healthCheck,
       reviewRecommendation: this.review,
+      updateDiscoveryPostState: this.updateDiscoveryPostState,
     } as unknown as LocalApiClient;
   }
 }
@@ -825,6 +839,94 @@ describe("integrated Side Panel workflow", () => {
       engagementRun: { id: completedRun.id, state: "succeeded" },
       notice: expect.stringContaining("완료"),
     });
+  });
+
+  it("records confirmed manual steps after a failed run and refreshes the completed workflow", async () => {
+    const token: EngagementApprovalToken = {
+      details: {
+        comment: "사용자가 다듬은 합성 댓글",
+        sourceUrl: tab.url,
+        steps: ["like", "comment"],
+        title: tab.title,
+      },
+      id: "00000000-0000-4000-8000-000000000078",
+    };
+    const failedRun: EngagementRun = {
+      approvalId: token.id,
+      createdAt: "2026-07-28T00:00:00Z",
+      discoveryPostId: discoveryPost.id,
+      id: "00000000-0000-4000-8000-000000000079",
+      recommendationId: drafted.id,
+      source: "neighbor",
+      state: "failed",
+      steps: [
+        {
+          name: "like",
+          position: 0,
+          resultCode: "not_found",
+          state: "failed",
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+        {
+          name: "comment",
+          position: 1,
+          resultCode: null,
+          state: "pending",
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+      ],
+      updatedAt: "2026-07-28T00:00:01Z",
+    };
+    const completedRun: EngagementRun = {
+      ...failedRun,
+      state: "succeeded",
+      steps: failedRun.steps.map((step) => ({
+        ...step,
+        resultCode: "manual_confirmed",
+        state: "succeeded",
+      })),
+    };
+    const approval = {
+      cancelPendingApproval: vi.fn(),
+      requestApproval: vi.fn(async () => token),
+    };
+    const engagement = {
+      execute: vi.fn(async () => ({
+        code: "not_found",
+        run: failedRun,
+        status: "failed" as const,
+      })),
+    };
+    const fixture = setup({ approval, engagement });
+    fixture.api.completeEngagementManually.mockResolvedValue(completedRun);
+    fixture.api.get.mockResolvedValue({
+      ...drafted,
+      editedComment: "사용자가 다듬은 합성 댓글",
+      reviewStatus: "completed",
+      selectedCandidateId: candidates[0]?.id ?? null,
+    });
+    await fixture.controller.captureDiscoveryPost(discoveryPost, tab.id);
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.edit("사용자가 다듬은 합성 댓글");
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+
+    fixture.view.actions?.engage();
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({ engagementRun: failedRun }),
+    );
+    fixture.view.actions?.manualComplete(["like", "comment"]);
+
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("completed"));
+    expect(fixture.api.completeEngagementManually).toHaveBeenCalledWith(
+      failedRun.id,
+      ["like", "comment"],
+      expect.any(AbortSignal),
+    );
   });
 
   it("does not offer automatic execution for a recommendation opened outside the queue", async () => {

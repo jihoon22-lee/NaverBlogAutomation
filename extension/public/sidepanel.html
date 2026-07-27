@@ -468,11 +468,26 @@
           <button id="engagement-run-button" class="primary" type="button">
             공감하고 승인 댓글 등록
           </button>
+          <button id="engagement-manual-button" class="secondary" type="button" hidden>
+            직접 처리한 단계 기록
+          </button>
           <p class="help">
             누르면 실행 내용을 한 번 더 확인합니다. 성공한 단계는 반복하지 않고, 확인되지 않은
             등록·신청은 자동 재시도하지 않습니다.
           </p>
         </section>
+        <dialog id="engagement-manual-dialog" aria-labelledby="engagement-manual-title">
+          <form id="engagement-manual-form" method="dialog">
+            <h3 id="engagement-manual-title">직접 처리한 단계 기록</h3>
+            <p class="help">실제로 완료한 단계만 선택하세요. 선택하지 않은 단계는 실행하지 않음으로 기록합니다.</p>
+            <fieldset id="engagement-manual-steps"></fieldset>
+            <p id="engagement-manual-notice" class="help" role="status"></p>
+            <div class="actions">
+              <button value="cancel" class="secondary" type="button">취소</button>
+              <button id="engagement-manual-submit" class="primary" value="confirm" type="submit">기록 완료</button>
+            </div>
+          </form>
+        </dialog>
         <div class="actions stacked">
           <button id="copy-button" class="secondary" type="button">승인한 댓글 복사</button>
           <button id="retry-fill-button" class="secondary" type="button">댓글 입력 다시 시도</button>

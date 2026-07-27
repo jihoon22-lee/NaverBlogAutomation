@@ -1,4 +1,4 @@
-import type { DiscoveryPost } from "../api/types";
+import type { DiscoveryPost, EngagementStepName } from "../api/types";
 import { PREVIEW_CODE_POINTS, boundCodePoints } from "../extraction/normalize";
 import type { CaptureFailureCode } from "../extraction/types";
 import { MAX_CLOSING_PHRASE_CODE_POINTS } from "../preferences/model";
@@ -39,6 +39,11 @@ export class DomPanelView implements PanelView {
   readonly #editSection: HTMLElement;
   readonly #editedUseButton: HTMLButtonElement;
   readonly #editedComment: HTMLTextAreaElement;
+  readonly #engagementManualButton: HTMLButtonElement;
+  readonly #engagementManualDialog: HTMLDialogElement;
+  readonly #engagementManualForm: HTMLFormElement;
+  readonly #engagementManualNotice: HTMLElement;
+  readonly #engagementManualSteps: HTMLFieldSetElement;
   readonly #engagementRunButton: HTMLButtonElement;
   readonly #engagementRunPanel: HTMLElement;
   readonly #engagementStepResults: HTMLElement;
@@ -103,6 +108,11 @@ export class DomPanelView implements PanelView {
     this.#editSection = requireElement(document, "#edit-section");
     this.#editedComment = requireElement(document, "#edited-comment");
     this.#editedUseButton = requireElement(document, "#edited-use-button");
+    this.#engagementManualButton = requireElement(document, "#engagement-manual-button");
+    this.#engagementManualDialog = requireElement(document, "#engagement-manual-dialog");
+    this.#engagementManualForm = requireElement(document, "#engagement-manual-form");
+    this.#engagementManualNotice = requireElement(document, "#engagement-manual-notice");
+    this.#engagementManualSteps = requireElement(document, "#engagement-manual-steps");
     this.#engagementRunButton = requireElement(document, "#engagement-run-button");
     this.#engagementRunPanel = requireElement(document, "#engagement-run-panel");
     this.#engagementStepResults = requireElement(document, "#engagement-step-results");
@@ -160,6 +170,28 @@ export class DomPanelView implements PanelView {
     this.#retryFillButton.addEventListener("click", actions.refill);
     this.#completeButton.addEventListener("click", actions.complete);
     this.#engagementRunButton.addEventListener("click", actions.engage);
+    this.#engagementManualButton.addEventListener("click", () => {
+      this.#engagementManualNotice.textContent = "";
+      this.#engagementManualDialog.showModal();
+    });
+    this.#engagementManualForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const completedSteps = Array.from(
+        this.#engagementManualSteps.querySelectorAll<HTMLInputElement>(
+          'input[name="manual-engagement-step"]:checked',
+        ),
+      ).map((input) => input.value as EngagementStepName);
+      if (!completedSteps.includes("comment")) {
+        this.#engagementManualNotice.textContent =
+          "댓글 등록을 직접 완료한 경우에만 처리 완료로 기록할 수 있습니다.";
+        return;
+      }
+      this.#engagementManualDialog.close();
+      actions.manualComplete(completedSteps);
+    });
+    this.#engagementManualDialog
+      .querySelector<HTMLButtonElement>('button[value="cancel"]')
+      ?.addEventListener("click", () => this.#engagementManualDialog.close());
     this.#nextPostButton.addEventListener("click", () => {
       if (this.#currentDiscoverySource !== null) {
         this.#dispatch("discovery-open-next", { source: this.#currentDiscoverySource });
@@ -462,7 +494,10 @@ export class DomPanelView implements PanelView {
     this.#nextPostButton.hidden = kind !== "completed" || this.#currentDiscoverySource === null;
     this.#copyButton.hidden = kind === "review" || kind === "saving" || kind === "engaging";
     this.#retryFillButton.hidden = kind !== "approved";
-    this.#completeButton.hidden = kind !== "approved";
+    this.#completeButton.hidden =
+      kind !== "approved" ||
+      (presentation.engagementRun?.state === "failed" &&
+        !presentation.engagementRun.steps.some((step) => step.state === "unconfirmed"));
     this.#regenerateButton.hidden = kind === "saving" || kind === "engaging";
     this.#changeOptionsButton.hidden = kind === "saving" || kind === "engaging";
     this.#reviewNotice.hidden = presentation.notice === undefined;
@@ -487,6 +522,8 @@ export class DomPanelView implements PanelView {
     this.#engagementRunPanel.hidden = !available;
     if (!available || discoveryPost === null) {
       this.#engagementStepResults.replaceChildren();
+      this.#engagementManualButton.hidden = true;
+      this.#engagementManualSteps.replaceChildren();
       return;
     }
     const search = discoveryPost.source === "search";
@@ -523,6 +560,37 @@ export class DomPanelView implements PanelView {
         return item;
       }),
     );
+    const manualAvailable =
+      engagementRun?.state === "failed" &&
+      !engagementRun.steps.some((step) => step.state === "unconfirmed");
+    this.#engagementManualButton.hidden = !manualAvailable;
+    this.#engagementManualButton.disabled = kind === "engaging";
+    if (manualAvailable && engagementRun !== null) {
+      this.#renderManualEngagementSteps(engagementRun.steps);
+    } else {
+      this.#engagementManualSteps.replaceChildren();
+    }
+  }
+
+  #renderManualEngagementSteps(
+    steps: readonly { name: EngagementStepName; state: string }[],
+  ): void {
+    const legend = this.#document.createElement("legend");
+    legend.textContent = "직접 완료한 단계";
+    this.#engagementManualSteps.replaceChildren(legend);
+    for (const step of steps) {
+      const label = this.#document.createElement("label");
+      label.className = "option";
+      const input = this.#document.createElement("input");
+      input.type = "checkbox";
+      input.name = "manual-engagement-step";
+      input.value = step.name;
+      const finalized = step.state === "succeeded" || step.state === "skipped";
+      input.checked = finalized;
+      input.disabled = finalized;
+      label.append(input, ` ${engagementStepLabel(step.name)}${finalized ? " · 이미 기록됨" : ""}`);
+      this.#engagementManualSteps.append(label);
+    }
   }
 
   #focus(element: HTMLElement): void {

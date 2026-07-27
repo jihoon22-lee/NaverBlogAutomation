@@ -1,4 +1,4 @@
-import { LocalApiClient } from "../api/client";
+import { ApiClientError, LocalApiClient } from "../api/client";
 import type {
   DiscoveryPost,
   EngagementRun,
@@ -138,7 +138,12 @@ export class EngagementRunController {
       };
     } catch (error) {
       return {
-        code: error instanceof Error ? "engagement_api_error" : "engagement_unknown_error",
+        code:
+          error instanceof ApiClientError && error.problem !== null
+            ? error.problem.code
+            : error instanceof Error
+              ? "engagement_api_error"
+              : "engagement_unknown_error",
         run,
         status: "failed",
       };
@@ -222,6 +227,7 @@ function sameSteps(
 function likeResult(result: LikeActionResult): TerminalResult {
   if (result === "clicked") return { state: "succeeded", resultCode: result };
   if (result === "already_liked") return { state: "skipped", resultCode: result };
+  if (result === "unconfirmed") return { state: "unconfirmed", resultCode: result };
   return { state: "failed", resultCode: result };
 }
 

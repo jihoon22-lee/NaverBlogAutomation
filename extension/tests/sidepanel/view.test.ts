@@ -59,6 +59,7 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     edit: vi.fn(),
     engage: vi.fn(),
     generate: vi.fn(),
+    manualComplete: vi.fn(),
     changeNeighborMessage: vi.fn(),
     regenerate: vi.fn(),
     replace: vi.fn(),

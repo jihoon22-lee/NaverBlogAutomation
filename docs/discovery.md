@@ -34,7 +34,7 @@ RSS가 비공개이거나 요청에 실패하면 해당 이웃의 RSS 상태가 
 
 1. private env file에 `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`를 함께 설정하고 API를
    재시작합니다. 값은 [Naver Developers의 검색 API](https://developers.naver.com/docs/serviceapi/search/blog/blog.md)에서 발급합니다.
-2. **설정 > 신규 이웃 검색어**에서 검색어, 제외어, 최신성 기간을 저장합니다.
+2. **설정 > 신규 이웃 검색어**에서 검색어, 제외어, 최신성 기간을 저장합니다. 더 이상 쓰지 않는 검색어는 목록의 **삭제**로 제거할 수 있으며, 이미 수집된 후보는 대기열에 유지됩니다.
 3. 다음 자동 탐색 또는 **지금 동기화**에서 공식 네이버 블로그 검색 API 결과를 읽습니다.
 4. **오늘의 작업 > 신규 이웃 찾기**에서 후보를 검토하고 **이 글 처리하기**,
    **새 탭에서 처리** 또는 **건너뛰기**를 선택합니다.

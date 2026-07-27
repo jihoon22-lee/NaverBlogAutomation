@@ -122,7 +122,13 @@ describe("injected Naver like functions", () => {
       url: "https://blog.naver.com/synthetic/7",
     });
     const clicked = vi.fn();
-    dom.window.document.querySelector("button")?.addEventListener("click", clicked);
+    const target = dom.window.document.querySelector("button");
+    target?.addEventListener("click", () => {
+      clicked();
+      target.classList.remove("off");
+      target.classList.add("on");
+      target.setAttribute("aria-pressed", "true");
+    });
     const { api, executeScript: execute } = fixture({});
     execute.mockReset();
     execute.mockImplementation(
@@ -214,5 +220,48 @@ describe("injected Naver like functions", () => {
 
     await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("ambiguous");
     expect(clicked).not.toHaveBeenCalled();
+  });
+
+  it("uses the live Blog reaction button and ignores hidden duplicate controls", async () => {
+    const dom = new JSDOM(
+      [
+        '<div class="u_likeit_list_module _reactionModule _reactionModule_BLOG">',
+        '<a class="u_likeit_button _face off" role="button" aria-pressed="false"></a>',
+        "</div>",
+        '<div hidden><a class="u_likeit_button _face off" role="button" aria-pressed="false"></a></div>',
+        '<ul hidden><li><a class="u_likeit_list_button _button off" data-type="like"></a></li></ul>',
+      ].join(""),
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const button = dom.window.document.querySelector(".u_likeit_button") as HTMLAnchorElement;
+    button.addEventListener("click", () => {
+      button.classList.replace("off", "on");
+      button.setAttribute("aria-pressed", "true");
+    });
+    const { api, executeScript: execute } = fixture({});
+    execute.mockReset();
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        const previous = {
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: dom.window,
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          return [{ frameId: 0, result: await (injection.func as () => unknown)() }];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("clicked");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
   });
 });

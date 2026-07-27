@@ -159,9 +159,23 @@ function probeCommentTarget(): CommentTargetProbe {
   }
 
   function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function readValue(element: HTMLElement): string {
@@ -173,20 +187,41 @@ function probeCommentOpener(): CommentTargetProbe {
   return { count: findCommentOpeners().length, empty: false };
 
   function findCommentOpeners(): HTMLElement[] {
-    return Array.from(
+    const writeOpeners = Array.from(
       document.querySelectorAll<HTMLElement>(".btn_write_comment._naverCommentWriteBtn"),
-    ).filter(
-      (element) =>
+    ).filter(isActionable);
+    if (writeOpeners.length > 0) return writeOpeners;
+    return Array.from(document.querySelectorAll<HTMLElement>(".btn_comment._cmtList")).filter(
+      isActionable,
+    );
+
+    function isActionable(element: HTMLElement): boolean {
+      return (
         !element.hasAttribute("disabled") &&
         element.getAttribute("aria-disabled") !== "true" &&
-        isVisible(element),
-    );
+        isVisible(element)
+      );
+    }
   }
 
   function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
@@ -211,7 +246,7 @@ function fillCommentTarget(value: string): CommentInputResult {
       inputType: "insertText",
     }),
   );
-  return "filled";
+  return readValue(target) === value ? "filled" : "not_found";
 
   function findCommentTargets(): HTMLElement[] {
     const selectors = [
@@ -244,9 +279,23 @@ function fillCommentTarget(value: string): CommentInputResult {
   }
 
   function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function readValue(element: HTMLElement): string {
@@ -270,21 +319,28 @@ async function openAndFillCommentTarget(value: string): Promise<CommentInputResu
     if (target !== undefined) {
       if (readValue(target).trim().length > 0) return "occupied";
       writeValue(target, value);
-      return "filled";
+      return readValue(target) === value ? "filled" : "open_failed";
     }
     await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
   }
   return "open_failed";
 
   function findCommentOpeners(): HTMLElement[] {
-    return Array.from(
+    const writeOpeners = Array.from(
       document.querySelectorAll<HTMLElement>(".btn_write_comment._naverCommentWriteBtn"),
-    ).filter(
-      (element) =>
+    ).filter(isActionable);
+    if (writeOpeners.length > 0) return writeOpeners;
+    return Array.from(document.querySelectorAll<HTMLElement>(".btn_comment._cmtList")).filter(
+      isActionable,
+    );
+
+    function isActionable(element: HTMLElement): boolean {
+      return (
         !element.hasAttribute("disabled") &&
         element.getAttribute("aria-disabled") !== "true" &&
-        isVisible(element),
-    );
+        isVisible(element)
+      );
+    }
   }
 
   function findCommentTargets(): HTMLElement[] {
@@ -318,9 +374,23 @@ async function openAndFillCommentTarget(value: string): Promise<CommentInputResu
   }
 
   function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function readValue(element: HTMLElement): string {
