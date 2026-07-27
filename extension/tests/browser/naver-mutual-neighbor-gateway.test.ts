@@ -13,6 +13,14 @@ const liveEntryFixture = readFileSync(
   new URL("../fixtures/naver-mutual-neighbor-entry.html", import.meta.url),
   "utf8",
 );
+const liveControlsFixture = readFileSync(
+  new URL("../fixtures/naver-live-controls.html", import.meta.url),
+  "utf8",
+);
+const wizardFixture = readFileSync(
+  new URL("../fixtures/naver-mutual-neighbor-wizard.html", import.meta.url),
+  "utf8",
+);
 
 function postDom(html = '<button class="btn_add_buddy">이웃추가</button>'): JSDOM {
   return new JSDOM(html, { pretendToBeVisual: true, url: POST_URL });
@@ -177,6 +185,73 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
       code: "requested",
     });
+  });
+
+  it("uses the canonical visible neighbor entry and ignores an ancestor-hidden duplicate", async () => {
+    const dom = postDom(liveControlsFixture);
+    const canonical = dom.window.document.querySelector("#canonical-neighbor") as HTMLAnchorElement;
+    const hidden = dom.window.document.querySelector(".btn_add_buddy") as HTMLAnchorElement;
+    const hiddenClicked = vi.fn();
+    hidden.addEventListener("click", hiddenClicked);
+    canonical.addEventListener("click", (event) => {
+      event.preventDefault();
+      dom.window.document.body.insertAdjacentHTML("beforeend", requestForm());
+      dom.window.document.querySelector("form")?.addEventListener("submit", (submitEvent) => {
+        submitEvent.preventDefault();
+        const status = dom.window.document.createElement("p");
+        status.setAttribute("role", "status");
+        status.textContent = "서로이웃 신청이 완료되었습니다.";
+        dom.window.document.body.append(status);
+      });
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
+    expect(hiddenClicked).not.toHaveBeenCalled();
+  });
+
+  it("selects only mutual neighbor and completes the two-next popup before closing", async () => {
+    const dom = postDom(`<button class="btn_add_buddy">이웃추가</button>${wizardFixture}`);
+    const form = dom.window.document.querySelector("form[name='buddyFrm']") as HTMLFormElement;
+    const defaultOption = form.querySelector("#buddy_add") as HTMLInputElement;
+    const mutualOption = form.querySelector("#each_buddy_add") as HTMLInputElement;
+    const closed = vi.fn();
+    form.hidden = true;
+    dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+      form.hidden = false;
+    });
+    form.querySelector("._buddyAddNext")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      dom.window.document.body.innerHTML = `
+        <form name="buddyApplyFrm">
+          <textarea id="message" name="message"></textarea>
+          <a class="button_next _addBothBuddy" href="#">다음</a>
+        </form>
+      `;
+      dom.window.document
+        .querySelector("._addBothBuddy")
+        ?.addEventListener("click", (nextEvent) => {
+          nextEvent.preventDefault();
+          dom.window.document.body.innerHTML =
+            '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close" href="#">닫기</a>';
+          dom.window.document
+            .querySelector(".button_close")
+            ?.addEventListener("click", (closeEvent) => {
+              closeEvent.preventDefault();
+              closed();
+            });
+        });
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
+    expect(mutualOption.checked).toBe(true);
+    expect(defaultOption.checked).toBe(false);
+    expect(closed).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -368,7 +443,7 @@ describe("ChromeNaverMutualNeighborGateway", () => {
       executeScript.mock.calls.filter(
         ([injection]) =>
           (injection as chrome.scripting.ScriptInjection<unknown[], unknown>).func?.name ===
-          "completeMutualNeighborForm",
+          "selectMutualNeighborAndAdvance",
       ),
     ).toHaveLength(1);
   });

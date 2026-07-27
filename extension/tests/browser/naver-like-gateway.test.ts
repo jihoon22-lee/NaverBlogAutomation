@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -5,6 +7,11 @@ import {
   ChromeNaverLikeGateway,
   type LikeActionResult,
 } from "../../src/browser/naver-like-gateway";
+
+const liveControlsFixture = readFileSync(
+  new URL("../fixtures/naver-live-controls.html", import.meta.url),
+  "utf8",
+);
 
 function fixture(options: {
   active?: Partial<chrome.tabs.Tab>;
@@ -263,6 +270,57 @@ describe("injected Naver like functions", () => {
 
     await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("clicked");
     expect(button.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("prefers the canonical post reaction over visible legacy and other-reaction duplicates", async () => {
+    const dom = new JSDOM(liveControlsFixture, {
+      pretendToBeVisual: true,
+      url: "https://blog.naver.com/synthetic/7",
+    });
+    const legacy = dom.window.document.querySelector(
+      ".area_sympathy:not([id]) a.u_likeit_button",
+    ) as HTMLAnchorElement;
+    const canonical = dom.window.document.querySelector("#canonical-like") as HTMLAnchorElement;
+    const defaultLike = dom.window.document.querySelector(
+      "#canonical-default-like",
+    ) as HTMLAnchorElement;
+    const layer = dom.window.document.querySelector("#canonical-like-layer") as HTMLUListElement;
+    const legacyClicked = vi.fn();
+    legacy.addEventListener("click", legacyClicked);
+    canonical.addEventListener("click", () => {
+      layer.hidden = false;
+    });
+    defaultLike.addEventListener("click", () => {
+      canonical.classList.replace("off", "on");
+      canonical.setAttribute("aria-pressed", "true");
+    });
+    const { api, executeScript: execute } = fixture({});
+    execute.mockReset();
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        const previous = {
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: dom.window,
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          return [{ frameId: 0, result: await (injection.func as () => unknown)() }];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("clicked");
+    expect(legacyClicked).not.toHaveBeenCalled();
+    expect(canonical.getAttribute("aria-pressed")).toBe("true");
+    expect(layer.hidden).toBe(false);
   });
 
   it("marks a click as unconfirmed when the live reaction state never changes", async () => {

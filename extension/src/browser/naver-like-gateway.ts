@@ -97,7 +97,7 @@ function probeLikeTarget(): LikeTargetProbe {
   };
 
   function findLikeTargets(): HTMLElement[] {
-    return Array.from(
+    const candidates = Array.from(
       document.querySelectorAll<HTMLElement>(
         [
           "button.u_likeit_list_btn",
@@ -111,6 +111,20 @@ function probeLikeTarget(): LikeTargetProbe {
         element.getAttribute("aria-disabled") !== "true" &&
         isInteractable(element),
     );
+    const canonicalLiveTargets = candidates.filter(
+      (element) =>
+        element.matches("a.u_likeit_button._face[role='button']") &&
+        element.closest(".my_reaction") !== null &&
+        element.closest(".area_sympathy[id^='area_sympathy']") !== null,
+    );
+    if (canonicalLiveTargets.length > 0) return canonicalLiveTargets;
+
+    const primaryLiveTargets = candidates.filter(
+      (element) =>
+        element.matches("a.u_likeit_button._face[role='button']") &&
+        element.closest(".my_reaction") !== null,
+    );
+    return primaryLiveTargets.length > 0 ? primaryLiveTargets : candidates;
   }
 
   function readLikedState(element: HTMLElement): boolean | null {
@@ -165,18 +179,27 @@ async function clickAndConfirmLikeTarget(): Promise<LikeActionResult> {
   if (liked === true) return "already_liked";
   if (liked === null) return "state_unknown";
   target.click();
+  let selectedDefaultLike = false;
   const deadline = Date.now() + 2_000;
   while (Date.now() <= deadline) {
     const refreshed = findLikeTargets();
     if (refreshed.length === 1 && readLikedState(refreshed[0] as HTMLElement) === true) {
       return "clicked";
     }
+    if (!selectedDefaultLike) {
+      const defaultLike = findDefaultLikeOption(target);
+      if (defaultLike.length > 1) return "ambiguous";
+      if (defaultLike.length === 1) {
+        (defaultLike[0] as HTMLElement).click();
+        selectedDefaultLike = true;
+      }
+    }
     await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
   }
   return "unconfirmed";
 
   function findLikeTargets(): HTMLElement[] {
-    return Array.from(
+    const candidates = Array.from(
       document.querySelectorAll<HTMLElement>(
         [
           "button.u_likeit_list_btn",
@@ -184,6 +207,33 @@ async function clickAndConfirmLikeTarget(): Promise<LikeActionResult> {
           ".u_likeit_list_module._reactionModule_BLOG .u_likeit_button._face[role='button']",
         ].join(","),
       ),
+    ).filter(
+      (element) =>
+        !element.hasAttribute("disabled") &&
+        element.getAttribute("aria-disabled") !== "true" &&
+        isInteractable(element),
+    );
+    const canonicalLiveTargets = candidates.filter(
+      (element) =>
+        element.matches("a.u_likeit_button._face[role='button']") &&
+        element.closest(".my_reaction") !== null &&
+        element.closest(".area_sympathy[id^='area_sympathy']") !== null,
+    );
+    if (canonicalLiveTargets.length > 0) return canonicalLiveTargets;
+
+    const primaryLiveTargets = candidates.filter(
+      (element) =>
+        element.matches("a.u_likeit_button._face[role='button']") &&
+        element.closest(".my_reaction") !== null,
+    );
+    return primaryLiveTargets.length > 0 ? primaryLiveTargets : candidates;
+  }
+
+  function findDefaultLikeOption(face: HTMLElement): HTMLElement[] {
+    const module = face.closest<HTMLElement>(".u_likeit_list_module._reactionModule_BLOG");
+    if (module === null) return [];
+    return Array.from(
+      module.querySelectorAll<HTMLElement>("a.u_likeit_list_button._button[data-type='like']"),
     ).filter(
       (element) =>
         !element.hasAttribute("disabled") &&
