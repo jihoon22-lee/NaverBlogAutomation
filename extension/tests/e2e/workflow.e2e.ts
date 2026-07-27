@@ -14,6 +14,9 @@ const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const repositoryRoot = resolve(extensionRoot, "..");
 const apiOrigin = "http://127.0.0.1:8765";
 const syntheticPostUrl = "https://blog.naver.com/synthetic/1001";
+const neighborEngagementUrl = "https://blog.naver.com/neighborcase/2001";
+const searchEngagementUrl = "https://blog.naver.com/searchcase/2002";
+const unconfirmedEngagementUrl = "https://blog.naver.com/neighborcase/2003?mode=unconfirmed";
 type ApiProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 interface StagedExtension {
@@ -317,6 +320,189 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await rm(profile, { force: true, recursive: true });
   }
 });
+
+test("built production Side Panel completes neighbor and search engagement and restores unconfirmed history", async () => {
+  const staged = await stageExtension();
+  const profile = await mkdtemp(join(tmpdir(), "naver-blog-assistant-engagement-profile-"));
+  let context: BrowserContext | null = null;
+  let api: RunningApi | null = null;
+  try {
+    context = await chromium.launchPersistentContext(profile, {
+      args: [
+        `--disable-extensions-except=${staged.directory}`,
+        "--enable-unsafe-extension-debugging",
+        `--load-extension=${staged.directory}`,
+      ],
+      channel: "chromium",
+      headless: true,
+    });
+    const serviceWorker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker", { timeout: 10_000 }));
+    const extensionId = new URL(serviceWorker.url()).hostname;
+    const extensionOrigin = `chrome-extension://${extensionId}`;
+    api = await startApi(extensionOrigin);
+    await seedEngagementPosts();
+
+    const fixture = await readFile(
+      resolve(extensionRoot, "tests/fixtures/naver-engagement.html"),
+      "utf8",
+    );
+    for (const url of [neighborEngagementUrl, searchEngagementUrl, unconfirmedEngagementUrl]) {
+      await context.route(`${url.split("?")[0]}*`, (route) =>
+        route.fulfill({ body: fixture, contentType: "text/html; charset=utf-8", status: 200 }),
+      );
+    }
+    const blogPage = context.pages()[0] ?? (await context.newPage());
+    await blogPage.goto(neighborEngagementUrl);
+    await blogPage.bringToFront();
+    await triggerExtensionAction(context, blogPage, extensionId);
+    const panel = await context.newPage();
+    await panel.goto(`${extensionOrigin}/sidepanel.html`);
+    await panel.setViewportSize({ width: 360, height: 800 });
+    await enableEngagementConsent(panel);
+
+    await openQueuedPost(panel, blogPage, "neighbor", "합성 이웃 교류 글");
+    await completeCurrentEngagement(panel, blogPage, "교류 완료");
+    await expect(blogPage.locator(".u_likeit_list_btn")).toHaveAttribute("aria-pressed", "true");
+    await expect(blogPage.locator(".u_cbox_comment")).toHaveCount(1);
+
+    await panel.locator("#back-today-button").click();
+    await openQueuedPost(panel, blogPage, "search", "합성 검색 교류 글");
+    await completeCurrentEngagement(panel, blogPage, "교류 완료");
+    await expect(blogPage.locator(".notice")).toContainText("서로이웃 신청이 완료");
+
+    await panel.locator("#back-today-button").click();
+    await openQueuedPost(panel, blogPage, "neighbor", "합성 미확인 교류 글");
+    await completeCurrentEngagement(panel, blogPage, "확인 필요");
+    await expect(panel.locator("#engagement-run-button")).toBeDisabled();
+
+    await panel.reload();
+    await panel.locator("#workspace-history-button").click();
+    await expect(panel.locator("#history-list")).toContainText("댓글 · 확인 필요");
+  } finally {
+    await api?.dispose();
+    await context?.close();
+    await staged.dispose();
+    await rm(profile, { force: true, recursive: true });
+  }
+});
+
+async function enableEngagementConsent(panel: Page): Promise<void> {
+  await panel.locator("#workspace-settings-button").click();
+  await panel.locator("#engagement-consent-card summary").click();
+  await panel.locator("#engagement-consent-checkbox").check();
+  await panel.locator("#engagement-consent-agree").click();
+  await expect(panel.locator("#engagement-consent-status")).toContainText("동의함");
+  await panel.locator("#workspace-today-button").click();
+}
+
+async function openQueuedPost(
+  panel: Page,
+  blogPage: Page,
+  source: "neighbor" | "search",
+  title: string,
+): Promise<void> {
+  await panel.locator(`#discovery-${source}-tab`).click();
+  const item = panel.locator("#discovery-queue li", { hasText: title });
+  await expect(item).toBeVisible();
+  const postId = await item.locator('button[data-action="open"]').getAttribute("data-post-id");
+  await blogPage.bringToFront();
+  await panel.evaluate((id) => {
+    document
+      .querySelector<HTMLButtonElement>(`button[data-post-id="${id}"][data-action="open"]`)
+      ?.click();
+  }, postId);
+  await expect(panel.locator("#workspace-comment")).toBeVisible();
+  await expect(panel.locator("#post-title")).toHaveText("합성 교류 글");
+}
+
+async function completeCurrentEngagement(
+  panel: Page,
+  blogPage: Page,
+  expectedResult: "교류 완료" | "확인 필요",
+): Promise<void> {
+  await panel.locator("#generate-button").click();
+  await expect(panel.locator("#review-panel")).toBeVisible();
+  await blogPage.bringToFront();
+  await panel.evaluate(() => {
+    document.querySelector<HTMLButtonElement>("button[data-use-candidate]")?.click();
+  });
+  await expect(panel.locator("#review-status")).toHaveText("승인됨");
+  await blogPage.locator(".u_cbox_text").fill("");
+  await blogPage.bringToFront();
+  await panel.evaluate(() => {
+    document.querySelector<HTMLButtonElement>("#engagement-run-button")?.click();
+  });
+  await expect(panel.locator("#engagement-confirmation")).toBeVisible();
+  await blogPage.bringToFront();
+  await panel.evaluate(() => {
+    document.querySelector<HTMLButtonElement>("#engagement-confirm-execute")?.click();
+  });
+  if (expectedResult === "교류 완료") {
+    await expect(panel.locator("#review-status")).toHaveText("교류 완료");
+  } else {
+    await expect(panel.locator("#engagement-step-results")).toContainText("확인 필요");
+  }
+}
+
+async function seedEngagementPosts(): Promise<void> {
+  const neighbor = await apiJson<{ id: string }>("/api/v1/discovery/neighbors", {
+    blog_id: "neighborcase",
+    blog_url: "https://blog.naver.com/neighborcase",
+    enabled: true,
+    name: "합성 이웃",
+  });
+  await apiJson("/api/v1/discovery/import", {
+    neighbor_id: neighbor.id,
+    posts: [
+      {
+        publisher_blog_id: "neighborcase",
+        publisher_name: "합성 이웃",
+        source_url: neighborEngagementUrl,
+        title: "합성 이웃 교류 글",
+      },
+      {
+        publisher_blog_id: "neighborcase",
+        publisher_name: "합성 이웃",
+        source_url: unconfirmedEngagementUrl,
+        title: "합성 미확인 교류 글",
+      },
+    ],
+    source: "neighbor",
+  });
+  const search = await apiJson<{ id: string }>("/api/v1/discovery/searches", {
+    enabled: true,
+    excluded_terms: [],
+    freshness_days: 14,
+    query: "합성",
+  });
+  await apiJson("/api/v1/discovery/import", {
+    posts: [
+      {
+        published_at: new Date().toISOString(),
+        publisher_blog_id: "searchcase",
+        publisher_name: "합성 검색 후보",
+        source_url: searchEngagementUrl,
+        title: "합성 검색 교류 글",
+      },
+    ],
+    search_id: search.id,
+    source: "search",
+  });
+}
+
+async function apiJson<T = unknown>(path: string, body: object): Promise<T> {
+  const response = await fetch(`${apiOrigin}${path}`, {
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`${path} failed with ${response.status}: ${await response.text()}`);
+  }
+  return (await response.json()) as T;
+}
 
 async function stageExtension(): Promise<StagedExtension> {
   const directory = await mkdtemp(join(tmpdir(), "naver-blog-assistant-extension-"));
