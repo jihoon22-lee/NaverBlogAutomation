@@ -104,7 +104,7 @@ submission may have occurred but no result is known, the outcome is persisted as
 | Terminal invalid output | `502 generation_invalid` | replay safe failure | explicit new attempt only |
 | Indeterminate provider outcome | `409 generation_indeterminate` | replay indeterminate state | explicit confirmation required |
 
-The CORS response exposes `Idempotency-Replayed` and `Retry-After` to the configured
+The CORS response exposes `Idempotency-Replayed`, `Engagement-Replayed`, and `Retry-After` to the configured
 extension origin. Failure replay also sets `Idempotency-Replayed: true`; error responses carry a
 fresh `request_id` in the problem body. The client must not silently replace an indeterminate
 attempt with a new key.
@@ -121,7 +121,8 @@ attempt with a new key.
 
 Allowed transitions are `drafted → approved → completed`. A user may edit while drafted or
 approved. `completed` means the user reported finishing the manual workflow; it does not mean the
-application posted a comment. Clipboard copy does not perform this transition automatically.
+application posted a comment unless a linked engagement run records the comment step as
+`succeeded`. Clipboard copy does not perform this transition automatically.
 
 The MVP has no ETag/`If-Match` contract. If a review update
 returns `review_conflict`, the Side Panel fetches the recommendation again and presents the latest
@@ -140,6 +141,28 @@ saved queries. It returns bounded counts for added neighbors, neighbor posts, an
 plus `success`, `partial`, or `failed`. No request accepts cookies, login credentials, article
 bodies, or browser-tab data. An empty blog ID returns a successful transport response with a
 `failed` collection status and an actionable detail, allowing the Side Panel to guide setup.
+
+## 사용자 승인형 교류 실행
+
+`POST /api/v1/engagement-runs`는 마지막 확인에서 발급한 `approval_id`, 기존
+`discovery_post_id`, 승인된 `recommendation_id`만 받습니다. 댓글 text와 서로이웃 신청
+message는 API 또는 SQLite에 보내지 않습니다. 같은 승인 또는 같은 탐색 글을 다시 시작하면 새
+작업을 만들지 않고 `200 OK`, `Engagement-Replayed: true`와 기존 작업을 반환합니다.
+
+이웃 글의 고정 단계는 `like → comment`, 검색 후보는
+`like → comment → mutual_neighbor`입니다. 각 단계는 `pending`, `running`, `succeeded`,
+`skipped`, `failed`, `unconfirmed` 중 하나이며 다음 API로 조회·전이합니다.
+
+- `GET /api/v1/engagement-runs?limit=20`
+- `GET /api/v1/engagement-runs/{run_id}`
+- `GET /api/v1/engagement-runs/by-post/{post_id}`
+- `PATCH /api/v1/engagement-runs/{run_id}/steps/{step_name}`
+
+`pending` 또는 `failed` 단계만 `running`으로 전이할 수 있고, 앞 단계가
+`succeeded`/`skipped`가 아니면 다음 단계를 시작할 수 없습니다. `running`에서만 terminal
+결과와 안전한 `result_code`를 기록할 수 있습니다. `unconfirmed`는 외부 동작 완료 여부를 알 수
+없다는 fence이므로 다시 `running`으로 바꿀 수 없습니다. 댓글 단계가 성공하면 연결된 추천을
+`completed`로 바꾸고, 모든 필수 단계가 성공 또는 불필요 상태면 탐색 글도 완료합니다.
 
 ## Error Contract
 

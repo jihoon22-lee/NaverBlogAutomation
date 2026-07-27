@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from naver_blog_assistant.api.models import ProblemDetails
 
 logger = logging.getLogger("naver_blog_assistant.api")
-ALLOWED_CORS_METHODS = frozenset({"DELETE", "GET", "POST", "PATCH"})
+ALLOWED_CORS_METHODS = frozenset({"DELETE", "GET", "POST", "PUT", "PATCH"})
 ALLOWED_CORS_HEADERS = frozenset({"content-type", "idempotency-key"})
 
 
@@ -54,7 +54,7 @@ class ExactCorsMiddleware:
                         (b"vary", b"Origin"),
                         (
                             b"access-control-expose-headers",
-                            b"Idempotency-Replayed, Retry-After",
+                            b"Idempotency-Replayed, Engagement-Replayed, Retry-After",
                         ),
                     )
                 )
@@ -82,9 +82,12 @@ class ExactCorsMiddleware:
             return
         response_headers = [
             (b"access-control-allow-origin", self.allowed_origin.encode()),
-            (b"access-control-allow-methods", b"DELETE, GET, POST, PATCH"),
+            (b"access-control-allow-methods", b"DELETE, GET, POST, PUT, PATCH"),
             (b"access-control-allow-headers", b"Content-Type, Idempotency-Key"),
-            (b"access-control-expose-headers", b"Idempotency-Replayed, Retry-After"),
+            (
+                b"access-control-expose-headers",
+                b"Idempotency-Replayed, Engagement-Replayed, Retry-After",
+            ),
             (b"vary", b"Origin"),
             (b"content-length", b"0"),
         ]

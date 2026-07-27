@@ -43,3 +43,17 @@ rejection처럼 생성이 시작되지 않았음이 확인된 경우만 `release
 추천 검토에는 0부터 시작하는 내부 `version`을 사용합니다. 업데이트는 `id + version` 비교 후
 성공할 때만 version을 증가시키는 CAS 방식이므로, 오래된 화면의 수정이 최신 승인 상태를
 덮어쓰거나 이전 상태로 되돌릴 수 없습니다.
+
+## 교류 실행 상태
+
+`engagement_runs`는 하나의 탐색 글과 승인된 추천을 참조하며, `approval_id`와
+`discovery_post_id`에 각각 unique constraint를 둡니다. `engagement_steps`는
+`like`, `comment`, 선택적 `mutual_neighbor`의 고정 순서와 상태, 민감하지 않은 결과 code만
+저장합니다. 최종 댓글과 서로이웃 신청 message는 Side Panel memory에서만 사용하고 database에
+저장하지 않습니다.
+
+단계 시작과 결과 저장은 각각 `BEGIN IMMEDIATE` transaction으로 직렬화합니다. 앞 단계가
+완료되지 않으면 다음 단계를 시작할 수 없고, 성공·건너뜀 단계는 다시 실행 상태로 되돌릴 수
+없습니다. `failed`만 새 사용자 승인 뒤 재시작할 수 있으며 `unconfirmed`는 영구적인 중복 방지
+fence입니다. 댓글 성공과 recommendation 완료, 전체 단계 성공과 discovery post 완료는 같은
+transaction에서 갱신됩니다.

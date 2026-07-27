@@ -119,6 +119,111 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
     assert client.get(f"/api/v1/recommendations/{recommendation_id}").json() == payload
 
 
+def test_engagement_api_persists_ordered_results_and_completes_linked_records(
+    client: TestClient,
+) -> None:
+    recommendation_id, recommendation = create(client)
+    approved = client.patch(
+        f"/api/v1/recommendations/{recommendation_id}",
+        json={
+            "selected_candidate_id": recommendation["candidates"][0]["id"],
+            "edited_comment": "사용자가 최종 승인한 댓글",
+            "review_status": "approved",
+        },
+    )
+    assert approved.status_code == 200
+    neighbor = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "합성 이웃",
+            "blog_url": "https://blog.naver.com/example",
+            "blog_id": "example",
+        },
+    ).json()
+    imported = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "neighbor",
+            "neighbor_id": neighbor["id"],
+            "posts": [{"source_url": BLOG_URL, "title": "주말 전시 후기"}],
+        },
+    )
+    assert imported.json() == {"imported_count": 1}
+    post_id = client.get("/api/v1/discovery/queue?source=neighbor").json()["items"][0]["id"]
+    approval_id = str(UUID("00000000-0000-4000-8000-000000000040"))
+
+    started = client.post(
+        "/api/v1/engagement-runs",
+        json={
+            "approval_id": approval_id,
+            "discovery_post_id": post_id,
+            "recommendation_id": str(recommendation_id),
+        },
+    )
+    assert started.status_code == 201
+    run = started.json()
+    assert [step["name"] for step in run["steps"]] == ["like", "comment"]
+    replay = client.post(
+        "/api/v1/engagement-runs",
+        json={
+            "approval_id": approval_id,
+            "discovery_post_id": post_id,
+            "recommendation_id": str(recommendation_id),
+        },
+    )
+    assert replay.status_code == 200
+    assert replay.headers["Engagement-Replayed"] == "true"
+    assert replay.json()["id"] == run["id"]
+    assert client.get(f"/api/v1/engagement-runs/{run['id']}").json() == run
+    assert client.get(f"/api/v1/engagement-runs/by-post/{post_id}").json() == run
+    assert client.get("/api/v1/engagement-runs?limit=20").json()["items"] == [run]
+
+    out_of_order = client.patch(
+        f"/api/v1/engagement-runs/{run['id']}/steps/comment",
+        json={"state": "running", "result_code": None},
+    )
+    assert_problem(out_of_order, status=409, code="engagement_transition_conflict")
+    invalid_result = client.patch(
+        f"/api/v1/engagement-runs/{run['id']}/steps/like",
+        json={"state": "succeeded"},
+    )
+    assert_problem(invalid_result, status=422, code="invalid_request")
+
+    assert (
+        client.patch(
+            f"/api/v1/engagement-runs/{run['id']}/steps/like",
+            json={"state": "running"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/engagement-runs/{run['id']}/steps/like",
+            json={"state": "skipped", "result_code": "already_liked"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/engagement-runs/{run['id']}/steps/comment",
+            json={"state": "running"},
+        ).status_code
+        == 200
+    )
+    completed = client.patch(
+        f"/api/v1/engagement-runs/{run['id']}/steps/comment",
+        json={"state": "succeeded", "result_code": "submitted"},
+    )
+
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "succeeded"
+    assert (
+        client.get(f"/api/v1/recommendations/{recommendation_id}").json()["review_status"]
+        == "completed"
+    )
+    assert client.get("/api/v1/discovery/queue?source=neighbor").json()["items"] == []
+
+
 def test_automatic_discovery_settings_are_opt_in_and_preserve_last_run_state(
     client: TestClient,
 ) -> None:
@@ -691,8 +796,10 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
 
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
-    assert allowed.headers["access-control-expose-headers"] == ("Idempotency-Replayed, Retry-After")
-    assert allowed.headers["access-control-allow-methods"] == "DELETE, GET, POST, PATCH"
+    assert allowed.headers["access-control-expose-headers"] == (
+        "Idempotency-Replayed, Engagement-Replayed, Retry-After"
+    )
+    assert allowed.headers["access-control-allow-methods"] == "DELETE, GET, POST, PUT, PATCH"
     assert "access-control-allow-credentials" not in allowed.headers
     assert_problem(denied, status=403, code="cors_origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
@@ -703,6 +810,13 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
     )
     assert delete_preflight.status_code == 200
     assert delete_preflight.headers["access-control-allow-origin"] == ORIGIN
+
+    put_preflight = client.options(
+        "/api/v1/discovery/automation-settings",
+        headers={"Origin": ORIGIN, "Access-Control-Request-Method": "PUT"},
+    )
+    assert put_preflight.status_code == 200
+    assert put_preflight.headers["access-control-allow-origin"] == ORIGIN
 
     oversized = client.post(
         "/api/v1/recommendations",
@@ -934,7 +1048,9 @@ def test_provider_timeout_precedes_outer_timeout_and_blocks_duplicate(
         generator_mode="openai",
         app_environment="test",
         openai_api_key="test-key",
-        generation_timeout_seconds=0.2,
+        # Leave enough scheduling headroom for the provider client's 50 ms timeout to
+        # surface first on slower WSL/CI filesystems.
+        generation_timeout_seconds=10.0,
         openai_timeout_seconds=0.05,
     )
     key = uuid4()
