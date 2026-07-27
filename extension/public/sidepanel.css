@@ -80,6 +80,28 @@ h2 {
   background: #ffffff;
 }
 
+.engagement-consent-body {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.engagement-consent-body p {
+  margin: 0;
+}
+
+.engagement-confirmation {
+  border: 2px solid #17673a;
+}
+
+.confirmation-text {
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #f0f6f2;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .discovery-card {
   display: grid;
   gap: 0.75rem;

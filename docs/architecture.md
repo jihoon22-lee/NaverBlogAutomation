@@ -126,12 +126,16 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
 | Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
+| Consent version, active state, agreement timestamp | Extension storage | Until withdrawn, superseded, or extension data is removed |
+| Per-post engagement approval and final action text | Side Panel memory | One consumption, navigation, withdrawal, or panel unload |
 
 The extension stores no body, title, URL, generated candidate, edited comment, cookie, or credential. Its
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
 schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
 versioned record contains the five validated generation preference enums and one normalized user-authored
-closing phrase of at most 50 code points. It persists across browser
+closing phrase of at most 50 code points. A separate consent record contains only its version, active
+state, and agreement timestamp; post URLs, comments, neighbor messages, and one-time approvals are
+never copied into extension storage. It persists across browser
 restarts and holds at most 20 operations.
 Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
 later registry access. Active, reviewing, terminal-failure, or indeterminate entries never expire

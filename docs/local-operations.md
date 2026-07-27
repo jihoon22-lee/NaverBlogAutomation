@@ -39,7 +39,10 @@ Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, st
 최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
 길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 마무리 문구는 생성 요청이나
 OpenAI에 전송되지 않고 후보 선택 후 local 편집 단계에서만 붙습니다. 본문, URL과 생성·편집된
-댓글은 extension storage에 저장하지 않습니다. 반면 SQLite에 보관된 완료 댓글은 개인화가 켜진
+댓글은 extension storage에 저장하지 않습니다. 사용자 승인형 자동 실행 동의도 별도 versioned
+record에 활성 여부와 동의 시각만 저장합니다. 승인할 글, URL, 댓글, 신청 메시지와 one-time
+승인 token은 Side Panel memory에만 있으며 navigation, 동의 철회 또는 panel 종료 시 폐기됩니다.
+반면 SQLite에 보관된 완료 댓글은 개인화가 켜진
 생성에서 최대 5개까지 OpenAI 스타일 예시로 전송될 수 있습니다. **최근 작업**에서 댓글별로
 포함·제외할 수 있고, **스타일 예시 정리**는 모든 완료 댓글을 제외하지만 기록은 보존합니다.
 Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.

@@ -1,6 +1,8 @@
 import { ChromeTabCaptureGateway } from "../browser/tab-capture-gateway";
 import { NaverSitePermission } from "../browser/naver-site-permission";
 import { DiscoveryController } from "../discovery/controller";
+import { EngagementApprovalSession } from "../engagement/approval-session";
+import { EngagementConsentController } from "../engagement/consent-controller";
 import { IdempotencyRegistry, restrictStorageToTrustedContexts } from "../idempotency/registry";
 import { HistoryController } from "../history/controller";
 import { DomHistoryView } from "../history/view";
@@ -11,6 +13,7 @@ const view = new DomPanelView(document);
 let controller: SidePanelController | null = null;
 let historyController: HistoryController | null = null;
 let discoveryController: DiscoveryController | null = null;
+let engagementConsentController: EngagementConsentController | null = null;
 
 async function configureNaverPermission(): Promise<void> {
   const permission = new NaverSitePermission();
@@ -45,6 +48,10 @@ void (async () => {
     const registry = new IdempotencyRegistry();
     historyController = new HistoryController(new DomHistoryView(document), undefined, registry);
     historyController.start();
+    engagementConsentController = new EngagementConsentController(document, {
+      session: new EngagementApprovalSession(),
+    });
+    await engagementConsentController.start();
     controller = new SidePanelController(new ChromeTabCaptureGateway(), view, { registry });
     controller.start();
     await configureNaverPermission();
@@ -68,8 +75,10 @@ window.addEventListener(
   "pagehide",
   () => {
     controller?.dispose();
+    engagementConsentController?.dispose();
     historyController?.dispose();
     controller = null;
+    engagementConsentController = null;
     historyController = null;
   },
   { once: true },
@@ -77,5 +86,8 @@ window.addEventListener(
 
 window.addEventListener("discovery-open-post", (event) => {
   const detail = (event as CustomEvent<{ tabId?: unknown }>).detail;
-  if (typeof detail?.tabId === "number") void controller?.captureActivePost();
+  if (typeof detail?.tabId === "number") {
+    engagementConsentController?.cancelPendingApproval();
+    void controller?.captureActivePost();
+  }
 });
