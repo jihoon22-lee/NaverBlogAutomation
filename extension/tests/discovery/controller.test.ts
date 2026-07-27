@@ -92,7 +92,7 @@ beforeEach(async () => {
     detail: "공식 네이버 검색 API에서 검색 후보 2개를 확인했습니다.",
   });
   client.saveDigestSettings.mockResolvedValue({});
-  client.updateDiscoveryPostState.mockResolvedValue({});
+  client.updateDiscoveryPostState.mockResolvedValue({ id, state: "opened" });
   navigator.open.mockResolvedValue(7);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -212,6 +212,8 @@ describe("DiscoveryController", () => {
   });
 
   it("keeps the current post available while opening a queue item in a new tab", async () => {
+    const opened = vi.fn();
+    window.addEventListener("discovery-open-post", opened, { once: true });
     const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
@@ -221,5 +223,13 @@ describe("DiscoveryController", () => {
 
     expect(navigator.open).toHaveBeenCalledWith("https://blog.naver.com/friend/1", "new");
     expect(client.updateDiscoveryPostState).toHaveBeenCalledWith(id, "opened");
+    expect(opened).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          post: expect.objectContaining({ id }),
+          tabId: 7,
+        }),
+      }),
+    );
   });
 });

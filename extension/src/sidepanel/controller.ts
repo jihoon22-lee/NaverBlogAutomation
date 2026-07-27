@@ -1,5 +1,10 @@
 import { ApiClientError, LocalApiClient } from "../api/client";
-import type { CreateRecommendationRequest, Recommendation } from "../api/types";
+import type {
+  CreateRecommendationRequest,
+  DiscoveryPost,
+  EngagementRun,
+  Recommendation,
+} from "../api/types";
 import { BrowserCaptureError, type TabCaptureGateway } from "../browser/tab-capture-gateway";
 import {
   ChromeCommentInputGateway,
@@ -34,6 +39,11 @@ import {
   type GenerationPreferences,
 } from "../preferences/model";
 import { CommentLengthPreferenceStore } from "../preferences/store";
+import type { EngagementApprovalToken } from "../engagement/approval-session";
+import type {
+  EngagementExecutionRequest,
+  EngagementExecutionResult,
+} from "../engagement/run-controller";
 import type { PanelView, ReviewPresentation, WorkflowFailure } from "./state";
 import {
   apiFailure,
@@ -47,11 +57,24 @@ const MAX_POLL_MS = 60_000;
 
 export interface WorkflowDependencies {
   api?: LocalApiClient;
+  approval?: {
+    cancelPendingApproval(): void;
+    requestApproval(details: {
+      comment: string;
+      neighborMessage?: string;
+      sourceUrl: string;
+      steps: readonly ("comment" | "like" | "mutual_neighbor")[];
+      title: string;
+    }): Promise<EngagementApprovalToken | null>;
+  };
   commentInput?: CommentInputGateway;
   digest?: typeof requestDigest;
   now?: () => number;
   registry?: IdempotencyRegistry;
   lengthStore?: CommentLengthPreferenceStore;
+  engagement?: {
+    execute(request: EngagementExecutionRequest): Promise<EngagementExecutionResult>;
+  };
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -75,10 +98,12 @@ interface RegenerationIntent {
 
 export class SidePanelController {
   readonly #api: LocalApiClient;
+  readonly #approval: NonNullable<WorkflowDependencies["approval"]> | null;
   readonly #commentInput: CommentInputGateway;
   readonly #digest: typeof requestDigest;
   readonly #gateway: TabCaptureGateway;
   readonly #lengthStore: CommentLengthPreferenceStore;
+  readonly #engagement: NonNullable<WorkflowDependencies["engagement"]> | null;
   readonly #now: () => number;
   readonly #registry: IdempotencyRegistry;
   readonly #view: PanelView;
@@ -89,7 +114,11 @@ export class SidePanelController {
   #copied = false;
   #closingPhrase = "";
   #digestValue: string | null = null;
+  #discoveryPost: DiscoveryPost | null = null;
   #editedComment = "";
+  #engagementActive = false;
+  #engagementRun: EngagementRun | null = null;
+  #neighborMessage = "좋은 글 잘 읽었습니다. 서로이웃으로 소통하고 싶어요.";
   #operation = 0;
   #preview: CapturedPostPreview | null = null;
   #preferenceNotice: string | undefined;
@@ -108,8 +137,10 @@ export class SidePanelController {
     dependencies: WorkflowDependencies = {},
   ) {
     this.#gateway = gateway;
+    this.#approval = dependencies.approval ?? null;
     this.#commentInput = dependencies.commentInput ?? new ChromeCommentInputGateway();
     this.#lengthStore = dependencies.lengthStore ?? new CommentLengthPreferenceStore();
+    this.#engagement = dependencies.engagement ?? null;
     this.#view = view;
     this.#api = dependencies.api ?? new LocalApiClient();
     this.#digest = dependencies.digest ?? requestDigest;
@@ -130,7 +161,9 @@ export class SidePanelController {
       changeRelationship: (value) => this.changeRelationship(value),
       changeSpeechStyle: (value) => this.changeSpeechStyle(value),
       edit: (value) => this.edit(value),
+      engage: () => void this.engage(),
       generate: () => void this.generate(),
+      changeNeighborMessage: (value) => this.changeNeighborMessage(value),
       regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
       retry: () => void this.captureActivePost(),
@@ -144,6 +177,7 @@ export class SidePanelController {
 
   start(): void {
     this.#unsubscribe = this.#gateway.subscribeToInvalidation((event) => {
+      if (this.#engagementActive) return;
       if (event.kind === "updated" && event.tabId !== this.#activeTabId) {
         return;
       }
@@ -163,12 +197,37 @@ export class SidePanelController {
   }
 
   async captureActivePost(): Promise<void> {
+    this.#discoveryPost = null;
+    this.#engagementRun = null;
     this.#replacementIntent = null;
     this.#regenerationIntent = null;
     this.#preferences = { ...this.#savedPreferences };
     this.#closingPhrase = this.#savedClosingPhrase;
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
+  }
+
+  async captureDiscoveryPost(post: DiscoveryPost, tabId: number): Promise<void> {
+    this.#discoveryPost = post;
+    this.#engagementRun = null;
+    this.#replacementIntent = null;
+    this.#regenerationIntent = null;
+    this.#preferences = { ...this.#savedPreferences };
+    this.#closingPhrase = this.#savedClosingPhrase;
+    this.#preferenceNotice = undefined;
+    await this.#captureActivePost();
+    if (
+      this.#activeTabId !== tabId ||
+      (this.#recommendation?.sourceUrl !== post.sourceUrl &&
+        this.#preview?.sourceUrl !== post.sourceUrl)
+    ) {
+      this.#discoveryPost = null;
+      if (this.#preview !== null) {
+        this.#preferenceNotice =
+          "열린 글이 선택한 대기열 항목과 달라 자동 실행 연결을 해제했습니다. 댓글 추천과 수동 사용은 계속할 수 있습니다.";
+        this.#renderPreview();
+      }
+    }
   }
 
   async #captureActivePost(): Promise<void> {
@@ -384,6 +443,104 @@ export class SidePanelController {
   edit(value: string): void {
     if (!this.#busy && this.#recommendation?.reviewStatus === "drafted") {
       this.#editedComment = Array.from(value).slice(0, 500).join("");
+    }
+  }
+
+  changeNeighborMessage(value: string): void {
+    if (
+      this.#busy ||
+      this.#discoveryPost?.source !== "search" ||
+      !["approved", "completed"].includes(this.#recommendation?.reviewStatus ?? "")
+    ) {
+      return;
+    }
+    this.#neighborMessage = Array.from(value).slice(0, 500).join("");
+  }
+
+  async engage(): Promise<void> {
+    const recommendation = this.#recommendation;
+    const discoveryPost = this.#discoveryPost;
+    const tabId = this.#activeTabId;
+    if (
+      this.#busy ||
+      recommendation === null ||
+      (recommendation.reviewStatus !== "approved" && recommendation.reviewStatus !== "completed") ||
+      discoveryPost === null ||
+      tabId === null ||
+      this.#approval === null ||
+      this.#engagement === null ||
+      recommendation.sourceUrl !== discoveryPost.sourceUrl
+    ) {
+      this.#renderReview(
+        "탐색 대기열에서 연 글과 승인된 댓글이 함께 있어야 자동 실행할 수 있습니다.",
+      );
+      return;
+    }
+    if (
+      this.#engagementRun?.state === "succeeded" ||
+      this.#engagementRun?.state === "unconfirmed"
+    ) {
+      this.#renderReview("이미 완료했거나 결과 확인이 필요한 실행은 다시 시작하지 않습니다.");
+      return;
+    }
+    const comment = approvedComment(recommendation);
+    if (comment === "") {
+      this.#renderReview("등록할 승인 댓글을 확인하지 못했습니다.");
+      return;
+    }
+    const steps =
+      discoveryPost.source === "neighbor"
+        ? (["like", "comment"] as const)
+        : (["like", "comment", "mutual_neighbor"] as const);
+    const message = this.#neighborMessage.trim();
+    if (discoveryPost.source === "search" && message === "") {
+      this.#renderReview("서로이웃 신청 메시지를 입력해 주세요.");
+      return;
+    }
+    const operation = this.#operation;
+    const token = await this.#approval.requestApproval({
+      comment,
+      ...(discoveryPost.source === "search" ? { neighborMessage: message } : {}),
+      sourceUrl: recommendation.sourceUrl,
+      steps,
+      title: recommendation.title,
+    });
+    if (operation !== this.#operation) return;
+    if (token === null) {
+      this.#renderReview("자동 실행 동의와 이 글의 최종 확인이 필요합니다.");
+      return;
+    }
+    this.#busy = true;
+    this.#engagementActive = true;
+    this.#view.render({ kind: "engaging", ...this.#presentation() });
+    try {
+      const result = await this.#engagement.execute({
+        discoveryPost,
+        recommendation,
+        tabId,
+        tokenId: token.id,
+      });
+      if (operation !== this.#operation) return;
+      this.#engagementRun = result.run;
+      if (result.run?.steps.some((step) => step.name === "comment" && step.state === "succeeded")) {
+        const updated = await this.#api.getRecommendation(recommendation.id);
+        if (operation !== this.#operation) return;
+        this.#showRecommendation(updated, engagementNotice(result));
+      } else {
+        this.#renderReview(engagementNotice(result));
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("engagement-run-updated"));
+      }
+    } catch {
+      if (operation === this.#operation) {
+        this.#renderReview(
+          "교류 결과를 확인하지 못했습니다. 자동으로 다시 실행하지 말고 최근 작업 상태를 확인해 주세요.",
+        );
+      }
+    } finally {
+      this.#engagementActive = false;
+      if (operation === this.#operation) this.#busy = false;
     }
   }
 
@@ -941,7 +1098,10 @@ export class SidePanelController {
     }
     return {
       copied: this.#copied,
+      discoveryPost: this.#discoveryPost,
       editedComment: this.#editedComment,
+      engagementRun: this.#engagementRun,
+      neighborMessage: this.#neighborMessage,
       recommendation,
       selectedCandidateId: this.#selectedCandidateId,
       ...(notice === undefined ? {} : { notice }),
@@ -1008,6 +1168,7 @@ export class SidePanelController {
   }
 
   #invalidate(): void {
+    this.#approval?.cancelPendingApproval();
     this.#operation += 1;
     this.#abort?.abort();
     this.#abort = null;
@@ -1015,6 +1176,8 @@ export class SidePanelController {
     this.#digestValue = null;
     this.#replacementIntent = null;
     this.#regenerationIntent = null;
+    this.#discoveryPost = null;
+    this.#engagementRun = null;
     this.#releaseAllContent();
     this.#view.clearSensitiveContent();
   }
@@ -1066,6 +1229,26 @@ function commentInputNotice(result: CommentInputResult): string {
     stale_page:
       "현재 탭이 바뀌어 댓글을 넣지 않았습니다. 원래 글로 돌아가거나 댓글을 복사해 주세요.",
   }[result];
+}
+
+function approvedComment(recommendation: Recommendation): string {
+  const selected = recommendation.candidates.find(
+    (candidate) => candidate.id === recommendation.selectedCandidateId,
+  );
+  return recommendation.editedComment ?? selected?.comment ?? "";
+}
+
+function engagementNotice(result: EngagementExecutionResult): string {
+  if (result.status === "completed") {
+    return "이 글의 승인된 교류를 완료했습니다. 결과를 확인한 뒤 다음 글로 이동하세요.";
+  }
+  if (result.status === "unconfirmed") {
+    return "외부 동작의 완료 여부를 확인하지 못했습니다. 중복 방지를 위해 자동 재시도하지 않습니다.";
+  }
+  if (result.status === "rejected") {
+    return "이 글의 실행 승인이 유효하지 않아 아무 작업도 실행하지 않았습니다.";
+  }
+  return `교류가 중단되었습니다 (${result.code}). 성공한 단계는 다시 실행하지 않습니다.`;
 }
 
 function captureFailure(code: CaptureFailure["code"]): CaptureFailure {

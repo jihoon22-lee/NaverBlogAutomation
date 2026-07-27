@@ -1,4 +1,4 @@
-import type { RecommendationHistoryItem } from "../api/types";
+import type { EngagementRun, RecommendationHistoryItem } from "../api/types";
 import type { HistoryActions, HistoryState, HistoryView } from "./state";
 
 function requireElement<T extends Element>(document: Document, selector: string): T {
@@ -112,12 +112,24 @@ export class DomHistoryView implements HistoryView {
     this.#summaryCount.textContent = state.items.length > 0 ? `${state.items.length}` : "";
     this.#empty.hidden = state.items.length > 0;
     this.#empty.textContent = "아직 저장된 추천 작업이 없습니다.";
-    this.#list.replaceChildren(...state.items.map((item) => this.#historyItem(item, state.busyId)));
+    this.#list.replaceChildren(
+      ...state.items.map((item) =>
+        this.#historyItem(
+          item,
+          state.engagementRuns?.find((run) => run.recommendationId === item.id) ?? null,
+          state.busyId,
+        ),
+      ),
+    );
     this.#notice.hidden = state.notice === undefined;
     this.#notice.textContent = state.notice ?? "";
   }
 
-  #historyItem(item: RecommendationHistoryItem, busyId: string | undefined): HTMLElement {
+  #historyItem(
+    item: RecommendationHistoryItem,
+    engagementRun: EngagementRun | null,
+    busyId: string | undefined,
+  ): HTMLElement {
     const row = this.#document.createElement("li");
     row.className = "history-item";
     const heading = this.#document.createElement("div");
@@ -135,6 +147,16 @@ export class DomHistoryView implements HistoryView {
       const comment = this.#document.createElement("p");
       comment.textContent = item.comment;
       row.append(comment);
+    }
+    if (engagementRun !== null) {
+      const result = this.#document.createElement("ul");
+      result.className = "history-engagement-results";
+      for (const step of engagementRun.steps) {
+        const line = this.#document.createElement("li");
+        line.textContent = `${engagementStepLabel(step.name)} · ${engagementStateLabel(step.state)}`;
+        result.append(line);
+      }
+      row.append(result);
     }
     const actions = this.#document.createElement("div");
     actions.className = "history-actions";
@@ -175,4 +197,21 @@ function formatDate(value: string): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function engagementStepLabel(value: string): string {
+  return { comment: "댓글", like: "공감", mutual_neighbor: "서로이웃" }[value] ?? value;
+}
+
+function engagementStateLabel(value: string): string {
+  return (
+    {
+      failed: "중단",
+      pending: "대기",
+      running: "실행 중",
+      skipped: "이미 완료",
+      succeeded: "완료",
+      unconfirmed: "확인 필요",
+    }[value] ?? value
+  );
 }

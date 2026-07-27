@@ -37,6 +37,9 @@ export class DomPanelView implements PanelView {
   readonly #editSection: HTMLElement;
   readonly #editedUseButton: HTMLButtonElement;
   readonly #editedComment: HTMLTextAreaElement;
+  readonly #engagementRunButton: HTMLButtonElement;
+  readonly #engagementRunPanel: HTMLElement;
+  readonly #engagementStepResults: HTMLElement;
   readonly #errorMessage: HTMLElement;
   readonly #errorPanel: HTMLElement;
   readonly #errorTitle: HTMLElement;
@@ -53,6 +56,8 @@ export class DomPanelView implements PanelView {
   readonly #preferenceSummary: HTMLElement;
   readonly #personalizationMode: HTMLInputElement;
   readonly #personalizationResultNotice: HTMLElement;
+  readonly #neighborMessage: HTMLTextAreaElement;
+  readonly #neighborMessageField: HTMLElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
   readonly #regenerateButton: HTMLButtonElement;
   readonly #speechStyleOptions: HTMLFieldSetElement;
@@ -93,6 +98,9 @@ export class DomPanelView implements PanelView {
     this.#editSection = requireElement(document, "#edit-section");
     this.#editedComment = requireElement(document, "#edited-comment");
     this.#editedUseButton = requireElement(document, "#edited-use-button");
+    this.#engagementRunButton = requireElement(document, "#engagement-run-button");
+    this.#engagementRunPanel = requireElement(document, "#engagement-run-panel");
+    this.#engagementStepResults = requireElement(document, "#engagement-step-results");
     this.#errorMessage = requireElement(document, "#error-message");
     this.#errorPanel = requireElement(document, "#error-panel");
     this.#errorTitle = requireElement(document, "#error-title");
@@ -109,6 +117,8 @@ export class DomPanelView implements PanelView {
     this.#preferenceSummary = requireElement(document, "#preference-summary");
     this.#personalizationMode = requireElement(document, "#personalization-mode");
     this.#personalizationResultNotice = requireElement(document, "#personalization-result-notice");
+    this.#neighborMessage = requireElement(document, "#neighbor-message");
+    this.#neighborMessageField = requireElement(document, "#neighbor-message-field");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
     this.#regenerateButton = requireElement(document, "#regenerate-button");
     this.#speechStyleOptions = requireElement(document, "#speech-style-options");
@@ -143,6 +153,12 @@ export class DomPanelView implements PanelView {
     this.#copyButton.addEventListener("click", actions.copy);
     this.#retryFillButton.addEventListener("click", actions.refill);
     this.#completeButton.addEventListener("click", actions.complete);
+    this.#engagementRunButton.addEventListener("click", actions.engage);
+    this.#neighborMessage.addEventListener("input", () => {
+      const bounded = Array.from(this.#neighborMessage.value).slice(0, 500).join("");
+      if (bounded !== this.#neighborMessage.value) this.#neighborMessage.value = bounded;
+      actions.changeNeighborMessage(this.#neighborMessage.value);
+    });
     this.#relationshipOptions.addEventListener("change", (event) => {
       const input = this.#radioInput(event, "relationship");
       if (input !== null) actions.changeRelationship(input.value);
@@ -241,7 +257,9 @@ export class DomPanelView implements PanelView {
     this.#errorPanel.hidden = state.kind !== "error";
     this.#previewPanel.hidden = state.kind !== "preview";
     this.#progressPanel.hidden = state.kind !== "generating";
-    this.#reviewPanel.hidden = !["review", "saving", "approved", "completed"].includes(state.kind);
+    this.#reviewPanel.hidden = !["review", "saving", "engaging", "approved", "completed"].includes(
+      state.kind,
+    );
     for (const input of this.#preferenceInputs()) input.disabled = busy;
     this.#closingPhrase.disabled = busy;
     this.#personalizationMode.disabled = busy;
@@ -274,7 +292,7 @@ export class DomPanelView implements PanelView {
       state,
       state.kind,
       previousKind === null ||
-        !["approved", "completed", "review", "saving"].includes(previousKind),
+        !["approved", "completed", "engaging", "review", "saving"].includes(previousKind),
     );
   }
 
@@ -326,24 +344,28 @@ export class DomPanelView implements PanelView {
 
   #renderRecommendation(
     presentation: ReviewPresentation,
-    kind: "approved" | "completed" | "review" | "saving",
+    kind: "approved" | "completed" | "engaging" | "review" | "saving",
     focusHeading: boolean,
   ): void {
     const { recommendation } = presentation;
     this.#status.textContent =
-      kind === "saving"
-        ? "검토 상태를 저장하고 있습니다."
-        : kind === "completed"
-          ? "수동 등록 완료로 표시했습니다."
-          : "추천 댓글을 직접 검토해 주세요.";
+      kind === "engaging"
+        ? "승인한 교류를 한 단계씩 실행하고 있습니다."
+        : kind === "saving"
+          ? "검토 상태를 저장하고 있습니다."
+          : kind === "completed"
+            ? "수동 등록 완료로 표시했습니다."
+            : "추천 댓글을 직접 검토해 주세요.";
     this.#reviewStatus.textContent =
-      kind === "saving"
-        ? "저장 중"
-        : kind === "completed"
-          ? "수동 workflow 완료"
-          : kind === "approved"
-            ? "승인됨"
-            : "검토 중";
+      kind === "engaging"
+        ? "교류 실행 중"
+        : kind === "saving"
+          ? "저장 중"
+          : kind === "completed"
+            ? "수동 workflow 완료"
+            : kind === "approved"
+              ? "승인됨"
+              : "검토 중";
     this.#generatedRelationship.textContent = relationshipLabel(recommendation.relationshipLevel);
     this.#generatedSpeechStyle.textContent = speechStyleLabel(recommendation.speechStyle);
     this.#generatedCommentLength.textContent = commentLengthLabel(recommendation.commentLength);
@@ -419,11 +441,12 @@ export class DomPanelView implements PanelView {
     this.#editSection.hidden = kind === "review" && presentation.selectedCandidateId === null;
     this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
     this.#editedUseButton.hidden = kind !== "review";
-    this.#copyButton.hidden = kind === "review" || kind === "saving";
+    this.#renderEngagement(presentation, kind);
+    this.#copyButton.hidden = kind === "review" || kind === "saving" || kind === "engaging";
     this.#retryFillButton.hidden = kind !== "approved";
     this.#completeButton.hidden = kind !== "approved";
-    this.#regenerateButton.hidden = kind === "saving";
-    this.#changeOptionsButton.hidden = kind === "saving";
+    this.#regenerateButton.hidden = kind === "saving" || kind === "engaging";
+    this.#changeOptionsButton.hidden = kind === "saving" || kind === "engaging";
     this.#reviewNotice.hidden = presentation.notice === undefined;
     this.#reviewNotice.textContent = presentation.notice ?? "";
     if (focusedCandidateId !== null) {
@@ -434,6 +457,52 @@ export class DomPanelView implements PanelView {
     } else if (kind !== "saving" && focusHeading) {
       this.#focus(this.#resultTitle);
     }
+  }
+
+  #renderEngagement(
+    presentation: ReviewPresentation,
+    kind: "approved" | "completed" | "engaging" | "review" | "saving",
+  ): void {
+    const discoveryPost = presentation.discoveryPost ?? null;
+    const engagementRun = presentation.engagementRun ?? null;
+    const available = discoveryPost !== null && kind !== "review" && kind !== "saving";
+    this.#engagementRunPanel.hidden = !available;
+    if (!available || discoveryPost === null) {
+      this.#engagementStepResults.replaceChildren();
+      return;
+    }
+    const search = discoveryPost.source === "search";
+    this.#neighborMessageField.hidden = !search;
+    if (this.#document.activeElement !== this.#neighborMessage) {
+      this.#neighborMessage.value = presentation.neighborMessage ?? "";
+    }
+    this.#neighborMessage.disabled = kind === "engaging" || engagementRun?.state === "unconfirmed";
+    this.#engagementRunButton.textContent = search
+      ? "공감·댓글 등록 후 서로이웃 신청"
+      : "공감하고 승인 댓글 등록";
+    this.#engagementRunButton.disabled =
+      kind === "engaging" ||
+      engagementRun?.state === "succeeded" ||
+      engagementRun?.state === "unconfirmed";
+    const steps =
+      engagementRun?.steps ??
+      (search
+        ? [
+            { name: "like", state: "pending" },
+            { name: "comment", state: "pending" },
+            { name: "mutual_neighbor", state: "pending" },
+          ]
+        : [
+            { name: "like", state: "pending" },
+            { name: "comment", state: "pending" },
+          ]);
+    this.#engagementStepResults.replaceChildren(
+      ...steps.map((step) => {
+        const item = this.#document.createElement("li");
+        item.textContent = `${engagementStepLabel(step.name)} · ${engagementStateLabel(step.state)}`;
+        return item;
+      }),
+    );
   }
 
   #focus(element: HTMLElement): void {
@@ -448,6 +517,9 @@ export class DomPanelView implements PanelView {
     this.#topics.replaceChildren();
     this.#candidateList.replaceChildren();
     this.#editedComment.value = "";
+    this.#neighborMessage.value = "";
+    this.#engagementStepResults.replaceChildren();
+    this.#engagementRunPanel.hidden = true;
     this.#editCount.textContent = "";
     this.#reviewNotice.textContent = "";
     this.#generatedRelationship.textContent = "";
@@ -485,6 +557,29 @@ export class DomPanelView implements PanelView {
 
 function toneLabel(tone: string): string {
   return { curious: "궁금한 점", supportive: "응원", warm: "따뜻한 공감" }[tone] ?? tone;
+}
+
+function engagementStepLabel(value: string): string {
+  return (
+    {
+      comment: "댓글 등록",
+      like: "공감",
+      mutual_neighbor: "서로이웃 신청",
+    }[value] ?? value
+  );
+}
+
+function engagementStateLabel(value: string): string {
+  return (
+    {
+      failed: "중단됨",
+      pending: "대기",
+      running: "실행 중",
+      skipped: "이미 완료",
+      succeeded: "완료",
+      unconfirmed: "확인 필요",
+    }[value] ?? value
+  );
 }
 
 function relationshipLabel(value: string): string {

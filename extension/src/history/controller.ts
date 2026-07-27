@@ -1,5 +1,5 @@
 import { ApiClientError, LocalApiClient } from "../api/client";
-import type { RecommendationHistoryItem, ServiceStatus } from "../api/types";
+import type { EngagementRun, RecommendationHistoryItem, ServiceStatus } from "../api/types";
 import { IdempotencyRegistry } from "../idempotency/registry";
 import type { HistoryView } from "./state";
 
@@ -14,6 +14,7 @@ export class HistoryController {
   #abort: AbortController | null = null;
   #busy = false;
   #items: readonly RecommendationHistoryItem[] = [];
+  #engagementRuns: readonly EngagementRun[] = [];
   #service: ServiceStatus | null = null;
 
   constructor(
@@ -49,14 +50,17 @@ export class HistoryController {
     this.#abort = abort;
     this.#view.render({ kind: "loading" });
     try {
-      const [service, items] = await Promise.all([
+      const [service, items, engagementRuns] = await Promise.all([
         this.#api.status(abort.signal),
         this.#api.listRecommendations(20, abort.signal),
+        this.#api.listEngagementRuns(20, abort.signal),
       ]);
       if (abort.signal.aborted) return;
       this.#service = service;
       this.#items = items;
+      this.#engagementRuns = engagementRuns;
       this.#view.render({
+        engagementRuns,
         items,
         kind: "ready",
         ...(notice === undefined ? {} : { notice }),
@@ -83,6 +87,7 @@ export class HistoryController {
     const copied = await this.#view.copyText(item.comment);
     this.#view.render({
       items: this.#items,
+      engagementRuns: this.#engagementRuns,
       kind: "ready",
       notice: copied
         ? "이전 댓글을 clipboard에 복사했습니다."
@@ -94,7 +99,13 @@ export class HistoryController {
   async delete(id: string): Promise<void> {
     if (this.#busy || this.#service === null || !this.#items.some((item) => item.id === id)) return;
     this.#busy = true;
-    this.#view.render({ busyId: id, items: this.#items, kind: "ready", service: this.#service });
+    this.#view.render({
+      busyId: id,
+      engagementRuns: this.#engagementRuns,
+      items: this.#items,
+      kind: "ready",
+      service: this.#service,
+    });
     try {
       await this.#api.deleteRecommendation(id);
       let notice = "선택한 로컬 기록을 삭제했습니다.";
@@ -109,6 +120,7 @@ export class HistoryController {
     } catch {
       this.#view.render({
         items: this.#items,
+        engagementRuns: this.#engagementRuns,
         kind: "ready",
         notice: "기록을 삭제하지 못했습니다. 서비스 상태를 확인한 뒤 다시 시도해 주세요.",
         service: this.#service,
@@ -123,7 +135,13 @@ export class HistoryController {
     const item = this.#items.find((candidate) => candidate.id === id);
     if (item === undefined || item.reviewStatus !== "completed" || item.comment === null) return;
     this.#busy = true;
-    this.#view.render({ busyId: id, items: this.#items, kind: "ready", service: this.#service });
+    this.#view.render({
+      busyId: id,
+      engagementRuns: this.#engagementRuns,
+      items: this.#items,
+      kind: "ready",
+      service: this.#service,
+    });
     try {
       await this.#api.reviewRecommendation(id, {
         personalization_eligible: !item.personalizationEligible,
@@ -137,6 +155,7 @@ export class HistoryController {
     } catch {
       this.#view.render({
         items: this.#items,
+        engagementRuns: this.#engagementRuns,
         kind: "ready",
         notice: "스타일 예시 설정을 바꾸지 못했습니다. 서비스 상태를 확인해 주세요.",
         service: this.#service,
@@ -151,6 +170,7 @@ export class HistoryController {
     this.#busy = true;
     this.#view.render({
       clearingPersonalization: true,
+      engagementRuns: this.#engagementRuns,
       items: this.#items,
       kind: "ready",
       service: this.#service,
@@ -162,6 +182,7 @@ export class HistoryController {
     } catch {
       this.#view.render({
         items: this.#items,
+        engagementRuns: this.#engagementRuns,
         kind: "ready",
         notice: "스타일 예시를 정리하지 못했습니다. 서비스 상태를 확인해 주세요.",
         service: this.#service,
