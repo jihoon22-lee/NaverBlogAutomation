@@ -113,6 +113,10 @@ window.addEventListener("engagement-run-updated", () => {
   void historyController?.refresh();
 });
 
+window.addEventListener("discovery-post-updated", () => {
+  void discoveryController?.refresh();
+});
+
 window.addEventListener("engagement-consent-required", () => {
   workspaceController.activate("settings");
   const details = document.querySelector<HTMLDetailsElement>("#engagement-consent-card details");

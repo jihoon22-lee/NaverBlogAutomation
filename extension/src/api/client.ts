@@ -208,6 +208,14 @@ export class LocalApiClient {
     return parsed;
   }
 
+  async deleteDiscoverySearch(id: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.#request(`/api/v1/discovery/searches/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      ...withSignal(signal),
+    });
+    if (response.status !== 204) throw invalidResponse(response.status);
+  }
+
   async importDiscoveryPosts(
     source: DiscoverySource,
     ownerId: string,
@@ -420,6 +428,28 @@ export class LocalApiClient {
       replayed: readBooleanHeader(response, "Engagement-Replayed"),
       value: parsed,
     };
+  }
+
+  async completeEngagementManually(
+    runId: string,
+    completedSteps: readonly EngagementStepName[],
+    signal?: AbortSignal,
+  ): Promise<EngagementRun> {
+    const response = await this.#request(
+      `/api/v1/engagement-runs/${encodeURIComponent(runId)}/manual-completion`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          completed_steps: completedSteps,
+        }),
+        ...withSignal(signal),
+      },
+    );
+    if (response.status !== 200) throw invalidResponse(response.status);
+    const parsed = parseEngagementRun(await readJson(response));
+    if (parsed === null) throw invalidResponse(response.status);
+    return parsed;
   }
 
   async getEngagementRun(id: string, signal?: AbortSignal): Promise<EngagementRun> {

@@ -5,7 +5,8 @@ export type LikeActionResult =
   | "not_found"
   | "permission_denied"
   | "stale_page"
-  | "state_unknown";
+  | "state_unknown"
+  | "unconfirmed";
 
 interface LikeTargetProbe {
   count: number;
@@ -64,7 +65,7 @@ export class ChromeNaverLikeGateway implements NaverLikeGateway {
 
     try {
       const [clicked] = await this.#api.scripting.executeScript({
-        func: clickLikeTarget,
+        func: clickAndConfirmLikeTarget,
         target: { frameIds: [match.frameId], tabId },
         world: "ISOLATED",
       });
@@ -97,12 +98,18 @@ function probeLikeTarget(): LikeTargetProbe {
 
   function findLikeTargets(): HTMLElement[] {
     return Array.from(
-      document.querySelectorAll<HTMLElement>("button.u_likeit_list_btn, a.u_likeit_list_btn"),
+      document.querySelectorAll<HTMLElement>(
+        [
+          "button.u_likeit_list_btn",
+          "a.u_likeit_list_btn",
+          ".u_likeit_list_module._reactionModule_BLOG .u_likeit_button._face[role='button']",
+        ].join(","),
+      ),
     ).filter(
       (element) =>
         !element.hasAttribute("disabled") &&
         element.getAttribute("aria-disabled") !== "true" &&
-        isVisible(element),
+        isInteractable(element),
     );
   }
 
@@ -127,14 +134,29 @@ function probeLikeTarget(): LikeTargetProbe {
     return null;
   }
 
-  function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+  function isInteractable(element: HTMLElement): boolean {
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.pointerEvents === "none" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
-function clickLikeTarget(): LikeActionResult {
+async function clickAndConfirmLikeTarget(): Promise<LikeActionResult> {
   const candidates = findLikeTargets();
   if (candidates.length === 0) return "not_found";
   if (candidates.length > 1) return "ambiguous";
@@ -143,16 +165,30 @@ function clickLikeTarget(): LikeActionResult {
   if (liked === true) return "already_liked";
   if (liked === null) return "state_unknown";
   target.click();
-  return "clicked";
+  const deadline = Date.now() + 2_000;
+  while (Date.now() <= deadline) {
+    const refreshed = findLikeTargets();
+    if (refreshed.length === 1 && readLikedState(refreshed[0] as HTMLElement) === true) {
+      return "clicked";
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+  }
+  return "unconfirmed";
 
   function findLikeTargets(): HTMLElement[] {
     return Array.from(
-      document.querySelectorAll<HTMLElement>("button.u_likeit_list_btn, a.u_likeit_list_btn"),
+      document.querySelectorAll<HTMLElement>(
+        [
+          "button.u_likeit_list_btn",
+          "a.u_likeit_list_btn",
+          ".u_likeit_list_module._reactionModule_BLOG .u_likeit_button._face[role='button']",
+        ].join(","),
+      ),
     ).filter(
       (element) =>
         !element.hasAttribute("disabled") &&
         element.getAttribute("aria-disabled") !== "true" &&
-        isVisible(element),
+        isInteractable(element),
     );
   }
 
@@ -177,9 +213,24 @@ function clickLikeTarget(): LikeActionResult {
     return null;
   }
 
-  function isVisible(element: HTMLElement): boolean {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden";
+  function isInteractable(element: HTMLElement): boolean {
+    for (
+      let current: HTMLElement | null = element;
+      current !== null;
+      current = current.parentElement
+    ) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.pointerEvents === "none" ||
+        (style.opacity !== "" && Number(style.opacity) === 0)
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 }

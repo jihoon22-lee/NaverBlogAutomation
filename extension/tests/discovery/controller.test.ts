@@ -14,6 +14,7 @@ let domWindow: Window & typeof globalThis;
 const client = {
   automaticDiscoverySettings: vi.fn(),
   digestSettings: vi.fn(),
+  deleteDiscoverySearch: vi.fn(),
   listDiscoveryNeighbors: vi.fn(),
   listDiscoveryQueue: vi.fn(),
   listDiscoverySearches: vi.fn(),
@@ -97,6 +98,7 @@ beforeEach(async () => {
   });
   client.saveDiscoveryNeighbor.mockResolvedValue({});
   client.saveDiscoverySearch.mockResolvedValue({ id });
+  client.deleteDiscoverySearch.mockResolvedValue(undefined);
   client.refreshDiscoverySearch.mockResolvedValue({
     importedCount: 2,
     provider: "naver_open_api",
@@ -180,6 +182,49 @@ describe("DiscoveryController", () => {
     expect(document.querySelector("#discovery-notice")?.textContent).toContain(
       "신규 이웃 검색어를 저장했습니다.",
     );
+  });
+
+  it("removes a saved search without removing its existing search candidates", async () => {
+    vi.spyOn(domWindow, "confirm").mockReturnValue(true);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    (document.querySelector("[data-action=delete-search]") as HTMLButtonElement).click();
+    await settle();
+
+    expect(client.deleteDiscoverySearch).toHaveBeenCalledWith(id);
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain(
+      "기존에 수집된 후보는 유지",
+    );
+  });
+
+  it("keeps a saved search when the user cancels deletion", async () => {
+    vi.spyOn(domWindow, "confirm").mockReturnValue(false);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    (document.querySelector("[data-action=delete-search]") as HTMLButtonElement).click();
+    await settle();
+
+    expect(client.deleteDiscoverySearch).not.toHaveBeenCalled();
+    expect(document.querySelector("#discovery-searches")?.textContent).toContain("여행");
+  });
+
+  it("keeps the delete action recoverable when saving fails", async () => {
+    vi.spyOn(domWindow, "confirm").mockReturnValue(true);
+    client.deleteDiscoverySearch.mockRejectedValueOnce(new Error("삭제 실패"));
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+    const button = document.querySelector("[data-action=delete-search]") as HTMLButtonElement;
+
+    button.click();
+    await settle();
+
+    expect(button.disabled).toBe(false);
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("삭제 실패");
   });
 
   it("shows persisted automatic status and opens a queued post without a page import", async () => {
@@ -298,6 +343,41 @@ describe("DiscoveryController", () => {
     expect(navigator.open).toHaveBeenLastCalledWith("https://blog.naver.com/friend/2", "current");
     expect(client.updateDiscoveryPostState).toHaveBeenLastCalledWith(nextId, "opened");
     expect(opened).toHaveBeenCalled();
+  });
+
+  it("clears a locally remembered current card after the server marks it completed", async () => {
+    let current = true;
+    client.listDiscoveryQueue.mockImplementation(async (source: "neighbor" | "search") =>
+      source === "search"
+        ? []
+        : current
+          ? [
+              {
+                createdAt: "2026-07-26T00:00:00Z",
+                id,
+                neighborId: "neighbor-id",
+                publishedAt: null,
+                publisherBlogId: "friend",
+                publisherName: "이웃",
+                searchId: null,
+                source,
+                sourceUrl: "https://blog.naver.com/friend/1",
+                state: "opened",
+                title: "현재 글",
+                updatedAt: "2026-07-26T00:00:00Z",
+              },
+            ]
+          : [],
+    );
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+    expect((document.querySelector("#today-current-card") as HTMLElement).hidden).toBe(false);
+
+    current = false;
+    await controller.refresh();
+
+    expect((document.querySelector("#today-current-card") as HTMLElement).hidden).toBe(true);
   });
 
   it("returns to Today when no next queue item remains", async () => {

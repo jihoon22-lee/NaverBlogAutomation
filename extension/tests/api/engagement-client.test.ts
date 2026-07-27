@@ -113,6 +113,39 @@ describe("LocalApiClient engagement API", () => {
     ).rejects.toBeInstanceOf(ApiClientError);
   });
 
+  it("records user-confirmed steps for a failed run", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      json({
+        ...run,
+        state: "succeeded",
+        steps: run.steps.map((step) =>
+          step.name === "comment"
+            ? { ...step, result_code: "manual_confirmed", state: "succeeded" }
+            : step,
+        ),
+      }),
+    );
+
+    await expect(
+      new LocalApiClient(fetch).completeEngagementManually(run.id, ["like", "comment"]),
+    ).resolves.toMatchObject({ id: run.id, state: "succeeded" });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/v1/engagement-runs/${run.id}/manual-completion`),
+      expect.objectContaining({
+        body: JSON.stringify({ completed_steps: ["like", "comment"] }),
+        method: "POST",
+      }),
+    );
+  });
+
+  it("rejects an unexpected manual-completion response without guessing completion", async () => {
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 409 })),
+      ).completeEngagementManually(run.id, ["comment"]),
+    ).rejects.toBeInstanceOf(ApiClientError);
+  });
+
   it("rejects malformed order, terminal results, and out-of-range limits", async () => {
     const malformed = {
       ...run,

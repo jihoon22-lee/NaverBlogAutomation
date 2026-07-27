@@ -243,4 +243,103 @@ describe("injected comment target functions", () => {
     expect(dom.window.document.querySelector(".u_cbox_text")?.textContent).toBe("합성 댓글");
     expect(submitted).not.toHaveBeenCalled();
   });
+
+  it("opens a folded comment section before filling its contenteditable input", async () => {
+    const dom = new JSDOM(
+      [
+        '<section id="comments" hidden>',
+        '<a class="btn_write_comment _naverCommentWriteBtn">댓글쓰기</a>',
+        '<div class="u_cbox_text u_cbox_text_mention" contenteditable="true"></div>',
+        "</section>",
+        '<a class="btn_comment _cmtList">댓글</a>',
+      ].join(""),
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const comments = dom.window.document.querySelector("#comments") as HTMLElement;
+    dom.window.document.querySelector(".btn_comment")?.addEventListener("click", () => {
+      comments.hidden = false;
+    });
+    const { api } = apiFixture();
+    const execute = api.scripting.executeScript as ReturnType<typeof vi.fn>;
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        const previous = {
+          HTMLTextAreaElement: globalThis.HTMLTextAreaElement,
+          InputEvent: globalThis.InputEvent,
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+          InputEvent: dom.window.InputEvent,
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: dom.window,
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          const args = "args" in injection && Array.isArray(injection.args) ? injection.args : [];
+          return [
+            {
+              frameId: 0,
+              result: await (injection.func as (...values: unknown[]) => unknown)(...args),
+            },
+          ];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "접힌 댓글")).resolves.toBe("filled");
+    expect(comments.hidden).toBe(false);
+    expect(dom.window.document.querySelector(".u_cbox_text")?.textContent).toBe("접힌 댓글");
+  });
+
+  it("does not claim success when a comment opener never renders an input", async () => {
+    const dom = new JSDOM('<a class="btn_write_comment _naverCommentWriteBtn">댓글쓰기</a>', {
+      pretendToBeVisual: true,
+      url: "https://blog.naver.com/synthetic/7",
+    });
+    const { api } = apiFixture();
+    const execute = api.scripting.executeScript as ReturnType<typeof vi.fn>;
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        let now = 0;
+        const previous = {
+          Date: globalThis.Date,
+          HTMLTextAreaElement: globalThis.HTMLTextAreaElement,
+          InputEvent: globalThis.InputEvent,
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          Date: { now: () => (now += 100) },
+          HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+          InputEvent: dom.window.InputEvent,
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: Object.assign(dom.window, { setTimeout: (callback: () => void) => callback() }),
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          const args = "args" in injection && Array.isArray(injection.args) ? injection.args : [];
+          return [
+            {
+              frameId: 0,
+              result: await (injection.func as (...values: unknown[]) => unknown)(...args),
+            },
+          ];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe(
+      "open_failed",
+    );
+  });
 });

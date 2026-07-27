@@ -3,6 +3,7 @@ import type {
   CreateRecommendationRequest,
   DiscoveryPost,
   EngagementRun,
+  EngagementStepName,
   Recommendation,
 } from "../api/types";
 import { BrowserCaptureError, type TabCaptureGateway } from "../browser/tab-capture-gateway";
@@ -170,6 +171,7 @@ export class SidePanelController {
       edit: (value) => this.edit(value),
       engage: () => void this.engage(),
       generate: () => void this.generate(),
+      manualComplete: (completedSteps) => void this.manualComplete(completedSteps),
       changeNeighborMessage: (value) => this.changeNeighborMessage(value),
       regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
@@ -483,6 +485,27 @@ export class SidePanelController {
       );
       return;
     }
+    let existingRun: EngagementRun | null;
+    try {
+      existingRun = await this.#api.getEngagementRunForPost(discoveryPost.id, this.#signal());
+    } catch {
+      this.#renderReview(
+        "이 글의 이전 교류 실행 상태를 확인하지 못했습니다. 최근 작업을 새로고침한 뒤 다시 시도해 주세요.",
+      );
+      return;
+    }
+    if (existingRun !== null && existingRun.recommendationId !== recommendation.id) {
+      this.#engagementRun = existingRun;
+      this.#renderReview(
+        "이 글은 다른 추천 댓글과 연결되어 있어 자동 실행하지 않았습니다. 현재 글을 다시 열어 추천을 새로 생성해 주세요.",
+      );
+      return;
+    }
+    if (existingRun === null && recommendation.reviewStatus === "completed") {
+      this.#renderReview("이 댓글은 이미 수동 완료로 기록되어 새 자동 실행을 시작하지 않았습니다.");
+      return;
+    }
+    this.#engagementRun = existingRun;
     if (
       this.#engagementRun?.state === "succeeded" ||
       this.#engagementRun?.state === "unconfirmed"
@@ -536,9 +559,7 @@ export class SidePanelController {
       } else {
         this.#renderReview(engagementNotice(result));
       }
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("engagement-run-updated"));
-      }
+      this.#dispatchEngagementUpdate();
     } catch {
       if (operation === this.#operation) {
         this.#renderReview(
@@ -685,11 +706,20 @@ export class SidePanelController {
         this.#signal(),
       );
       this.#assertCurrent(operation);
+      if (this.#discoveryPost !== null) {
+        await this.#api.updateDiscoveryPostState(
+          this.#discoveryPost.id,
+          "completed",
+          this.#signal(),
+        );
+        this.#assertCurrent(operation);
+      }
       if (this.#digestValue !== null) {
         await this.#registry.transition(this.#digestValue, "completed", updated.id);
         this.#assertCurrent(operation);
       }
       this.#showRecommendation(updated);
+      this.#dispatchEngagementUpdate();
     } catch (error) {
       if (operation !== this.#operation) {
         return;
@@ -703,6 +733,48 @@ export class SidePanelController {
       if (operation === this.#operation) {
         this.#busy = false;
       }
+    }
+  }
+
+  async manualComplete(completedSteps: readonly EngagementStepName[]): Promise<void> {
+    const recommendation = this.#recommendation;
+    const run = this.#engagementRun;
+    if (
+      this.#busy ||
+      recommendation === null ||
+      run === null ||
+      run.state !== "failed" ||
+      !completedSteps.includes("comment")
+    ) {
+      return;
+    }
+    const operation = this.#beginOperation();
+    this.#busy = true;
+    this.#view.render({ kind: "saving", ...this.#presentation() });
+    try {
+      this.#engagementRun = await this.#api.completeEngagementManually(
+        run.id,
+        completedSteps,
+        this.#signal(),
+      );
+      this.#assertCurrent(operation);
+      const updated = await this.#api.getRecommendation(recommendation.id, this.#signal());
+      this.#assertCurrent(operation);
+      this.#showRecommendation(
+        updated,
+        "직접 완료한 단계를 기록하고 오늘의 작업에서 정리했습니다.",
+      );
+      this.#dispatchEngagementUpdate();
+    } catch (error) {
+      if (operation !== this.#operation || error instanceof StaleOperation) return;
+      this.#renderReview(
+        error instanceof ApiClientError &&
+          error.problem?.code === "engagement_manual_completion_conflict"
+          ? "확인되지 않은 실행 결과가 있어 수동 완료로 바꾸지 않았습니다. 최근 작업에서 결과를 먼저 확인해 주세요."
+          : "수동 처리 결과를 저장하지 못했습니다. 실제 동작을 다시 실행하지 말고 최근 작업 상태를 확인해 주세요.",
+      );
+    } finally {
+      if (operation === this.#operation) this.#busy = false;
     }
   }
 
@@ -1206,6 +1278,12 @@ export class SidePanelController {
     this.#preview = null;
   }
 
+  #dispatchEngagementUpdate(): void {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("engagement-run-updated"));
+    window.dispatchEvent(new CustomEvent("discovery-post-updated"));
+  }
+
   #releaseAllContent(): void {
     this.#preview = null;
     this.#recommendation = null;
@@ -1263,6 +1341,19 @@ function engagementNotice(result: EngagementExecutionResult): string {
   if (result.status === "rejected") {
     return "이 글의 실행 승인이 유효하지 않아 아무 작업도 실행하지 않았습니다.";
   }
+  const conflicts: Record<string, string> = {
+    engagement_approval_bound:
+      "이 승인 확인은 다른 실행에 이미 사용되어 새 동작을 시작하지 않았습니다. 다시 확인해 주세요.",
+    engagement_post_recommendation_mismatch:
+      "이 글은 다른 추천 댓글과 연결되어 있어 자동 실행하지 않았습니다. 글을 다시 열어 새 추천을 생성해 주세요.",
+    engagement_publisher_missing:
+      "신규 이웃 후보의 블로그 정보를 확인하지 못해 서로이웃 신청을 시작하지 않았습니다.",
+    engagement_recommendation_not_approved:
+      "완료로 기록된 댓글은 새 자동 실행에 사용하지 않습니다. 직접 처리 기록을 확인하거나 새 추천을 생성해 주세요.",
+    engagement_source_mismatch:
+      "현재 열린 글과 승인 댓글이 달라 자동 실행하지 않았습니다. 같은 글을 다시 열어 주세요.",
+  };
+  if (result.code in conflicts) return conflicts[result.code] as string;
   return `교류가 중단되었습니다 (${result.code}). 성공한 단계는 다시 실행하지 않습니다.`;
 }
 

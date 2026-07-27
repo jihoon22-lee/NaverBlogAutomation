@@ -378,6 +378,18 @@ class EngagementRunStartRequest(StrictModel):
     recommendation_id: UUID
 
 
+class ManualEngagementCompletionRequest(StrictModel):
+    completed_steps: Annotated[
+        list[Literal["like", "comment", "mutual_neighbor"]], Field(min_length=1, max_length=3)
+    ]
+
+    @model_validator(mode="after")
+    def validate_completed_steps(self) -> Self:
+        if len(set(self.completed_steps)) != len(self.completed_steps):
+            raise ValueError("completed_steps must not contain duplicates")
+        return self
+
+
 class EngagementStepTransitionRequest(StrictModel):
     state: Literal["running", "succeeded", "skipped", "failed", "unconfirmed"]
     result_code: Annotated[

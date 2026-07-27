@@ -266,6 +266,27 @@ paths:
               schema: {$ref: "#/components/schemas/EngagementRunResponse"}
         "404": {$ref: "#/components/responses/NotFound"}
         "422": {description: Validation Error}
+  /api/v1/engagement-runs/{run_id}/manual-completion:
+    post:
+      operationId: completeEngagementManually
+      tags: [Engagement]
+      description: Record only the steps a user confirms were completed manually; no browser action is repeated.
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ManualEngagementCompletionRequest"}
+      responses:
+        "200":
+          description: The manually finalized engagement run.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/EngagementConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/engagement-runs/{run_id}/steps/{step_name}:
     patch:
       operationId: transitionEngagementStep
@@ -321,6 +342,17 @@ paths:
         "200": {description: Saved search metadata refreshed.}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/DiscoverySearchNotConfigured"}
+        "422": {description: Validation Error}
+  /api/v1/discovery/searches/{search_id}:
+    delete:
+      operationId: deleteDiscoverySearch
+      tags: [Discovery]
+      description: Delete only the saved search profile. Previously discovered candidates remain available.
+      parameters:
+        - {name: search_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "204": {description: Saved search deleted.}
+        "404": {$ref: "#/components/responses/NotFound"}
         "422": {description: Validation Error}
   /api/v1/discovery/import:
     post:
@@ -690,6 +722,17 @@ components:
         approval_id: {type: string, format: uuid}
         discovery_post_id: {type: string, format: uuid}
         recommendation_id: {type: string, format: uuid}
+    ManualEngagementCompletionRequest:
+      type: object
+      additionalProperties: false
+      required: [completed_steps]
+      properties:
+        completed_steps:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items: {type: string, enum: [like, comment, mutual_neighbor]}
     EngagementStepTransitionRequest:
       type: object
       additionalProperties: false

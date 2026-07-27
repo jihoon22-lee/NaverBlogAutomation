@@ -56,11 +56,19 @@ export class DiscoveryController {
       "submit",
       (event) => void this.saveDigestSettings(event),
     );
+    this.#element("discovery-searches").addEventListener(
+      "click",
+      (event) => void this.searchAction(event),
+    );
     this.#element("discovery-queue").addEventListener(
       "click",
       (event) => void this.queueAction(event),
     );
     void this.render();
+  }
+
+  async refresh(): Promise<void> {
+    await this.render();
   }
 
   private async render(): Promise<void> {
@@ -76,7 +84,7 @@ export class DiscoveryController {
         ]);
       this.#queues.neighbor = neighborPosts;
       this.#queues.search = searchPosts;
-      this.#currentPost ??=
+      this.#currentPost =
         [...neighborPosts, ...searchPosts].find((post) => post.state === "opened") ?? null;
       this.#renderNeighbors(neighbors);
       this.#renderSearches(searches);
@@ -175,6 +183,30 @@ export class DiscoveryController {
     }
   }
 
+  private async searchAction(event: Event): Promise<void> {
+    const button = (event.target as Element).closest<HTMLButtonElement>("[data-search-id]");
+    if (button?.dataset.action !== "delete-search") return;
+    const id = button.dataset.searchId;
+    if (id === undefined) return;
+    const query = button.dataset.searchQuery ?? "이 검색어";
+    if (
+      this.#document.defaultView?.confirm(
+        `‘${query}’ 검색어를 삭제할까요? 이미 수집된 신규 이웃 후보는 유지됩니다.`,
+      ) !== true
+    ) {
+      return;
+    }
+    try {
+      button.disabled = true;
+      await this.#api.deleteDiscoverySearch(id);
+      await this.render();
+      this.#notice("저장 검색어를 삭제했습니다. 기존에 수집된 후보는 유지됩니다.");
+    } catch (error) {
+      button.disabled = false;
+      this.#notice(error instanceof Error ? error.message : "저장 검색어를 삭제하지 못했습니다.");
+    }
+  }
+
   private async saveAutomaticSettings(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
@@ -259,9 +291,19 @@ export class DiscoveryController {
 
   #renderSearches(items: readonly { id: string; query: string; freshnessDays: number }[]): void {
     this.#element("discovery-searches").replaceChildren(
-      ...items.map((item) =>
-        listItem(`${item.query} · 최근 ${item.freshnessDays}일 · 공식 검색 API`),
-      ),
+      ...items.map((item) => {
+        const row = this.#document.createElement("li");
+        row.textContent = `${item.query} · 최근 ${item.freshnessDays}일 · 공식 검색 API`;
+        const button = this.#document.createElement("button");
+        button.className = "text-button danger-text";
+        button.dataset.action = "delete-search";
+        button.dataset.searchId = item.id;
+        button.dataset.searchQuery = item.query;
+        button.type = "button";
+        button.textContent = "삭제";
+        row.append(" ", button);
+        return row;
+      }),
     );
   }
 

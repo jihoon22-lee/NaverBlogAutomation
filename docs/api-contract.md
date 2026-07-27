@@ -142,6 +142,10 @@ plus `success`, `partial`, or `failed`. No request accepts cookies, login creden
 bodies, or browser-tab data. An empty blog ID returns a successful transport response with a
 `failed` collection status and an actionable detail, allowing the Side Panel to guide setup.
 
+`DELETE /api/v1/discovery/searches/{search_id}` removes only the saved query. Existing candidates
+already collected from that query remain in the local queue and have their `search_id` cleared, so
+the user can still finish or skip them.
+
 ## 사용자 승인형 교류 실행
 
 `POST /api/v1/engagement-runs`는 마지막 확인에서 발급한 `approval_id`, 기존
@@ -157,12 +161,17 @@ message는 API 또는 SQLite에 보내지 않습니다. 같은 승인 또는 같
 - `GET /api/v1/engagement-runs/{run_id}`
 - `GET /api/v1/engagement-runs/by-post/{post_id}`
 - `PATCH /api/v1/engagement-runs/{run_id}/steps/{step_name}`
+- `POST /api/v1/engagement-runs/{run_id}/manual-completion`
 
 `pending` 또는 `failed` 단계만 `running`으로 전이할 수 있고, 앞 단계가
 `succeeded`/`skipped`가 아니면 다음 단계를 시작할 수 없습니다. `running`에서만 terminal
 결과와 안전한 `result_code`를 기록할 수 있습니다. `unconfirmed`는 외부 동작 완료 여부를 알 수
 없다는 fence이므로 다시 `running`으로 바꿀 수 없습니다. 댓글 단계가 성공하면 연결된 추천을
 `completed`로 바꾸고, 모든 필수 단계가 성공 또는 불필요 상태면 탐색 글도 완료합니다.
+
+브라우저 자동화가 실패했지만 사용자가 실제로 처리한 단계를 확인한 경우,
+`manual-completion`에 `completed_steps`를 보내 해당 run을 한 번만 정리할 수 있습니다. 댓글 단계는
+반드시 포함해야 하며 `unconfirmed` run은 결과가 불명확하므로 이 endpoint로도 완료 처리할 수 없습니다.
 
 ## Error Contract
 

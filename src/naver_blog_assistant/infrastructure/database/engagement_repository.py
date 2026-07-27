@@ -233,6 +233,65 @@ class SqliteEngagementRepository:
                 raise RuntimeError("updated engagement run could not be read")
             return completed
 
+    def complete_manually(
+        self,
+        run_id: UUID,
+        *,
+        completed_steps: tuple[EngagementStepName, ...],
+    ) -> EngagementRun:
+        """Record user-confirmed completion without re-running any browser action."""
+        if EngagementStepName.COMMENT not in completed_steps:
+            raise ValueError("manual completion requires the comment step")
+        if len(set(completed_steps)) != len(completed_steps):
+            raise ValueError("manual completion contains duplicate steps")
+
+        now = self._now()
+        with self._immediate_transaction() as connection:
+            run = self._get_with_connection(connection, run_id)
+            if run is None:
+                raise LookupError("engagement run was not found")
+            expected = {step.name for step in run.steps}
+            if not set(completed_steps).issubset(expected):
+                raise ValueError("manual completion contains a step outside the run")
+            if any(step.state is EngagementStepState.UNCONFIRMED for step in run.steps):
+                raise ValueError("unconfirmed engagement results cannot be manually finalized")
+
+            timestamp = format_timestamp(now)
+            completed = set(completed_steps)
+            for step in run.steps:
+                if step.state in {EngagementStepState.SUCCEEDED, EngagementStepState.SKIPPED}:
+                    continue
+                state = (
+                    EngagementStepState.SUCCEEDED
+                    if step.name in completed
+                    else EngagementStepState.SKIPPED
+                )
+                code = "manual_confirmed" if step.name in completed else "manual_not_performed"
+                connection.execute(
+                    update(engagement_steps)
+                    .where(
+                        engagement_steps.c.run_id == str(run_id),
+                        engagement_steps.c.name == step.name.value,
+                    )
+                    .values(state=state.value, result_code=code, updated_at=timestamp)
+                )
+
+            self._complete_recommendation(connection, run.recommendation_id, updated_at=timestamp)
+            connection.execute(
+                update(engagement_runs)
+                .where(engagement_runs.c.id == str(run_id))
+                .values(state=EngagementRunState.SUCCEEDED.value, updated_at=timestamp)
+            )
+            connection.execute(
+                update(discovered_posts)
+                .where(discovered_posts.c.id == str(run.discovery_post_id))
+                .values(state=DiscoveryState.COMPLETED.value, updated_at=timestamp)
+            )
+            finalized = self._get_with_connection(connection, run_id)
+            if finalized is None:
+                raise RuntimeError("manually finalized engagement run could not be read")
+            return finalized
+
     def _complete_recommendation(
         self, connection: Any, recommendation_id: UUID, *, updated_at: str
     ) -> None:
