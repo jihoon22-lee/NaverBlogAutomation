@@ -23,6 +23,61 @@
         <p id="naver-permission-notice" class="help" role="status" aria-live="polite"></p>
       </section>
 
+      <section id="engagement-consent-card" class="card" aria-labelledby="engagement-consent-title">
+        <h2 id="engagement-consent-title">사용자 승인형 자동 실행</h2>
+        <p id="engagement-consent-status" class="badge" role="status">동의 상태를 확인하고 있습니다.</p>
+        <details>
+          <summary>자동 실행 범위와 약관 안내</summary>
+          <div class="engagement-consent-body">
+            <p class="help">
+              선택한 글 한 건에서 마지막 확인 후 공감, 승인 댓글 등록, 선택적 서로이웃 신청을 실행합니다.
+              Captcha나 로그인 제한을 우회하거나 여러 글을 일괄 처리하지 않습니다.
+            </p>
+            <p class="help">
+              자동화된 서비스 이용에 관한
+              <a href="https://policy.naver.com/policy/service.html" target="_blank" rel="noreferrer">네이버 이용약관</a>을
+              확인하고 본인 계정 사용에 대한 책임과 실행 범위를 이해한 경우에만 켜세요.
+            </p>
+            <label class="option">
+              <input id="engagement-consent-checkbox" type="checkbox" />
+              위 범위와 약관 안내를 확인했으며, 선택한 글 한 건의 실행에 동의합니다.
+            </label>
+            <div class="actions">
+              <button id="engagement-consent-agree" class="secondary" type="button">동의하고 켜기</button>
+              <button id="engagement-consent-withdraw" class="danger" type="button" hidden>동의 철회</button>
+            </div>
+            <p id="engagement-consent-notice" class="notice" role="status" aria-live="polite"></p>
+          </div>
+        </details>
+      </section>
+
+      <section
+        id="engagement-confirmation"
+        class="card engagement-confirmation"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="engagement-confirmation-title"
+        hidden
+      >
+        <h2 id="engagement-confirmation-title">이 글의 실행 내용 확인</h2>
+        <dl class="metadata">
+          <div><dt>글</dt><dd id="engagement-confirm-title"></dd></div>
+          <div><dt>대상</dt><dd id="engagement-confirm-host"></dd></div>
+        </dl>
+        <h3>실행할 작업</h3>
+        <ul id="engagement-confirm-steps"></ul>
+        <h3>등록할 댓글</h3>
+        <p id="engagement-confirm-comment" class="confirmation-text"></p>
+        <div data-neighbor-message hidden>
+          <h3>서로이웃 신청 메시지</h3>
+          <p id="engagement-confirm-neighbor-message" class="confirmation-text"></p>
+        </div>
+        <div class="actions">
+          <button id="engagement-confirm-execute" class="primary" type="button">이 한 건 실행</button>
+          <button id="engagement-confirm-cancel" class="secondary" type="button">취소</button>
+        </div>
+      </section>
+
       <section id="discovery-panel" class="card discovery-card" aria-labelledby="discovery-title">
         <div class="section-heading">
           <div>
