@@ -254,6 +254,65 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     expect(closed).toHaveBeenCalledOnce();
   });
 
+  it("fails closed when a completed mutual-neighbor popup has duplicate close controls", async () => {
+    const dom = postDom();
+    installInlineForm(dom, () => {
+      dom.window.document.body.insertAdjacentHTML(
+        "beforeend",
+        '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close">닫기</a><a class="button_close">닫기</a>',
+      );
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "ambiguous",
+    });
+  });
+
+  it.each([
+    [
+      '<form name="buddyApplyFrm"><textarea id="message"></textarea><textarea name="buddyMessage"></textarea><a class="button_next">다음</a></form>',
+      "ambiguous",
+    ],
+    [
+      '<form name="buddyApplyFrm"><textarea id="message">기존 메시지</textarea><a class="button_next">다음</a></form>',
+      "message_occupied",
+    ],
+    ['<form name="buddyApplyFrm"><a class="button_next">다음</a></form>', "not_found"],
+    [
+      '<form name="buddyApplyFrm"><textarea id="message" readonly></textarea><a class="button_next">다음</a></form>',
+      "not_found",
+    ],
+    ['<form name="buddyApplyFrm"><textarea id="message"></textarea></form>', "not_found"],
+    [
+      '<form name="buddyApplyFrm"><textarea id="message"></textarea><a class="button_next">다음</a><button>다음</button></form>',
+      "ambiguous",
+    ],
+  ] as const)(
+    "fails closed for an invalid mutual-neighbor application step",
+    async (application, code) => {
+      const dom = postDom(
+        '<button class="btn_add_buddy">이웃추가</button><form name="buddyFrm"><input id="each_buddy_add" type="radio" value="1"><a class="button_next">다음</a></form>',
+      );
+      const relationship = dom.window.document.querySelector(
+        "form[name='buddyFrm']",
+      ) as HTMLFormElement;
+      relationship.hidden = true;
+      dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+        relationship.hidden = false;
+      });
+      relationship.querySelector(".button_next")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        dom.window.document.body.innerHTML = application;
+      });
+      const { gateway } = browserFixture(dom);
+
+      await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+        code,
+      });
+    },
+  );
+
   it.each([
     ['<div data-buddy-status="mutual">서로이웃</div>', "already_mutual"],
     ['<div data-buddy-status="neighbor">이웃</div>', "already_neighbor"],
