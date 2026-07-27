@@ -1,6 +1,6 @@
 # Side Panel Comment Recommendation Architecture
 
-Status: Accepted target architecture, updated 2026-07-22
+Status: Accepted target architecture, updated 2026-07-27
 
 This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
 PR 1~8 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
@@ -9,15 +9,18 @@ acceptance criteria are recorded in [`delivery-plan.md`](delivery-plan.md).
 
 ## Purpose and Boundaries
 
-The application helps one local user create a relevant comment draft for the Naver Blog post in
-the active tab. The user opens the extension Side Panel, checks the extracted title and preview,
-explicitly requests recommendations, edits or selects a candidate, and manually publishes it.
+The application helps one local user find a Naver Blog post, create a relevant comment, and complete
+one reviewed engagement task. The user opens the extension Side Panel, checks the extracted title
+and preview, explicitly requests recommendations, edits or selects a candidate, and either uses the
+manual input fallback or approves one post for conditionally clicking like, publishing that exact
+comment, and optionally requesting a mutual-neighbor relationship.
 
 The application provides a local discovery queue using one explicitly saved own-blog ID, optional
 saved search queries, and manually added neighbors. Once enabled, the local API reads only the
 fixed public BuddyList, Naver search, and RSS metadata endpoints at the user's scheduled time. It
-does not sign in, use cookies, click reactions, or publish comments. Every article extraction and
-model request still starts with an explicit user action.
+does not sign in, copy cookies, bypass Captcha or login restrictions, or run an unattended batch.
+Every article extraction, model request, and external engagement run remains bound to an explicit
+user action.
 
 ## System Context
 
@@ -26,6 +29,7 @@ flowchart LR
     U[User] -->|opens toolbar action| P[Chrome Side Panel]
     P -->|activeTab + scripting| N[Current Naver Blog tab]
     N -->|title, URL, visible body| P
+    P -->|one approved like, exact comment, optional mutual-neighbor request| N
     P -->|status, history, preview-confirmed POST/PATCH/DELETE| A[Local FastAPI service]
     A -->|public BuddyList, search, RSS metadata| N
     A -->|structured request| O[OpenAI Responses API]
@@ -65,9 +69,14 @@ comment-input filling, clipboard copy, and an explicit completed action. Filling
 never marks a recommendation completed. Copy uses the user gesture Clipboard API on a best-effort
 basis and falls back to a selectable text area; the extension does not request `clipboardWrite`.
 Input filling uses the user-granted Naver host permission or the existing `activeTab` and `scripting`
-fallback, may click one verified standard comment-editor opener but never a submit control, and
-proceeds only when exactly one visible editable target is empty. Ambiguous,
-occupied, missing, stale, and denied targets fail closed.
+fallback, may click one verified standard comment-editor opener, and proceeds only when exactly one
+visible editable target is empty. The manual fallback never clicks a submit control. Separately
+isolated engagement gateways can run only after versioned consent and a one-use in-memory approval:
+they read current state before clicking a single trusted like, comment-submit, or mutual-neighbor
+target. The mutual-neighbor gateway verifies the current post author against the queued blog ID,
+supports the current Naver popup entry, selects only one explicit mutual-neighbor option, and writes
+only the final approved message. Ambiguous, occupied, missing, stale, denied, and unknown-state
+targets fail closed. An unconfirmed submit is not automatically clicked again.
 
 A separate history controller reads runtime diagnostics and the latest 20 local recommendations.
 It can copy a previously approved comment, open the original URL, or explicitly delete one local
