@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSupportedNaverUrl } from "../../src/extraction/source-url";
+import { parseSupportedNaverUrl, sameSupportedNaverPost } from "../../src/extraction/source-url";
 
 describe("Naver source URL guard", () => {
   it.each([
@@ -26,5 +26,25 @@ describe("Naver source URL guard", () => {
 
   it("rejects overlong URLs", () => {
     expect(parseSupportedNaverUrl(`https://blog.naver.com/${"a".repeat(2_100)}`)).toBeNull();
+  });
+
+  it("matches path and PostView URL shapes for the same post", () => {
+    expect(
+      sameSupportedNaverPost(
+        "https://blog.naver.com/Candidate/123?trackingCode=feed",
+        "https://m.blog.naver.com/PostView.naver?blogId=candidate&logNo=123&redirect=Dlog",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "https://blog.naver.com/candidate/123",
+      "https://blog.naver.com/PostView.naver?blogId=candidate&logNo=999",
+    ],
+    ["https://blog.naver.com/candidate", "https://blog.naver.com/other"],
+    ["https://example.test/candidate/123", "https://blog.naver.com/candidate/123"],
+  ])("does not match different or unsupported posts", (left, right) => {
+    expect(sameSupportedNaverPost(left, right)).toBe(false);
   });
 });

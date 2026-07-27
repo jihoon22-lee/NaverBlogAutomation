@@ -33,3 +33,28 @@ export function parseSupportedNaverUrl(value: string): string | null {
     return null;
   }
 }
+
+export function sameSupportedNaverPost(left: string, right: string): boolean {
+  const leftUrl = parseSupportedNaverUrl(left);
+  const rightUrl = parseSupportedNaverUrl(right);
+  if (leftUrl === null || rightUrl === null) return false;
+  const leftIdentity = postIdentity(leftUrl);
+  const rightIdentity = postIdentity(rightUrl);
+  return leftIdentity !== null && rightIdentity !== null
+    ? leftIdentity === rightIdentity
+    : leftUrl === rightUrl;
+}
+
+function postIdentity(value: string): string | null {
+  const url = new URL(value);
+  const queryBlogId = url.searchParams.get("blogId")?.trim() ?? "";
+  const queryLogNo = url.searchParams.get("logNo")?.trim() ?? "";
+  if (queryBlogId !== "" && /^\d+$/u.test(queryLogNo)) {
+    return `${queryBlogId.toLocaleLowerCase()}:${queryLogNo}`;
+  }
+  const parts = url.pathname.split("/").filter(Boolean);
+  const [blogId, logNo] = parts;
+  return blogId !== undefined && logNo !== undefined && /^\d+$/u.test(logNo)
+    ? `${blogId.toLocaleLowerCase()}:${logNo}`
+    : null;
+}

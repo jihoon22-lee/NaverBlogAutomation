@@ -200,6 +200,29 @@ def test_neighbor_run_completes_recommendation_and_discovery_post(repositories) 
         )
 
 
+def test_start_accepts_equivalent_naver_post_url_shapes(repositories) -> None:
+    _, recommendations, discovery, engagement, _ = repositories
+    recommendation_url = (
+        "https://blog.naver.com/PostView.naver?blogId=candidate&logNo=124&redirect=Dlog"
+    )
+    item = recommendation(recommendation_url)
+    persist_recommendation(recommendations, item)
+    post_id = create_post(
+        discovery,
+        source=DiscoverySource.NEIGHBOR,
+        source_url="https://blog.naver.com/candidate/124?trackingCode=feed",
+    )
+
+    started = engagement.start(
+        approval_id=UUID("00000000-0000-4000-8000-000000000043"),
+        discovery_post_id=post_id,
+        recommendation_id=item.id,
+    )
+
+    assert started.created
+    assert started.run.discovery_post_id == post_id
+
+
 def test_search_run_retries_only_failed_step_and_stops_unconfirmed(repositories) -> None:
     _, recommendations, discovery, engagement, _ = repositories
     source_url = "https://blog.naver.com/candidate/456"

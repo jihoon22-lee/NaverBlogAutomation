@@ -873,6 +873,29 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.create).toHaveBeenCalledOnce();
   });
 
+  it("keeps automatic execution linked across equivalent Naver post URL shapes", async () => {
+    const fixture = setup();
+
+    await fixture.controller.captureDiscoveryPost(
+      {
+        ...discoveryPost,
+        sourceUrl: "https://blog.naver.com/PostView.naver?blogId=synthetic&logNo=7&redirect=Dlog",
+      },
+      tab.id,
+    );
+
+    expect(fixture.view.states.at(-1)).toMatchObject({ kind: "preview" });
+    expect(fixture.view.states.at(-1)).not.toMatchObject({
+      preferenceNotice: expect.stringContaining("자동 실행 연결을 해제"),
+    });
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      discoveryPost: { id: discoveryPost.id },
+      kind: "review",
+    });
+  });
+
   it("keeps the approved fallback when final engagement confirmation is cancelled", async () => {
     const approval = {
       cancelPendingApproval: vi.fn(),

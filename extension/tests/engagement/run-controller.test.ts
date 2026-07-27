@@ -199,6 +199,34 @@ describe("EngagementRunController", () => {
     expect(comments.publish).toHaveBeenCalledOnce();
   });
 
+  it("accepts equivalent queue and captured URL shapes for one approved post", async () => {
+    const { session, token } = approvedSession("neighbor");
+    const api = fakeApi(createRun());
+    const likes = { like: vi.fn().mockResolvedValue("already_liked") };
+    const comments = { publish: vi.fn().mockResolvedValue("submitted") };
+    const controller = new EngagementRunController(session, {
+      api,
+      likes,
+      comments,
+      mutualNeighbors: { request: vi.fn() },
+    });
+
+    await expect(
+      controller.execute({
+        discoveryPost: {
+          ...post(),
+          sourceUrl:
+            "https://blog.naver.com/PostView.naver?blogId=candidate&logNo=123&redirect=Dlog",
+        },
+        recommendation,
+        tabId: 7,
+        tokenId: token.id,
+      }),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(likes.like).toHaveBeenCalledOnce();
+    expect(comments.publish).toHaveBeenCalledOnce();
+  });
+
   it("executes the search-only mutual-neighbor step with the exact approved message", async () => {
     const { session, token } = approvedSession("search");
     const api = fakeApi(createRun("search"));

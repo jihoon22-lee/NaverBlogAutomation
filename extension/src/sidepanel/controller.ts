@@ -12,7 +12,7 @@ import {
   type CommentInputResult,
 } from "../browser/comment-input-gateway";
 import { chooseCapturedPost } from "../extraction/rank-captures";
-import { parseSupportedNaverUrl } from "../extraction/source-url";
+import { parseSupportedNaverUrl, sameSupportedNaverPost } from "../extraction/source-url";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
 import {
   CanonicalPayloadError,
@@ -218,8 +218,8 @@ export class SidePanelController {
     await this.#captureActivePost();
     if (
       this.#activeTabId !== tabId ||
-      (this.#recommendation?.sourceUrl !== post.sourceUrl &&
-        this.#preview?.sourceUrl !== post.sourceUrl)
+      (!sameOptionalPost(this.#recommendation?.sourceUrl, post.sourceUrl) &&
+        !sameOptionalPost(this.#preview?.sourceUrl, post.sourceUrl))
     ) {
       this.#discoveryPost = null;
       if (this.#preview !== null) {
@@ -469,7 +469,7 @@ export class SidePanelController {
       tabId === null ||
       this.#approval === null ||
       this.#engagement === null ||
-      recommendation.sourceUrl !== discoveryPost.sourceUrl
+      !sameSupportedNaverPost(recommendation.sourceUrl, discoveryPost.sourceUrl)
     ) {
       this.#renderReview(
         "탐색 대기열에서 연 글과 승인된 댓글이 함께 있어야 자동 실행할 수 있습니다.",
@@ -1236,6 +1236,10 @@ function approvedComment(recommendation: Recommendation): string {
     (candidate) => candidate.id === recommendation.selectedCandidateId,
   );
   return recommendation.editedComment ?? selected?.comment ?? "";
+}
+
+function sameOptionalPost(value: string | undefined, expected: string): boolean {
+  return value !== undefined && sameSupportedNaverPost(value, expected);
 }
 
 function engagementNotice(result: EngagementExecutionResult): string {

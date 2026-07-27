@@ -21,6 +21,7 @@ from naver_blog_assistant.domain import (
     EngagementStepState,
     ReviewStatus,
     required_engagement_steps,
+    same_naver_post_url,
 )
 from naver_blog_assistant.infrastructure.database.schema import (
     discovered_posts,
@@ -106,7 +107,7 @@ class SqliteEngagementRepository:
             )
             if post is None or recommendation is None:
                 raise LookupError("engagement source was not found")
-            if post["source_url"] != recommendation["source_url"]:
+            if not same_naver_post_url(post["source_url"], recommendation["source_url"]):
                 raise ValueError("recommendation does not belong to the discovery post")
             if recommendation["review_status"] != ReviewStatus.APPROVED.value:
                 raise ValueError("recommendation must be approved before engagement")

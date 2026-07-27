@@ -44,6 +44,35 @@ def normalize_discovery_url(value: str) -> str:
     return parsed._replace(fragment="").geturl()
 
 
+def same_naver_post_url(left: str, right: str) -> bool:
+    """Return whether two supported URL shapes identify the same Naver post."""
+    try:
+        normalized_left = normalize_discovery_url(left)
+        normalized_right = normalize_discovery_url(right)
+    except DomainValidationError:
+        return False
+    left_identity = _post_identity(normalized_left)
+    right_identity = _post_identity(normalized_right)
+    if left_identity is not None and right_identity is not None:
+        return left_identity == right_identity
+    return normalized_left == normalized_right
+
+
+def _post_identity(value: str) -> tuple[str, str] | None:
+    parsed = urlsplit(value)
+    query = parse_qs(parsed.query)
+    blog_id = query.get("blogId", [""])[0].strip()
+    log_no = query.get("logNo", [""])[0].strip()
+    if not blog_id or not log_no.isdecimal():
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) < 2:
+            return None
+        blog_id, log_no = parts[:2]
+    if not blog_id or not log_no.isdecimal():
+        return None
+    return blog_id.casefold(), log_no
+
+
 @dataclass(frozen=True, slots=True)
 class NeighborBlog:
     id: UUID

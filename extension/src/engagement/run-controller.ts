@@ -22,6 +22,7 @@ import {
   type NaverMutualNeighborGateway,
 } from "../browser/naver-mutual-neighbor-gateway";
 import type { EngagementApprovalSession } from "./approval-session";
+import { sameSupportedNaverPost } from "../extraction/source-url";
 
 type EngagementApi = Pick<LocalApiClient, "startEngagementRun" | "transitionEngagementStep">;
 
@@ -186,8 +187,8 @@ function matchesApproval(
   return (
     request.tabId >= 0 &&
     Number.isSafeInteger(request.tabId) &&
-    request.discoveryPost.sourceUrl === request.recommendation.sourceUrl &&
-    details.sourceUrl === request.discoveryPost.sourceUrl &&
+    sameSupportedNaverPost(request.discoveryPost.sourceUrl, request.recommendation.sourceUrl) &&
+    details.sourceUrl === request.recommendation.sourceUrl &&
     details.title === request.recommendation.title &&
     details.comment === approvedComment(request.recommendation) &&
     (request.recommendation.reviewStatus === "approved" ||
