@@ -51,14 +51,18 @@ the loopback API host permission. It offers the two Naver Blog origins as an **o
 permission; accepting it makes article capture and comment-input assistance available after normal
 navigation, while declining keeps the toolbar-click `activeTab` fallback. Storage holds no article,
 generated candidate, or edited-comment text; it contains retry metadata and the user's explicitly
-saved options, including one bounded closing phrase. The service worker configures toolbar clicks
+saved options, including one bounded closing phrase and one bounded default mutual-neighbor message.
+The service worker configures toolbar clicks
 to open the panel and performs only short browser-API orchestration. It never owns a model request
 because its lifecycle is ephemeral.
 
-The Side Panel owns UI and HTTP request lifecycles. On open, it extracts the active post and shows
-the URL, title, character count, truncation state, and a bounded preview. Transmission begins only
-after the user confirms relationship, speech style, comment mood, and comment length and presses the
-generation button. A complete preference profile persists only after the user explicitly saves it as
+The Side Panel owns UI and HTTP request lifecycles. Its workspace controller exposes only one of
+**Today**, **Comment**, **History**, and **Settings** at a time. On open, Today shows the loopback
+service state, per-source queue counts, current item, and queue actions. Opening one queued post
+switches to Comment, where extraction shows the URL, title, character count, truncation state, and a
+bounded preview. Transmission begins only after the user confirms relationship, speech style,
+comment mood, and comment length and presses the generation button. A complete preference profile
+persists only after the user explicitly saves it as
 the default. An optional 50-code-point closing phrase stays out of generation requests and is appended
 in the local review editor only when a candidate is selected. The response echoes the effective options and non-blocking quality warnings so the
 review UI can show provenance and weak role separation without hiding usable candidates. Direct
@@ -143,7 +147,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | `OPENAI_API_KEY` | Python process environment | Process lifetime |
 | `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET` | Python process environment | Process lifetime |
 | Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
-| Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
+| Explicitly saved generation profile, bounded closing phrase, and default mutual-neighbor message | Extension storage | Until changed or extension data is removed |
 | Consent version, active state, agreement timestamp | Extension storage | Until withdrawn, superseded, or extension data is removed |
 | Per-post engagement approval and final action text | Side Panel memory | One consumption, navigation, withdrawal, or panel unload |
 | Engagement run and safe per-step result codes | SQLite | Until its linked recommendation or discovery post is removed |
@@ -152,9 +156,10 @@ The extension stores no body, title, URL, generated candidate, edited comment, c
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
 schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
 versioned record contains the five validated generation preference enums and one normalized user-authored
-closing phrase of at most 50 code points. A separate consent record contains only its version, active
-state, and agreement timestamp; post URLs, comments, neighbor messages, and one-time approvals are
-never copied into extension storage. It persists across browser
+closing phrase of at most 50 code points. Another versioned record contains one default
+mutual-neighbor message of at most 500 code points. A separate consent record contains only its
+version, active state, and agreement timestamp; post URLs, comments, per-run edited neighbor
+messages, and one-time approvals are never copied into extension storage. It persists across browser
 restarts and holds at most 20 operations.
 Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
 later registry access. Active, reviewing, terminal-failure, or indeterminate entries never expire

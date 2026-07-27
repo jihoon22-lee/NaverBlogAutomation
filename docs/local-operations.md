@@ -13,6 +13,11 @@ Side Panel의 **네이버 접근 허용**은 `blog.naver.com`과 `m.blog.naver.c
 허용하면 navigation 뒤에도 현재 글 읽기와 댓글 입력 보조를 계속 사용할 수 있습니다. 거부해도
 toolbar action으로 연 현재 탭에서는 `activeTab` 권한으로 사용할 수 있습니다.
 
+Side Panel은 **오늘의 작업**, **댓글 작성**, **최근 작업**, **설정**으로 나뉩니다. 처음에는
+로컬 서비스 상태와 대기열 수를 보여 주는 오늘의 작업만 열립니다. 대기열의
+**이 글 처리하기** 또는 **새 탭에서 처리**를 누르면 댓글 작성으로 전환되고, 완료 뒤 다음 글이나
+오늘의 작업으로 이동할 수 있습니다. 탐색·알림·접근 권한·자동 실행 동의는 설정에서 관리합니다.
+
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
 ```
@@ -37,10 +42,12 @@ idempotency snapshot을 한 transaction에서 제거합니다. 전체 database c
 
 Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
 최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
-길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 마무리 문구는 생성 요청이나
-OpenAI에 전송되지 않고 후보 선택 후 local 편집 단계에서만 붙습니다. 본문, URL과 생성·편집된
+길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 신규 이웃 후보에 사용할
+최대 500자의 기본 서로이웃 신청 메시지도 별도 versioned record로 저장합니다. 두 문구는
+generation 요청이나 OpenAI에 전송되지 않고 local 검토·실행 단계에서만 사용됩니다. 본문, URL과 생성·편집된
 댓글은 extension storage에 저장하지 않습니다. 사용자 승인형 자동 실행 동의도 별도 versioned
-record에 활성 여부와 동의 시각만 저장합니다. 승인할 글, URL, 댓글, 신청 메시지와 one-time
+record에 활성 여부와 동의 시각만 저장합니다. 승인할 글, URL, 댓글, 이번 실행에서 수정한 신청
+메시지와 one-time
 승인 token은 Side Panel memory에만 있으며 navigation, 동의 철회 또는 panel 종료 시 폐기됩니다.
 반면 SQLite에 보관된 완료 댓글은 개인화가 켜진
 생성에서 최대 5개까지 OpenAI 스타일 예시로 전송될 수 있습니다. **최근 작업**에서 댓글별로
@@ -69,14 +76,15 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
   `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
 - **연결 표시는 정상이지만 최근 작업이 비어 있음:** 기록은 현재 configured `DATABASE_URL`에만
-  저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **새로고침**을 누릅니다.
+  저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **최근 작업 > 새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
 - **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
   확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
   않습니다.
-- **대기열 글을 연 뒤 preview가 갱신되지 않음:** 페이지가 완료될 때까지 기다린 뒤 다시 시도합니다.
-  **새 탭 열기**도 같은 흐름으로 동작하며, 네이버 접근 권한이 없으면 Side Panel에서 한 번 허용합니다.
+- **대기열 글을 연 뒤 preview가 갱신되지 않음:** **댓글 작성**을 열고 페이지가 완료될 때까지
+  기다린 뒤 다시 시도합니다. **새 탭에서 처리**도 같은 흐름으로 동작하며, 네이버 접근 권한이
+  없으면 **설정 > 네이버 페이지 접근 허용**에서 한 번 허용합니다.
 - **자동 탐색 결과가 비어 있음:** 내 블로그 ID와 저장한 검색어를 확인한 뒤 **지금 동기화**를 누릅니다.
   신규 이웃 검색은 `NAVER_SEARCH_CLIENT_ID`와 `NAVER_SEARCH_CLIENT_SECRET`가 모두 필요합니다.
   공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
@@ -86,6 +94,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로
   만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
   가능성을 이해한 경우에만 승인합니다.
+- **자동 실행 동의가 없어 진행되지 않음:** **설정 > 사용자 승인형 자동 실행**으로 자동 이동합니다.
+  범위와 약관을 확인해 동의하거나, 댓글 작성으로 돌아가 복사·수동 입력을 사용합니다.
 - **댓글 입력 실패:** 입력 보조는 열린 입력란을 먼저 찾고, 없을 때만 표준 댓글쓰기 버튼 하나를
   눌러 최대 2초간 기다립니다. 실패 뒤 **다시 입력**은 같은 승인 댓글로만 탐색을 한 번 반복하며
   새 추천을 만들지 않습니다. 입력란이 여러 개이거나 기존 text가 있으면 안전을 위해 덮어쓰지
@@ -107,8 +117,11 @@ RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \
   pytest --no-cov -m live_openai tests/live
 ```
 
-Manual Naver/OpenAI smoke는 본인이 공개 전송을 허용한 글에서만 수행합니다. Preview 확인,
-generation, 후보 선택, 편집, 입력 보조와 copy까지 검증하되 댓글 등록은 직접 수행합니다.
+Manual Naver/OpenAI smoke는 본인이 공개 전송과 실제 교류를 허용한 테스트 글에서만 수행합니다.
+Preview 확인, generation, 후보 선택, 편집, 입력 보조와 copy를 먼저 검증합니다. 실제 공감·댓글
+등록·서로이웃 신청 검증이 필요하면 versioned 동의의 범위를 확인하고, 최종 확인 화면의 글·댓글·
+신청 메시지를 다시 확인한 뒤 **이 한 건 실행**으로 승인한 한 건만 수행합니다. 동의하지 않은
+환경에서는 외부 등록 전에 중단합니다.
 Screenshot이나 terminal capture에는 글 본문, account identifier, source URL, API key를 남기지
 않습니다.
 
