@@ -57,7 +57,9 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     changeRelationship: vi.fn(),
     changeSpeechStyle: vi.fn(),
     edit: vi.fn(),
+    engage: vi.fn(),
     generate: vi.fn(),
+    changeNeighborMessage: vi.fn(),
     regenerate: vi.fn(),
     replace: vi.fn(),
     retry: vi.fn(),
@@ -392,6 +394,169 @@ describe("DomPanelView", () => {
     (document.querySelector("#complete-button") as HTMLButtonElement).click();
     expect(copy).toHaveBeenCalledOnce();
     expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it("shows the one-post search engagement action and binds its request message", () => {
+    const bound = actions();
+    view.bind(bound);
+    view.render({
+      ...recommendation,
+      discoveryPost: {
+        createdAt: "2026-07-28T00:00:00Z",
+        id: "00000000-0000-4000-8000-000000000090",
+        neighborId: null,
+        publishedAt: null,
+        publisherBlogId: "candidate",
+        publisherName: "합성 후보",
+        searchId: "00000000-0000-4000-8000-000000000091",
+        source: "search",
+        sourceUrl: recommendation.recommendation.sourceUrl,
+        state: "opened",
+        title: recommendation.recommendation.title,
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      editedComment: "승인 댓글",
+      kind: "approved",
+      neighborMessage: "서로이웃으로 소통하고 싶어요.",
+      recommendation: {
+        ...recommendation.recommendation,
+        editedComment: "승인 댓글",
+        reviewStatus: "approved",
+        selectedCandidateId: "1",
+      },
+      selectedCandidateId: "1",
+    });
+
+    const field = document.querySelector<HTMLTextAreaElement>("#neighbor-message");
+    expect(document.querySelector("#engagement-run-panel")?.hasAttribute("hidden")).toBe(false);
+    expect(field?.value).toContain("서로이웃");
+    if (field === null) throw new Error("Synthetic neighbor message field missing");
+    const EventConstructor = document.defaultView?.Event;
+    if (EventConstructor === undefined) throw new Error("Synthetic Event constructor missing");
+    field.focus();
+    field.value = "사용자가 확인할 신청 메시지";
+    field.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+    view.render({
+      ...recommendation,
+      discoveryPost: {
+        createdAt: "2026-07-28T00:00:00Z",
+        id: "00000000-0000-4000-8000-000000000090",
+        neighborId: null,
+        publishedAt: null,
+        publisherBlogId: "candidate",
+        publisherName: "합성 후보",
+        searchId: "00000000-0000-4000-8000-000000000091",
+        source: "search",
+        sourceUrl: recommendation.recommendation.sourceUrl,
+        state: "opened",
+        title: recommendation.recommendation.title,
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      editedComment: "승인 댓글",
+      kind: "approved",
+      neighborMessage: "render가 덮어쓰면 안 되는 메시지",
+      recommendation: {
+        ...recommendation.recommendation,
+        editedComment: "승인 댓글",
+        reviewStatus: "approved",
+        selectedCandidateId: "1",
+      },
+      selectedCandidateId: "1",
+    });
+    document.querySelector<HTMLButtonElement>("#engagement-run-button")?.click();
+
+    expect(field.value).toBe("사용자가 확인할 신청 메시지");
+    expect(bound.changeNeighborMessage).toHaveBeenCalledWith("사용자가 확인할 신청 메시지");
+    expect(bound.engage).toHaveBeenCalledOnce();
+    expect(document.querySelector("#engagement-step-results")?.textContent).toContain("서로이웃");
+  });
+
+  it("renders neighbor engagement progress and blocks completed or unconfirmed reruns", () => {
+    const neighborPost = {
+      createdAt: "2026-07-28T00:00:00Z",
+      id: "00000000-0000-4000-8000-000000000092",
+      neighborId: "00000000-0000-4000-8000-000000000093",
+      publishedAt: null,
+      publisherBlogId: null,
+      publisherName: "합성 이웃",
+      searchId: null,
+      source: "neighbor" as const,
+      sourceUrl: recommendation.recommendation.sourceUrl,
+      state: "opened" as const,
+      title: recommendation.recommendation.title,
+      updatedAt: "2026-07-28T00:00:00Z",
+    };
+    const run = {
+      approvalId: "00000000-0000-4000-8000-000000000094",
+      createdAt: "2026-07-28T00:00:00Z",
+      discoveryPostId: neighborPost.id,
+      id: "00000000-0000-4000-8000-000000000095",
+      recommendationId: recommendation.recommendation.id,
+      source: "neighbor" as const,
+      state: "failed" as const,
+      steps: [
+        {
+          name: "like" as const,
+          position: 0,
+          resultCode: "state_unknown",
+          state: "failed" as const,
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+        {
+          name: "comment" as const,
+          position: 1,
+          resultCode: null,
+          state: "pending" as const,
+          updatedAt: "2026-07-28T00:00:00Z",
+        },
+      ],
+      updatedAt: "2026-07-28T00:00:01Z",
+    };
+    const approved = {
+      ...recommendation,
+      discoveryPost: neighborPost,
+      editedComment: "승인 댓글",
+      engagementRun: run,
+      recommendation: {
+        ...recommendation.recommendation,
+        editedComment: "승인 댓글",
+        reviewStatus: "approved" as const,
+        selectedCandidateId: "1",
+      },
+      selectedCandidateId: "1",
+    };
+
+    view.render({ ...approved, kind: "approved" });
+    expect(document.querySelector("#neighbor-message-field")?.hasAttribute("hidden")).toBe(true);
+    expect(document.querySelector("#engagement-run-button")?.textContent).toContain("승인 댓글");
+    expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
+      false,
+    );
+    expect(document.querySelector("#engagement-step-results")?.textContent).toContain("중단됨");
+
+    view.render({ ...approved, kind: "engaging" });
+    expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
+      true,
+    );
+    expect(document.querySelector("#review-status")?.textContent).toContain("실행 중");
+
+    view.render({
+      ...approved,
+      engagementRun: { ...run, state: "succeeded" },
+      kind: "completed",
+    });
+    expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
+      true,
+    );
+
+    view.render({
+      ...approved,
+      engagementRun: { ...run, state: "unconfirmed" },
+      kind: "approved",
+    });
+    expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
+      true,
+    );
   });
 
   it("uses Clipboard API best effort and leaves a selectable fallback", async () => {

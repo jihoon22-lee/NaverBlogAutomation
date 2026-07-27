@@ -1,4 +1,4 @@
-import type { RecommendationHistoryItem, ServiceStatus } from "../api/types";
+import type { EngagementRun, RecommendationHistoryItem, ServiceStatus } from "../api/types";
 
 export type HistoryState =
   | { kind: "loading" }
@@ -6,6 +6,7 @@ export type HistoryState =
   | {
       busyId?: string;
       clearingPersonalization?: boolean;
+      engagementRuns?: readonly EngagementRun[];
       items: readonly RecommendationHistoryItem[];
       kind: "ready";
       notice?: string;

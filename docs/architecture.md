@@ -78,7 +78,8 @@ supports the current Naver popup entry, selects only one explicit mutual-neighbo
 only the final approved message. Ambiguous, occupied, missing, stale, denied, and unknown-state
 targets fail closed. An unconfirmed submit is not automatically clicked again.
 
-A separate history controller reads runtime diagnostics and the latest 20 local recommendations.
+A separate history controller reads runtime diagnostics, the latest 20 local recommendations, and
+their linked per-step engagement results.
 It can copy a previously approved comment, open the original URL, or explicitly delete one local
 record. History text stays in DOM memory and is never copied into `chrome.storage.local`.
 
@@ -104,6 +105,14 @@ excerpts, hashes, candidates, or full article bodies. Deleting one recommendatio
 candidates and completed retry snapshot transactionally. A review conflict is recovered by
 fetching the current recommendation before the user retries; ETag is still outside the local
 single-user scope.
+
+SQLite also owns one engagement run per discovery post. The run references the existing discovery
+post and recommendation, stores only the opaque approval ID and ordered step state/result codes,
+and never stores the final comment or mutual-neighbor message. `BEGIN IMMEDIATE`, unique approval
+and post constraints, and forward-only transitions prevent duplicate run creation. A successful
+comment step completes the recommendation transactionally; completing all required steps completes
+the discovery post. A leftover `running` step after panel reload is converted to `unconfirmed`
+before any further action, so an unknown external result is never retried automatically.
 
 ### OpenAI Adapter
 
@@ -137,6 +146,7 @@ and invalid outputs map to stable application errors; raw provider payloads are 
 | Explicitly saved generation profile and bounded closing phrase | Extension storage | Until changed or extension data is removed |
 | Consent version, active state, agreement timestamp | Extension storage | Until withdrawn, superseded, or extension data is removed |
 | Per-post engagement approval and final action text | Side Panel memory | One consumption, navigation, withdrawal, or panel unload |
+| Engagement run and safe per-step result codes | SQLite | Until its linked recommendation or discovery post is removed |
 
 The extension stores no body, title, URL, generated candidate, edited comment, cookie, or credential. Its
 `chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
@@ -198,9 +208,11 @@ comment remains selectable for manual copying.
 - Client abort, navigation, or panel unload releases browser references but does not guarantee that
   an already-running FastAPI/provider task is cancelled; server memory is released when it settles.
 
-The product remains an AI writing aid, not engagement automation. User-triggered input filling does
-not submit the form. Any monitoring, automatic likes, automatic publishing, or multi-user hosted
-deployment requires a fresh policy and security review.
+The product remains a user-approved, one-post-at-a-time assistant. Manual input filling still does
+not submit a form. The separate engagement path may click one like, submit the exact approved
+comment, and request one mutual-neighbor relationship only after versioned consent and a final
+per-post confirmation. It does not provide unattended batches, Captcha/login bypass, account
+rotation, or multi-user hosted execution; those remain outside the accepted boundary.
 
 ## Runtime and Quality Strategy
 

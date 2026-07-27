@@ -4,6 +4,8 @@ import { ApiClientError, type LocalApiClient } from "../../src/api/client";
 import type {
   ApiResult,
   CreateRecommendationRequest,
+  DiscoveryPost,
+  EngagementRun,
   Recommendation,
   ReviewRecommendationRequest,
 } from "../../src/api/types";
@@ -12,6 +14,11 @@ import type {
   CommentInputGateway,
   CommentInputResult,
 } from "../../src/browser/comment-input-gateway";
+import type { EngagementApprovalToken } from "../../src/engagement/approval-session";
+import type {
+  EngagementExecutionRequest,
+  EngagementExecutionResult,
+} from "../../src/engagement/run-controller";
 import type { ActiveTab, FrameExecution } from "../../src/extraction/types";
 import {
   IdempotencyRegistry,
@@ -70,6 +77,21 @@ const drafted: Recommendation = {
   title: tab.title,
   topics: ["전시", "동선"],
   updatedAt: null,
+};
+
+const discoveryPost: DiscoveryPost = {
+  createdAt: "2026-07-28T00:00:00Z",
+  id: "00000000-0000-4000-8000-000000000074",
+  neighborId: "00000000-0000-4000-8000-000000000075",
+  publishedAt: "2026-07-28T00:00:00Z",
+  publisherBlogId: null,
+  publisherName: "합성 이웃",
+  searchId: null,
+  source: "neighbor",
+  sourceUrl: tab.url,
+  state: "opened",
+  title: tab.title,
+  updatedAt: "2026-07-28T00:00:00Z",
 };
 
 const frames: readonly FrameExecution[] = [
@@ -225,8 +247,21 @@ function problem(
 function setup(
   options: {
     api?: Api;
+    approval?: {
+      cancelPendingApproval(): void;
+      requestApproval(details: {
+        comment: string;
+        neighborMessage?: string;
+        sourceUrl: string;
+        steps: readonly ("comment" | "like" | "mutual_neighbor")[];
+        title: string;
+      }): Promise<EngagementApprovalToken | null>;
+    };
     commentInput?: CommentInputGateway;
     digest?: (payload: CreateRecommendationRequest) => Promise<string>;
+    engagement?: {
+      execute(request: EngagementExecutionRequest): Promise<EngagementExecutionResult>;
+    };
     gateway?: Gateway;
     lengthStore?: CommentLengthPreferenceStore;
     now?: () => number;
@@ -245,12 +280,14 @@ function setup(
   const view = new View();
   const controller = new SidePanelController(gateway, view, {
     api: api.asClient(),
+    ...(options.approval === undefined ? {} : { approval: options.approval }),
     commentInput:
       options.commentInput ??
       ({
         fill: vi.fn(async (): Promise<CommentInputResult> => "filled"),
       } satisfies CommentInputGateway),
     digest: options.digest ?? vi.fn(async () => DIGEST),
+    ...(options.engagement === undefined ? {} : { engagement: options.engagement }),
     lengthStore: options.lengthStore ?? new CommentLengthPreferenceStore(storage),
     now: options.now ?? (() => 1_000),
     registry,
@@ -687,6 +724,274 @@ describe("integrated Side Panel workflow", () => {
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("completed"));
     expect(fixture.api.review).toHaveBeenCalledTimes(2);
     expect(fixture.api.review.mock.calls[1]?.[1]).toEqual({ review_status: "completed" });
+  });
+
+  it("binds a queue post to one final approval and renders persisted engagement results", async () => {
+    const token: EngagementApprovalToken = {
+      details: {
+        comment: "사용자가 다듬은 합성 댓글",
+        sourceUrl: tab.url,
+        steps: ["like", "comment"],
+        title: tab.title,
+      },
+      id: "00000000-0000-4000-8000-000000000076",
+    };
+    const approval = {
+      cancelPendingApproval: vi.fn(),
+      requestApproval: vi.fn(async () => token),
+    };
+    const completedRun: EngagementRun = {
+      approvalId: token.id,
+      createdAt: "2026-07-28T00:00:00Z",
+      discoveryPostId: discoveryPost.id,
+      id: "00000000-0000-4000-8000-000000000077",
+      recommendationId: drafted.id,
+      source: "neighbor",
+      state: "succeeded",
+      steps: [
+        {
+          name: "like",
+          position: 0,
+          resultCode: "clicked",
+          state: "succeeded",
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+        {
+          name: "comment",
+          position: 1,
+          resultCode: "submitted",
+          state: "succeeded",
+          updatedAt: "2026-07-28T00:00:02Z",
+        },
+      ],
+      updatedAt: "2026-07-28T00:00:02Z",
+    };
+    let finishEngagement:
+      | ((result: { code: string; run: EngagementRun; status: "completed" }) => void)
+      | undefined;
+    const engagement = {
+      execute: vi.fn(
+        () =>
+          new Promise<EngagementExecutionResult>((resolve) => {
+            finishEngagement = resolve;
+          }),
+      ),
+    };
+    const fixture = setup({ approval, engagement });
+    await fixture.controller.captureDiscoveryPost(discoveryPost, tab.id);
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.edit("사용자가 다듬은 합성 댓글");
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+    fixture.api.get.mockResolvedValue({
+      ...drafted,
+      editedComment: "사용자가 다듬은 합성 댓글",
+      reviewStatus: "completed",
+      selectedCandidateId: selected.id,
+    });
+
+    fixture.view.actions?.engage();
+
+    await vi.waitFor(() => expect(engagement.execute).toHaveBeenCalledOnce());
+    fixture.gateway.invalidation?.({ kind: "activated", tabId: 99 });
+    expect(fixture.view.states.at(-1)?.kind).toBe("engaging");
+    finishEngagement?.({
+      code: "engagement_completed",
+      run: completedRun,
+      status: "completed",
+    });
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("completed"));
+    expect(approval.requestApproval).toHaveBeenCalledWith({
+      comment: "사용자가 다듬은 합성 댓글",
+      sourceUrl: tab.url,
+      steps: ["like", "comment"],
+      title: tab.title,
+    });
+    expect(engagement.execute).toHaveBeenCalledWith({
+      discoveryPost,
+      recommendation: expect.objectContaining({
+        editedComment: "사용자가 다듬은 합성 댓글",
+        reviewStatus: "approved",
+      }),
+      tabId: tab.id,
+      tokenId: token.id,
+    });
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      discoveryPost: { id: discoveryPost.id },
+      engagementRun: { id: completedRun.id, state: "succeeded" },
+      notice: expect.stringContaining("완료"),
+    });
+  });
+
+  it("does not offer automatic execution for a recommendation opened outside the queue", async () => {
+    const approval = {
+      cancelPendingApproval: vi.fn(),
+      requestApproval: vi.fn(),
+    };
+    const engagement = { execute: vi.fn() };
+    const fixture = setup({ approval, engagement });
+    await extractAndGenerate(fixture.view, fixture.controller);
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+
+    fixture.view.actions?.engage();
+
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "approved",
+      notice: expect.stringContaining("탐색 대기열"),
+    });
+    expect(approval.requestApproval).not.toHaveBeenCalled();
+    expect(engagement.execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual generation available when the opened page differs from the queue item", async () => {
+    const fixture = setup();
+
+    await fixture.controller.captureDiscoveryPost(
+      { ...discoveryPost, sourceUrl: "https://blog.naver.com/synthetic/other" },
+      tab.id,
+    );
+
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "preview",
+      preferenceNotice: expect.stringContaining("자동 실행 연결을 해제"),
+    });
+    await fixture.controller.captureDiscoveryPost(discoveryPost, 99);
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      kind: "preview",
+      preferenceNotice: expect.stringContaining("자동 실행 연결을 해제"),
+    });
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    expect(fixture.api.create).toHaveBeenCalledOnce();
+  });
+
+  it("keeps automatic execution linked across equivalent Naver post URL shapes", async () => {
+    const fixture = setup();
+
+    await fixture.controller.captureDiscoveryPost(
+      {
+        ...discoveryPost,
+        sourceUrl: "https://blog.naver.com/PostView.naver?blogId=synthetic&logNo=7&redirect=Dlog",
+      },
+      tab.id,
+    );
+
+    expect(fixture.view.states.at(-1)).toMatchObject({ kind: "preview" });
+    expect(fixture.view.states.at(-1)).not.toMatchObject({
+      preferenceNotice: expect.stringContaining("자동 실행 연결을 해제"),
+    });
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      discoveryPost: { id: discoveryPost.id },
+      kind: "review",
+    });
+  });
+
+  it("keeps the approved fallback when final engagement confirmation is cancelled", async () => {
+    const approval = {
+      cancelPendingApproval: vi.fn(),
+      requestApproval: vi.fn(async () => null),
+    };
+    const engagement = { execute: vi.fn() };
+    const fixture = setup({ approval, engagement });
+    await fixture.controller.captureDiscoveryPost(discoveryPost, tab.id);
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+
+    fixture.view.actions?.engage();
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        kind: "approved",
+        notice: expect.stringContaining("최종 확인"),
+      }),
+    );
+    expect(engagement.execute).not.toHaveBeenCalled();
+  });
+
+  it("shows a failed first step without completing the approved recommendation", async () => {
+    const token: EngagementApprovalToken = {
+      details: {
+        comment: candidates[0]?.comment ?? "",
+        sourceUrl: tab.url,
+        steps: ["like", "comment"],
+        title: tab.title,
+      },
+      id: "00000000-0000-4000-8000-000000000078",
+    };
+    const failedRun: EngagementRun = {
+      approvalId: token.id,
+      createdAt: "2026-07-28T00:00:00Z",
+      discoveryPostId: discoveryPost.id,
+      id: "00000000-0000-4000-8000-000000000079",
+      recommendationId: drafted.id,
+      source: "neighbor",
+      state: "failed",
+      steps: [
+        {
+          name: "like",
+          position: 0,
+          resultCode: "state_unknown",
+          state: "failed",
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+        {
+          name: "comment",
+          position: 1,
+          resultCode: null,
+          state: "pending",
+          updatedAt: "2026-07-28T00:00:00Z",
+        },
+      ],
+      updatedAt: "2026-07-28T00:00:01Z",
+    };
+    const fixture = setup({
+      approval: {
+        cancelPendingApproval: vi.fn(),
+        requestApproval: vi.fn(async () => token),
+      },
+      engagement: {
+        execute: vi.fn(async () => ({
+          code: "state_unknown",
+          run: failedRun,
+          status: "failed" as const,
+        })),
+      },
+    });
+    await fixture.controller.captureDiscoveryPost(discoveryPost, tab.id);
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.useEdited();
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+
+    fixture.view.actions?.engage();
+
+    await vi.waitFor(() =>
+      expect(fixture.view.states.at(-1)).toMatchObject({
+        engagementRun: { id: failedRun.id, state: "failed" },
+        kind: "approved",
+        notice: expect.stringContaining("중단"),
+      }),
+    );
+    expect(fixture.api.get).not.toHaveBeenCalled();
   });
 
   it("approves and fills a candidate through the two-click quick flow", async () => {

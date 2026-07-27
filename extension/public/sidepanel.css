@@ -582,6 +582,48 @@ fieldset {
   display: none;
 }
 
+.engagement-run-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #9fc9ad;
+  border-radius: 10px;
+  background: #f4fbf6;
+}
+
+.engagement-run-panel[hidden] {
+  display: none;
+}
+
+.engagement-run-panel h3 {
+  margin: 0;
+}
+
+.engagement-step-results {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.history-engagement-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #37483e;
+  font-size: 0.82rem;
+}
+
+.history-engagement-results li {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef3f0;
+}
+
 .stacked {
   position: sticky;
   bottom: 0;

@@ -30,6 +30,34 @@ beforeEach(async () => {
 describe("DomHistoryView", () => {
   it("renders service diagnostics and usable recent history", () => {
     view.render({
+      engagementRuns: [
+        {
+          approvalId: "00000000-0000-4000-8000-000000000011",
+          createdAt: "2026-07-28T00:00:00Z",
+          discoveryPostId: "00000000-0000-4000-8000-000000000012",
+          id: "00000000-0000-4000-8000-000000000013",
+          recommendationId: "00000000-0000-4000-8000-000000000010",
+          source: "neighbor",
+          state: "failed",
+          steps: [
+            {
+              name: "like",
+              position: 0,
+              resultCode: "clicked",
+              state: "succeeded",
+              updatedAt: "2026-07-28T00:00:01Z",
+            },
+            {
+              name: "comment",
+              position: 1,
+              resultCode: "captcha_required",
+              state: "failed",
+              updatedAt: "2026-07-28T00:00:02Z",
+            },
+          ],
+          updatedAt: "2026-07-28T00:00:02Z",
+        },
+      ],
       items: [
         {
           comment: "이전에 승인한 댓글",
@@ -56,6 +84,9 @@ describe("DomHistoryView", () => {
     expect(document.querySelector("#service-status")?.textContent).toContain("gpt-test");
     expect(document.querySelector("#history-count")?.textContent).toBe("1");
     expect(document.querySelector(".history-item")?.textContent).toContain("이전에 승인한 댓글");
+    expect(document.querySelector(".history-engagement-results")?.textContent).toContain(
+      "댓글 · 중단",
+    );
     expect(document.querySelector<HTMLAnchorElement>(".history-item a")?.target).toBe("_blank");
   });
 

@@ -297,6 +297,21 @@
           <p id="edit-count" class="help"></p>
           <button id="edited-use-button" class="primary" type="button">다듬은 댓글 사용</button>
         </section>
+        <section id="engagement-run-panel" class="engagement-run-panel" hidden>
+          <h3>이 글 한 건 교류</h3>
+          <label id="neighbor-message-field" for="neighbor-message" hidden>
+            서로이웃 신청 메시지
+            <textarea id="neighbor-message" rows="3" maxlength="500"></textarea>
+          </label>
+          <ul id="engagement-step-results" class="engagement-step-results"></ul>
+          <button id="engagement-run-button" class="primary" type="button">
+            공감하고 승인 댓글 등록
+          </button>
+          <p class="help">
+            누르면 실행 내용을 한 번 더 확인합니다. 성공한 단계는 반복하지 않고, 확인되지 않은
+            등록·신청은 자동 재시도하지 않습니다.
+          </p>
+        </section>
         <div class="actions stacked">
           <button id="copy-button" class="secondary" type="button">승인한 댓글 복사</button>
           <button id="retry-fill-button" class="secondary" type="button">댓글 입력 다시 시도</button>

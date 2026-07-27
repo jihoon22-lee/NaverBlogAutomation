@@ -25,6 +25,8 @@ from naver_blog_assistant.domain import (
     CommentMood,
     DigestSettings,
     DiscoveredPost,
+    EngagementRun,
+    EngagementStepState,
     GenerationPreferences,
     ImportedDiscoveryPost,
     NeighborBlog,
@@ -368,6 +370,80 @@ class DiscoveryQueueResponse(StrictModel):
 
 class DiscoveryPostStateRequest(StrictModel):
     state: Literal["queued", "opened", "completed", "skipped", "unavailable"]
+
+
+class EngagementRunStartRequest(StrictModel):
+    approval_id: UUID
+    discovery_post_id: UUID
+    recommendation_id: UUID
+
+
+class EngagementStepTransitionRequest(StrictModel):
+    state: Literal["running", "succeeded", "skipped", "failed", "unconfirmed"]
+    result_code: Annotated[
+        str | None,
+        StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$"),
+    ] = None
+
+    @model_validator(mode="after")
+    def validate_result(self) -> Self:
+        terminal = self.state in {"succeeded", "skipped", "failed", "unconfirmed"}
+        if terminal != (self.result_code is not None):
+            raise ValueError("terminal engagement state requires one result_code")
+        return self
+
+    def to_state(self) -> EngagementStepState:
+        return EngagementStepState(self.state)
+
+
+class EngagementStepResponse(StrictModel):
+    name: Literal["like", "comment", "mutual_neighbor"]
+    position: Annotated[int, Field(ge=0, le=2)]
+    state: Literal["pending", "running", "succeeded", "skipped", "failed", "unconfirmed"]
+    result_code: Annotated[
+        str | None,
+        StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$"),
+    ]
+    updated_at: datetime
+
+
+class EngagementRunResponse(StrictModel):
+    id: UUID
+    approval_id: UUID
+    discovery_post_id: UUID
+    recommendation_id: UUID
+    source: Literal["neighbor", "search"]
+    state: Literal["running", "succeeded", "failed", "unconfirmed"]
+    steps: Annotated[list[EngagementStepResponse], Field(min_length=2, max_length=3)]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, run: EngagementRun) -> Self:
+        return cls(
+            id=run.id,
+            approval_id=run.approval_id,
+            discovery_post_id=run.discovery_post_id,
+            recommendation_id=run.recommendation_id,
+            source=run.source.value,
+            state=run.state.value,
+            steps=[
+                EngagementStepResponse(
+                    name=step.name.value,
+                    position=step.position,
+                    state=step.state.value,
+                    result_code=step.result_code,
+                    updated_at=step.updated_at,
+                )
+                for step in run.steps
+            ],
+            created_at=run.created_at,
+            updated_at=run.updated_at,
+        )
+
+
+class EngagementRunListResponse(StrictModel):
+    items: Annotated[list[EngagementRunResponse], Field(max_length=50)]
 
 
 class DigestSettingsRequest(StrictModel):

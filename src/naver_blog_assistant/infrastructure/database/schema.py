@@ -242,3 +242,64 @@ automatic_discovery_runs = Table(
     Column("local_date", String(10), primary_key=True),
     Column("created_at", String(32), nullable=False),
 )
+
+engagement_runs = Table(
+    "engagement_runs",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("approval_id", String(36), nullable=False, unique=True),
+    Column(
+        "discovery_post_id",
+        String(36),
+        ForeignKey("discovered_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    ),
+    Column(
+        "recommendation_id",
+        String(36),
+        ForeignKey("recommendations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("source", String(16), nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("created_at", String(32), nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint("source IN ('neighbor', 'search')", name="ck_engagement_runs_source"),
+    CheckConstraint(
+        "state IN ('running', 'succeeded', 'failed', 'unconfirmed')",
+        name="ck_engagement_runs_state",
+    ),
+)
+
+engagement_steps = Table(
+    "engagement_steps",
+    metadata,
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("engagement_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("name", String(32), primary_key=True),
+    Column("position", Integer, nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("result_code", String(64), nullable=True),
+    Column("updated_at", String(32), nullable=False),
+    UniqueConstraint("run_id", "position", name="uq_engagement_steps_position"),
+    CheckConstraint(
+        "name IN ('like', 'comment', 'mutual_neighbor')",
+        name="ck_engagement_steps_name",
+    ),
+    CheckConstraint("position BETWEEN 0 AND 2", name="ck_engagement_steps_position"),
+    CheckConstraint(
+        "state IN ('pending', 'running', 'succeeded', 'skipped', 'failed', 'unconfirmed')",
+        name="ck_engagement_steps_state",
+    ),
+    CheckConstraint(
+        "(state IN ('pending', 'running') AND result_code IS NULL) OR "
+        "(state IN ('succeeded', 'skipped', 'failed', 'unconfirmed') "
+        "AND result_code IS NOT NULL)",
+        name="ck_engagement_steps_result",
+    ),
+)

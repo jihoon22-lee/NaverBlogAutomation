@@ -3,6 +3,7 @@ import { NaverSitePermission } from "../browser/naver-site-permission";
 import { DiscoveryController } from "../discovery/controller";
 import { EngagementApprovalSession } from "../engagement/approval-session";
 import { EngagementConsentController } from "../engagement/consent-controller";
+import { EngagementRunController } from "../engagement/run-controller";
 import { IdempotencyRegistry, restrictStorageToTrustedContexts } from "../idempotency/registry";
 import { HistoryController } from "../history/controller";
 import { DomHistoryView } from "../history/view";
@@ -46,16 +47,23 @@ void (async () => {
   try {
     await restrictStorageToTrustedContexts();
     const registry = new IdempotencyRegistry();
-    historyController = new HistoryController(new DomHistoryView(document), undefined, registry);
+    const api = new LocalApiClient();
+    const session = new EngagementApprovalSession();
+    historyController = new HistoryController(new DomHistoryView(document), api, registry);
     historyController.start();
     engagementConsentController = new EngagementConsentController(document, {
-      session: new EngagementApprovalSession(),
+      session,
     });
     await engagementConsentController.start();
-    controller = new SidePanelController(new ChromeTabCaptureGateway(), view, { registry });
+    controller = new SidePanelController(new ChromeTabCaptureGateway(), view, {
+      api,
+      approval: engagementConsentController,
+      engagement: new EngagementRunController(session, { api }),
+      registry,
+    });
     controller.start();
     await configureNaverPermission();
-    discoveryController = new DiscoveryController(document);
+    discoveryController = new DiscoveryController(document, api);
     discoveryController.start();
   } catch {
     view.render({
@@ -85,9 +93,27 @@ window.addEventListener(
 );
 
 window.addEventListener("discovery-open-post", (event) => {
-  const detail = (event as CustomEvent<{ tabId?: unknown }>).detail;
-  if (typeof detail?.tabId === "number") {
+  const detail = (event as CustomEvent<{ post?: unknown; tabId?: unknown }>).detail;
+  if (typeof detail?.tabId === "number" && isDiscoveryPost(detail.post)) {
     engagementConsentController?.cancelPendingApproval();
-    void controller?.captureActivePost();
+    void controller?.captureDiscoveryPost(detail.post, detail.tabId);
   }
 });
+
+window.addEventListener("engagement-run-updated", () => {
+  void historyController?.refresh();
+});
+
+function isDiscoveryPost(value: unknown): value is DiscoveryPost {
+  if (typeof value !== "object" || value === null) return false;
+  const post = value as Partial<DiscoveryPost>;
+  return (
+    typeof post.id === "string" &&
+    (post.source === "neighbor" || post.source === "search") &&
+    typeof post.sourceUrl === "string" &&
+    typeof post.title === "string" &&
+    (post.publisherBlogId === null || typeof post.publisherBlogId === "string")
+  );
+}
+import { LocalApiClient } from "../api/client";
+import type { DiscoveryPost } from "../api/types";

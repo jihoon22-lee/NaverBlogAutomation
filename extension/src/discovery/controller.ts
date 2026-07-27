@@ -12,6 +12,7 @@ export class DiscoveryController {
   readonly #api: LocalApiClient;
   readonly #document: Document;
   readonly #navigator: DiscoveryTabNavigator;
+  readonly #posts = new Map<string, DiscoveryPost>();
   #tab: QueueTab = "neighbor";
 
   constructor(
@@ -203,11 +204,17 @@ export class DiscoveryController {
         return;
       }
       const post = button.closest<HTMLLIElement>("li")?.dataset.url;
-      if (!post) return;
+      const selected = this.#posts.get(id);
+      if (!post || selected === undefined) return;
       const target: DiscoveryNavigationTarget = action === "open-new" ? "new" : "current";
       const tabId = await this.#navigator.open(post, target);
-      await this.#api.updateDiscoveryPostState(id, "opened");
-      window.dispatchEvent(new CustomEvent("discovery-open-post", { detail: { tabId } }));
+      const openedPost = await this.#api.updateDiscoveryPostState(id, "opened");
+      const EventConstructor = this.#document.defaultView?.CustomEvent;
+      if (EventConstructor !== undefined) {
+        this.#document.defaultView?.dispatchEvent(
+          new EventConstructor("discovery-open-post", { detail: { post: openedPost, tabId } }),
+        );
+      }
     } catch (error) {
       this.#notice(error instanceof Error ? error.message : "글을 열지 못했습니다.");
     }
@@ -228,6 +235,8 @@ export class DiscoveryController {
   }
 
   #renderQueue(items: readonly DiscoveryPost[]): void {
+    this.#posts.clear();
+    for (const item of items) this.#posts.set(item.id, item);
     const queue = this.#element("discovery-queue");
     const empty = this.#element("discovery-empty");
     empty.hidden = items.length > 0;

@@ -10,6 +10,15 @@ from naver_blog_assistant.domain.discovery import (
     NeighborBlog,
     SavedSearch,
     normalize_discovery_url,
+    same_naver_post_url,
+)
+from naver_blog_assistant.domain.engagement import (
+    EngagementRun,
+    EngagementRunState,
+    EngagementStep,
+    EngagementStepName,
+    EngagementStepState,
+    required_engagement_steps,
 )
 from naver_blog_assistant.domain.models import (
     DEFAULT_GENERATION_PREFERENCES,
@@ -62,4 +71,11 @@ __all__ = [
     "NeighborBlog",
     "SavedSearch",
     "normalize_discovery_url",
+    "same_naver_post_url",
+    "EngagementRun",
+    "EngagementRunState",
+    "EngagementStep",
+    "EngagementStepName",
+    "EngagementStepState",
+    "required_engagement_steps",
 ]

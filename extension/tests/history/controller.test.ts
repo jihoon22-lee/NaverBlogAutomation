@@ -52,8 +52,10 @@ describe("HistoryController", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(json(service))
       .mockResolvedValueOnce(json({ items: [item] }))
+      .mockResolvedValueOnce(json({ items: [] }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(json(service))
+      .mockResolvedValueOnce(json({ items: [] }))
       .mockResolvedValueOnce(json({ items: [] }));
     const view = new FakeHistoryView();
     const removeRecommendation = vi.fn(async () => undefined);
@@ -74,7 +76,7 @@ describe("HistoryController", () => {
         notice: expect.stringContaining("삭제"),
       }),
     );
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(7);
     expect(removeRecommendation).toHaveBeenCalledWith(id);
     controller.dispose();
   });
@@ -122,6 +124,7 @@ describe("HistoryController", () => {
     const clear = vi.fn(async () => undefined);
     const api = {
       clearPersonalizationExamples: clear,
+      listEngagementRuns: vi.fn(async () => []),
       listRecommendations: list,
       reviewRecommendation: review,
       status,
@@ -169,6 +172,7 @@ describe("HistoryController", () => {
       clearPersonalizationExamples: vi.fn(async () => {
         throw new Error("synthetic clear failure");
       }),
+      listEngagementRuns: vi.fn(async () => []),
       listRecommendations: vi.fn(async () => [completed]),
       reviewRecommendation: vi.fn(async () => {
         throw new Error("synthetic update failure");

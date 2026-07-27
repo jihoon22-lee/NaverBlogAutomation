@@ -1,4 +1,4 @@
-import type { Recommendation } from "../api/types";
+import type { DiscoveryPost, EngagementRun, Recommendation } from "../api/types";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
 import type { GenerationPreferences } from "../preferences/model";
 
@@ -13,7 +13,10 @@ export interface WorkflowFailure {
 
 export interface ReviewPresentation {
   copied: boolean;
+  discoveryPost?: DiscoveryPost | null;
   editedComment: string;
+  engagementRun?: EngagementRun | null;
+  neighborMessage?: string;
   notice?: string;
   recommendation: Recommendation;
   selectedCandidateId: string | null;
@@ -32,6 +35,7 @@ export type PanelState =
   | { canCancel: boolean; kind: "generating"; message: string }
   | ({ kind: "review" } & ReviewPresentation)
   | ({ kind: "saving" } & ReviewPresentation)
+  | ({ kind: "engaging" } & ReviewPresentation)
   | ({ kind: "approved" } & ReviewPresentation)
   | ({ kind: "completed" } & ReviewPresentation);
 
@@ -49,7 +53,9 @@ export interface PanelActions {
   changeRelationship(value: string): void;
   changeSpeechStyle(value: string): void;
   edit(value: string): void;
+  engage(): void;
   generate(): void;
+  changeNeighborMessage(value: string): void;
   regenerate(): void;
   replace(): void;
   retry(): void;

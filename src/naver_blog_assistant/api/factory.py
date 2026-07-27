@@ -49,6 +49,10 @@ from naver_blog_assistant.api.models import (
     DiscoveryPostStateRequest,
     DiscoveryQueueResponse,
     DiscoverySearchRefreshResponse,
+    EngagementRunListResponse,
+    EngagementRunResponse,
+    EngagementRunStartRequest,
+    EngagementStepTransitionRequest,
     HealthResponse,
     NeighborListResponse,
     NeighborRequest,
@@ -99,6 +103,7 @@ from naver_blog_assistant.domain import (
     DiscoverySource,
     DiscoveryState,
     DomainValidationError,
+    EngagementStepName,
     GenerationOutput,
     GenerationPreferences,
     ImportedDiscoveryPost,
@@ -108,6 +113,7 @@ from naver_blog_assistant.domain import (
 )
 from naver_blog_assistant.infrastructure.database import (
     SqliteDiscoveryRepository,
+    SqliteEngagementRepository,
     create_sqlite_engine,
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
@@ -126,6 +132,10 @@ class SearchProviderNotConfiguredError(ValueError):
 
 IDEMPOTENCY_REPLAYED_HEADER: Final = {
     "description": "True when returning a stored result for a repeated request.",
+    "schema": {"type": "boolean"},
+}
+ENGAGEMENT_REPLAYED_HEADER: Final = {
+    "description": "True when returning an existing engagement run.",
     "schema": {"type": "boolean"},
 }
 
@@ -349,6 +359,7 @@ def create_app(
     engine = create_sqlite_engine(settings.database_url)
     repository = SqliteRepository(engine)
     discovery = SqliteDiscoveryRepository(engine)
+    engagements = SqliteEngagementRepository(engine)
     selected_generator = generator or _configured_generator(settings)
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
@@ -857,6 +868,145 @@ def create_app(
     def clear_stored_personalization_examples() -> Response:
         clear_personalization_examples.execute()
         return Response(status_code=204)
+
+    @app.get(
+        "/api/v1/engagement-runs",
+        response_model=EngagementRunListResponse,
+        responses={422: _problem_metadata("Engagement history query is invalid.")},
+        tags=["Engagement"],
+        operation_id="listEngagementRuns",
+    )
+    def list_engagement_runs(
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    ) -> EngagementRunListResponse:
+        return EngagementRunListResponse(
+            items=[EngagementRunResponse.from_domain(run) for run in engagements.list_recent(limit)]
+        )
+
+    @app.post(
+        "/api/v1/engagement-runs",
+        response_model=EngagementRunResponse,
+        status_code=201,
+        responses={
+            200: {
+                "model": EngagementRunResponse,
+                "description": "Existing run resumed.",
+                "headers": {"Engagement-Replayed": ENGAGEMENT_REPLAYED_HEADER},
+            },
+            201: {
+                "model": EngagementRunResponse,
+                "description": "A new engagement run was stored.",
+                "headers": {"Engagement-Replayed": ENGAGEMENT_REPLAYED_HEADER},
+            },
+            404: _problem_metadata("The discovery post or recommendation was not found."),
+            409: _problem_metadata("The approved sources cannot start this engagement run."),
+            422: _problem_metadata("The engagement start request is invalid."),
+        },
+        tags=["Engagement"],
+        operation_id="startEngagementRun",
+    )
+    def start_engagement_run(
+        payload: EngagementRunStartRequest,
+        response: Response,
+    ) -> EngagementRunResponse:
+        try:
+            result = engagements.start(
+                approval_id=payload.approval_id,
+                discovery_post_id=payload.discovery_post_id,
+                recommendation_id=payload.recommendation_id,
+            )
+        except LookupError as error:
+            raise ApiError(
+                404,
+                "engagement_source_not_found",
+                "Engagement source not found",
+                "The selected discovery post or recommendation was not found.",
+            ) from error
+        except ValueError as error:
+            raise ApiError(
+                409,
+                "engagement_conflict",
+                "Engagement conflict",
+                "The selected post and approved recommendation cannot start this run.",
+            ) from error
+        response.status_code = 201 if result.created else 200
+        response.headers["Engagement-Replayed"] = str(not result.created).lower()
+        return EngagementRunResponse.from_domain(result.run)
+
+    @app.get(
+        "/api/v1/engagement-runs/by-post/{post_id}",
+        response_model=EngagementRunResponse,
+        responses={404: _problem_metadata("The discovery post has no engagement run.")},
+        tags=["Engagement"],
+        operation_id="getEngagementRunForPost",
+    )
+    def get_engagement_run_for_post(post_id: UUID) -> EngagementRunResponse:
+        run = engagements.get_for_post(post_id)
+        if run is None:
+            raise ApiError(
+                404,
+                "engagement_run_not_found",
+                "Engagement run not found",
+                "The selected discovery post has no engagement run.",
+            )
+        return EngagementRunResponse.from_domain(run)
+
+    @app.get(
+        "/api/v1/engagement-runs/{run_id}",
+        response_model=EngagementRunResponse,
+        responses={404: _problem_metadata("The engagement run was not found.")},
+        tags=["Engagement"],
+        operation_id="getEngagementRun",
+    )
+    def get_engagement_run(run_id: UUID) -> EngagementRunResponse:
+        run = engagements.get(run_id)
+        if run is None:
+            raise ApiError(
+                404,
+                "engagement_run_not_found",
+                "Engagement run not found",
+                "The selected engagement run was not found.",
+            )
+        return EngagementRunResponse.from_domain(run)
+
+    @app.patch(
+        "/api/v1/engagement-runs/{run_id}/steps/{step_name}",
+        response_model=EngagementRunResponse,
+        responses={
+            404: _problem_metadata("The engagement run was not found."),
+            409: _problem_metadata("The engagement step transition is not allowed."),
+            422: _problem_metadata("The engagement step result is invalid."),
+        },
+        tags=["Engagement"],
+        operation_id="transitionEngagementStep",
+    )
+    def transition_engagement_step(
+        run_id: UUID,
+        step_name: EngagementStepName,
+        payload: EngagementStepTransitionRequest,
+    ) -> EngagementRunResponse:
+        try:
+            run = engagements.transition_step(
+                run_id,
+                step_name,
+                payload.to_state(),
+                result_code=payload.result_code,
+            )
+        except LookupError as error:
+            raise ApiError(
+                404,
+                "engagement_run_not_found",
+                "Engagement run not found",
+                "The selected engagement run was not found.",
+            ) from error
+        except (DomainValidationError, ValueError) as error:
+            raise ApiError(
+                409,
+                "engagement_transition_conflict",
+                "Engagement transition conflict",
+                "The engagement step cannot move to the requested state.",
+            ) from error
+        return EngagementRunResponse.from_domain(run)
 
     @app.get(
         "/api/v1/discovery/neighbors",

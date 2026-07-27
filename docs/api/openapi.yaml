@@ -19,6 +19,8 @@ tags:
     description: Generate, retrieve, and review comment recommendations.
   - name: Personalization
     description: Control the local completed-comment style sample set.
+  - name: Engagement
+    description: Persist one explicitly approved post engagement and its ordered external-action results.
   - name: Discovery
     description: Local, user-reviewed blog discovery queues and digest settings.
 security: []
@@ -192,6 +194,100 @@ paths:
           description: Completed comments were excluded from future personalization.
         "400":
           $ref: "#/components/responses/InvalidRequest"
+  /api/v1/engagement-runs:
+    get:
+      operationId: listEngagementRuns
+      tags: [Engagement]
+      summary: List recent engagement runs without comment or request-message content
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+      responses:
+        "200":
+          description: Recent engagement runs ordered by latest activity.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunListResponse"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    post:
+      operationId: startEngagementRun
+      tags: [Engagement]
+      summary: Start or resume the run bound to one final approval and discovery post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EngagementRunStartRequest"}
+      responses:
+        "201":
+          description: A new engagement run was stored.
+          headers:
+            Engagement-Replayed: {$ref: "#/components/headers/EngagementReplayed"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "200":
+          description: The existing run for this approval or discovery post was returned.
+          headers:
+            Engagement-Replayed: {$ref: "#/components/headers/EngagementReplayed"}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/EngagementConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/engagement-runs/by-post/{post_id}:
+    get:
+      operationId: getEngagementRunForPost
+      tags: [Engagement]
+      parameters:
+        - {name: post_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200":
+          description: The run bound to this discovery post.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {description: Validation Error}
+  /api/v1/engagement-runs/{run_id}:
+    get:
+      operationId: getEngagementRun
+      tags: [Engagement]
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200":
+          description: The stored engagement run.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {description: Validation Error}
+  /api/v1/engagement-runs/{run_id}/steps/{step_name}:
+    patch:
+      operationId: transitionEngagementStep
+      tags: [Engagement]
+      summary: Persist the start or terminal result of one ordered external action
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: step_name, in: path, required: true, schema: {type: string, enum: [like, comment, mutual_neighbor]}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EngagementStepTransitionRequest"}
+      responses:
+        "200":
+          description: The transition was stored and the aggregate run was returned.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EngagementRunResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/EngagementConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/discovery/neighbors:
     get:
       operationId: listDiscoveryNeighbors
@@ -305,6 +401,10 @@ components:
   headers:
     IdempotencyReplayed:
       description: True when returning a stored success or safe failure for a repeated request.
+      schema:
+        type: boolean
+    EngagementReplayed:
+      description: True when an existing run was returned without creating another run.
       schema:
         type: boolean
     RetryAfter:
@@ -582,6 +682,70 @@ components:
           $ref: "#/components/schemas/ReviewStatus"
         personalization_eligible:
           type: boolean
+    EngagementRunStartRequest:
+      type: object
+      additionalProperties: false
+      required: [approval_id, discovery_post_id, recommendation_id]
+      properties:
+        approval_id: {type: string, format: uuid}
+        discovery_post_id: {type: string, format: uuid}
+        recommendation_id: {type: string, format: uuid}
+    EngagementStepTransitionRequest:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [running, succeeded, skipped, failed, unconfirmed]
+        result_code:
+          oneOf:
+            - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
+            - {type: "null"}
+          default: null
+    EngagementRunListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: "#/components/schemas/EngagementRunResponse"}
+    EngagementRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        [id, approval_id, discovery_post_id, recommendation_id, source, state, steps, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        approval_id: {type: string, format: uuid}
+        discovery_post_id: {type: string, format: uuid}
+        recommendation_id: {type: string, format: uuid}
+        source: {type: string, enum: [neighbor, search]}
+        state: {type: string, enum: [running, succeeded, failed, unconfirmed]}
+        steps:
+          type: array
+          minItems: 2
+          maxItems: 3
+          items: {$ref: "#/components/schemas/EngagementStepResponse"}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EngagementStepResponse:
+      type: object
+      additionalProperties: false
+      required: [name, position, state, result_code, updated_at]
+      properties:
+        name: {type: string, enum: [like, comment, mutual_neighbor]}
+        position: {type: integer, minimum: 0, maximum: 2}
+        state:
+          type: string
+          enum: [pending, running, succeeded, skipped, failed, unconfirmed]
+        result_code:
+          oneOf:
+            - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
+            - {type: "null"}
+        updated_at: {type: string, format: date-time}
     ProblemDetails:
       type: object
       additionalProperties: false
@@ -646,6 +810,12 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     ReviewConflict:
       description: The requested review conflicts with the stored state.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    EngagementConflict:
+      description: The engagement source binding, order, or requested step transition conflicts with stored state.
       content:
         application/problem+json:
           schema:
