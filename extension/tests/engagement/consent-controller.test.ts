@@ -121,6 +121,10 @@ describe("EngagementConsentController", () => {
   });
 
   it("does not issue approval without consent, confirmation, or a supported exact origin", async () => {
+    const consentRequired = vi.fn();
+    document.defaultView?.addEventListener("engagement-consent-required", consentRequired, {
+      once: true,
+    });
     const inactive = setup();
     await inactive.controller.start();
     await expect(
@@ -132,6 +136,7 @@ describe("EngagementConsentController", () => {
       }),
     ).resolves.toBeNull();
     expect(inactive.session.consume("approval-1")).toBeNull();
+    expect(consentRequired).toHaveBeenCalledOnce();
 
     const active = setup(true);
     await active.controller.start();

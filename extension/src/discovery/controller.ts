@@ -13,6 +13,11 @@ export class DiscoveryController {
   readonly #document: Document;
   readonly #navigator: DiscoveryTabNavigator;
   readonly #posts = new Map<string, DiscoveryPost>();
+  readonly #queues: Record<QueueTab, readonly DiscoveryPost[]> = {
+    neighbor: [],
+    search: [],
+  };
+  #currentPost: DiscoveryPost | null = null;
   #tab: QueueTab = "neighbor";
 
   constructor(
@@ -60,16 +65,24 @@ export class DiscoveryController {
 
   private async render(): Promise<void> {
     try {
-      const [neighbors, searches, posts, digest, automation] = await Promise.all([
-        this.#api.listDiscoveryNeighbors(),
-        this.#api.listDiscoverySearches(),
-        this.#api.listDiscoveryQueue(this.#tab),
-        this.#api.digestSettings(),
-        this.#api.automaticDiscoverySettings(),
-      ]);
+      const [neighbors, searches, neighborPosts, searchPosts, digest, automation] =
+        await Promise.all([
+          this.#api.listDiscoveryNeighbors(),
+          this.#api.listDiscoverySearches(),
+          this.#api.listDiscoveryQueue("neighbor"),
+          this.#api.listDiscoveryQueue("search"),
+          this.#api.digestSettings(),
+          this.#api.automaticDiscoverySettings(),
+        ]);
+      this.#queues.neighbor = neighborPosts;
+      this.#queues.search = searchPosts;
+      this.#currentPost ??=
+        [...neighborPosts, ...searchPosts].find((post) => post.state === "opened") ?? null;
       this.#renderNeighbors(neighbors);
       this.#renderSearches(searches);
-      this.#renderQueue(posts);
+      this.#renderCounts();
+      this.#renderQueue(this.#queues[this.#tab]);
+      this.#renderCurrentPost();
       this.#renderDigestSettings(digest);
       this.#renderAutomaticSettings(automation);
       this.#notice(
@@ -87,6 +100,22 @@ export class DiscoveryController {
     this.#button("discovery-neighbor-tab").setAttribute("aria-pressed", String(tab === "neighbor"));
     this.#button("discovery-search-tab").setAttribute("aria-pressed", String(tab === "search"));
     await this.render();
+  }
+
+  async openNext(source?: QueueTab): Promise<void> {
+    if (source !== undefined) this.#tab = source;
+    if (this.#queues[this.#tab].length === 0) await this.render();
+    const next = this.#queues[this.#tab].find(
+      (post) =>
+        post.id !== this.#currentPost?.id &&
+        !["completed", "skipped", "unavailable"].includes(post.state),
+    );
+    if (next === undefined) {
+      this.#notice("이 대기열에 다음으로 처리할 글이 없습니다.");
+      this.#dispatch("discovery-next-empty", {});
+      return;
+    }
+    await this.#openPost(next, "current");
   }
 
   private async syncNow(): Promise<void> {
@@ -199,25 +228,27 @@ export class DiscoveryController {
     try {
       if (action === "skip") {
         await this.#api.updateDiscoveryPostState(id, "skipped");
+        if (this.#currentPost?.id === id) this.#currentPost = null;
         this.#notice("대기열에서 건너뛰었습니다.");
         await this.render();
         return;
       }
-      const post = button.closest<HTMLLIElement>("li")?.dataset.url;
       const selected = this.#posts.get(id);
-      if (!post || selected === undefined) return;
+      if (selected === undefined) return;
       const target: DiscoveryNavigationTarget = action === "open-new" ? "new" : "current";
-      const tabId = await this.#navigator.open(post, target);
-      const openedPost = await this.#api.updateDiscoveryPostState(id, "opened");
-      const EventConstructor = this.#document.defaultView?.CustomEvent;
-      if (EventConstructor !== undefined) {
-        this.#document.defaultView?.dispatchEvent(
-          new EventConstructor("discovery-open-post", { detail: { post: openedPost, tabId } }),
-        );
-      }
+      await this.#openPost(selected, target);
     } catch (error) {
       this.#notice(error instanceof Error ? error.message : "글을 열지 못했습니다.");
     }
+  }
+
+  async #openPost(selected: DiscoveryPost, target: DiscoveryNavigationTarget): Promise<void> {
+    const tabId = await this.#navigator.open(selected.sourceUrl, target);
+    const updated = await this.#api.updateDiscoveryPostState(selected.id, "opened");
+    const openedPost = { ...selected, ...updated, state: "opened" as const };
+    this.#currentPost = openedPost;
+    this.#renderCurrentPost();
+    this.#dispatch("discovery-open-post", { post: openedPost, tabId });
   }
 
   #renderNeighbors(items: readonly { name: string; feedStatus: string }[]): void {
@@ -242,13 +273,13 @@ export class DiscoveryController {
     empty.hidden = items.length > 0;
     queue.replaceChildren(
       ...items.map((item) => {
-        const row = document.createElement("li");
+        const row = this.#document.createElement("li");
         row.className = "discovery-item";
         row.dataset.url = item.sourceUrl;
-        const title = document.createElement("p");
+        const title = this.#document.createElement("p");
         title.textContent = item.title;
         row.append(title);
-        const meta = document.createElement("small");
+        const meta = this.#document.createElement("small");
         meta.textContent = [
           item.publisherName,
           item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : "게시일 미상",
@@ -256,17 +287,37 @@ export class DiscoveryController {
           .filter(Boolean)
           .join(" · ");
         row.append(meta);
-        const actions = document.createElement("div");
+        const actions = this.#document.createElement("div");
         actions.className = "actions";
         actions.append(
-          queueButton(item.id, "open", "이 글 열기"),
-          queueButton(item.id, "open-new", "새 탭 열기"),
-          queueButton(item.id, "skip", "건너뛰기"),
+          queueButton(this.#document, item.id, "open", "이 글 처리하기"),
+          queueButton(this.#document, item.id, "open-new", "새 탭에서 처리"),
+          queueButton(this.#document, item.id, "skip", "건너뛰기"),
         );
         row.append(actions);
         return row;
       }),
     );
+  }
+
+  #renderCounts(): void {
+    const neighborCount = this.#queues.neighbor.length;
+    const searchCount = this.#queues.search.length;
+    for (const id of ["today-neighbor-count", "discovery-neighbor-count"]) {
+      this.#element(id).textContent = String(neighborCount);
+    }
+    for (const id of ["today-search-count", "discovery-search-count"]) {
+      this.#element(id).textContent = String(searchCount);
+    }
+  }
+
+  #renderCurrentPost(): void {
+    const card = this.#element("today-current-card");
+    card.hidden = this.#currentPost === null;
+    this.#element("today-current-post").textContent =
+      this.#currentPost === null
+        ? ""
+        : `${this.#currentPost.source === "search" ? "신규 이웃 후보" : "이웃 새 글"} · ${this.#currentPost.title}`;
   }
 
   #renderDigestSettings(settings: {
@@ -304,6 +355,12 @@ export class DiscoveryController {
   #notice(value: string): void {
     this.#element("discovery-notice").textContent = value;
   }
+  #dispatch(name: string, detail: object): void {
+    const EventConstructor = this.#document.defaultView?.CustomEvent;
+    if (EventConstructor !== undefined) {
+      this.#document.defaultView?.dispatchEvent(new EventConstructor(name, { detail }));
+    }
+  }
   #element(id: string): HTMLElement {
     const value = this.#document.getElementById(id);
     if (!value) throw new Error(`${id} 요소를 찾지 못했습니다.`);
@@ -327,6 +384,7 @@ function listItem(text: string): HTMLLIElement {
   return item;
 }
 function queueButton(
+  document: Document,
   id: string,
   action: "open" | "open-new" | "skip",
   text: string,

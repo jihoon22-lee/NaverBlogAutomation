@@ -896,6 +896,33 @@ describe("integrated Side Panel workflow", () => {
     });
   });
 
+  it("applies a saved mutual-neighbor default when the next search candidate opens", async () => {
+    const fixture = setup();
+    fixture.controller.setNeighborMessageDefault("저장된 서로이웃 기본 메시지");
+    await fixture.controller.captureDiscoveryPost(
+      {
+        ...discoveryPost,
+        neighborId: null,
+        publisherBlogId: "synthetic",
+        searchId: "00000000-0000-4000-8000-000000000098",
+        source: "search",
+      },
+      tab.id,
+    );
+    fixture.view.actions?.generate();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
+    const selected = candidates[0];
+    if (selected === undefined) throw new Error("Synthetic candidate missing");
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.approve();
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
+
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      discoveryPost: { source: "search" },
+      neighborMessage: "저장된 서로이웃 기본 메시지",
+    });
+  });
+
   it("keeps the approved fallback when final engagement confirmation is cancelled", async () => {
     const approval = {
       cancelPendingApproval: vi.fn(),

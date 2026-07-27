@@ -472,6 +472,9 @@ describe("DomPanelView", () => {
   });
 
   it("renders neighbor engagement progress and blocks completed or unconfirmed reruns", () => {
+    const next = vi.fn();
+    document.defaultView?.addEventListener("discovery-open-next", next);
+    view.bind(actions());
     const neighborPost = {
       createdAt: "2026-07-28T00:00:00Z",
       id: "00000000-0000-4000-8000-000000000092",
@@ -533,6 +536,9 @@ describe("DomPanelView", () => {
       false,
     );
     expect(document.querySelector("#engagement-step-results")?.textContent).toContain("중단됨");
+    expect(document.querySelector("#engagement-step-results li")?.getAttribute("data-state")).toBe(
+      "failed",
+    );
 
     view.render({ ...approved, kind: "engaging" });
     expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
@@ -548,6 +554,10 @@ describe("DomPanelView", () => {
     expect(document.querySelector<HTMLButtonElement>("#engagement-run-button")?.disabled).toBe(
       true,
     );
+    expect(document.querySelector("#review-status")?.textContent).toBe("교류 완료");
+    expect((document.querySelector("#completion-navigation") as HTMLElement).hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>("#next-post-button")?.click();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ detail: { source: "neighbor" } }));
 
     view.render({
       ...approved,
