@@ -42,9 +42,12 @@ export class EngagementConsentController {
   }
 
   requestApproval(details: EngagementApprovalDetails): Promise<EngagementApprovalToken | null> {
+    if (!this.#active) {
+      this.#dispatch("engagement-consent-required", {});
+      return Promise.resolve(null);
+    }
     const host = supportedHost(details.sourceUrl);
     if (
-      !this.#active ||
       this.#pendingApproval !== null ||
       host === null ||
       details.title.trim() === "" ||
@@ -132,6 +135,13 @@ export class EngagementConsentController {
 
   #notice(value: string): void {
     this.#element("engagement-consent-notice").textContent = value;
+  }
+
+  #dispatch(name: string, detail: object): void {
+    const EventConstructor = this.#document.defaultView?.CustomEvent;
+    if (EventConstructor !== undefined) {
+      this.#document.defaultView?.dispatchEvent(new EventConstructor(name, { detail }));
+    }
   }
 
   #button(id: string): HTMLButtonElement {

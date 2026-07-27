@@ -7,6 +7,7 @@ import { DiscoveryController } from "../../src/discovery/controller";
 
 const htmlPath = new URL("../../public/sidepanel.html", import.meta.url);
 const id = "11111111-1111-4111-8111-111111111111";
+const searchId = "22222222-2222-4222-8222-222222222222";
 let document: Document;
 let domWindow: Window & typeof globalThis;
 
@@ -38,16 +39,26 @@ beforeEach(async () => {
   vi.stubGlobal("HTMLFormElement", dom.window.HTMLFormElement);
   vi.stubGlobal("FormData", dom.window.FormData);
   vi.stubGlobal("chrome", { tabs: { update: vi.fn().mockResolvedValue(undefined) } });
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   client.listDiscoveryNeighbors.mockResolvedValue([]);
   client.listDiscoverySearches.mockResolvedValue([{ id, query: "여행", freshnessDays: 14 }]);
-  client.listDiscoveryQueue.mockResolvedValue([
+  client.listDiscoveryQueue.mockImplementation(async (source: "neighbor" | "search") => [
     {
-      id,
-      title: "대기 글",
-      publisherName: "이웃",
+      createdAt: "2026-07-26T00:00:00Z",
+      id: source === "neighbor" ? id : searchId,
+      neighborId: source === "neighbor" ? "neighbor-id" : null,
       publishedAt: "2026-07-26T00:00:00Z",
-      sourceUrl: "https://blog.naver.com/friend/1",
+      publisherBlogId: source === "search" ? "candidate" : "friend",
+      publisherName: source === "neighbor" ? "이웃" : "신규 후보",
+      searchId: source === "search" ? "saved-search-id" : null,
+      source,
+      sourceUrl:
+        source === "neighbor"
+          ? "https://blog.naver.com/friend/1"
+          : "https://blog.naver.com/candidate/2",
+      state: "queued",
+      title: source === "neighbor" ? "대기 글" : "검색 후보 글",
+      updatedAt: "2026-07-26T00:00:00Z",
     },
   ]);
   client.automaticDiscoverySettings.mockResolvedValue({
@@ -92,7 +103,10 @@ beforeEach(async () => {
     detail: "공식 네이버 검색 API에서 검색 후보 2개를 확인했습니다.",
   });
   client.saveDigestSettings.mockResolvedValue({});
-  client.updateDiscoveryPostState.mockResolvedValue({ id, state: "opened" });
+  client.updateDiscoveryPostState.mockImplementation(async (postId: string) => ({
+    id: postId,
+    state: "opened",
+  }));
   navigator.open.mockResolvedValue(7);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -107,6 +121,8 @@ describe("DiscoveryController", () => {
     controller.start();
     await settle();
     expect(document.querySelector("#discovery-queue")?.textContent).toContain("대기 글");
+    expect(document.querySelector("#today-neighbor-count")?.textContent).toBe("1");
+    expect(document.querySelector("#today-search-count")?.textContent).toBe("1");
     expect(document.querySelector("#discovery-settings")?.hasAttribute("open")).toBe(false);
     expect(document.querySelector("#discovery-notice")?.textContent).toContain("탐색 설정과 알림");
 
@@ -231,5 +247,70 @@ describe("DiscoveryController", () => {
         }),
       }),
     );
+  });
+
+  it("shows source filters and opens the next item after the current post", async () => {
+    const nextId = "33333333-3333-4333-8333-333333333333";
+    client.listDiscoveryQueue.mockImplementation(async (source: "neighbor" | "search") =>
+      source === "search"
+        ? []
+        : [
+            {
+              createdAt: "2026-07-26T00:00:00Z",
+              id,
+              neighborId: "neighbor-id",
+              publishedAt: null,
+              publisherBlogId: "friend",
+              publisherName: "이웃",
+              searchId: null,
+              source,
+              sourceUrl: "https://blog.naver.com/friend/1",
+              state: "opened",
+              title: "현재 글",
+              updatedAt: "2026-07-26T00:00:00Z",
+            },
+            {
+              createdAt: "2026-07-26T00:00:00Z",
+              id: nextId,
+              neighborId: "neighbor-id",
+              publishedAt: null,
+              publisherBlogId: "friend",
+              publisherName: "이웃",
+              searchId: null,
+              source,
+              sourceUrl: "https://blog.naver.com/friend/2",
+              state: "queued",
+              title: "다음 글",
+              updatedAt: "2026-07-26T00:00:00Z",
+            },
+          ],
+    );
+    const opened = vi.fn();
+    window.addEventListener("discovery-open-post", opened);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    expect((document.querySelector("#today-current-card") as HTMLElement).hidden).toBe(false);
+    expect(document.querySelector("#today-current-post")?.textContent).toContain("현재 글");
+    await controller.openNext("neighbor");
+
+    expect(navigator.open).toHaveBeenLastCalledWith("https://blog.naver.com/friend/2", "current");
+    expect(client.updateDiscoveryPostState).toHaveBeenLastCalledWith(nextId, "opened");
+    expect(opened).toHaveBeenCalled();
+  });
+
+  it("returns to Today when no next queue item remains", async () => {
+    client.listDiscoveryQueue.mockResolvedValue([]);
+    const empty = vi.fn();
+    window.addEventListener("discovery-next-empty", empty, { once: true });
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    await controller.openNext("neighbor");
+
+    expect(empty).toHaveBeenCalledOnce();
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("다음");
   });
 });

@@ -44,6 +44,7 @@ import type {
   EngagementExecutionRequest,
   EngagementExecutionResult,
 } from "../engagement/run-controller";
+import { DEFAULT_MUTUAL_NEIGHBOR_MESSAGE } from "../engagement/message-settings";
 import type { PanelView, ReviewPresentation, WorkflowFailure } from "./state";
 import {
   apiFailure,
@@ -72,6 +73,7 @@ export interface WorkflowDependencies {
   now?: () => number;
   registry?: IdempotencyRegistry;
   lengthStore?: CommentLengthPreferenceStore;
+  neighborMessage?: string;
   engagement?: {
     execute(request: EngagementExecutionRequest): Promise<EngagementExecutionResult>;
   };
@@ -118,7 +120,7 @@ export class SidePanelController {
   #editedComment = "";
   #engagementActive = false;
   #engagementRun: EngagementRun | null = null;
-  #neighborMessage = "좋은 글 잘 읽었습니다. 서로이웃으로 소통하고 싶어요.";
+  #neighborMessage = DEFAULT_MUTUAL_NEIGHBOR_MESSAGE;
   #operation = 0;
   #preview: CapturedPostPreview | null = null;
   #preferenceNotice: string | undefined;
@@ -128,6 +130,7 @@ export class SidePanelController {
   #replacementIntent: ReplacementIntent | null = null;
   #savedPreferences: GenerationPreferences = { ...DEFAULT_GENERATION_PREFERENCES };
   #savedClosingPhrase = "";
+  #savedNeighborMessage = DEFAULT_MUTUAL_NEIGHBOR_MESSAGE;
   #selectedCandidateId: string | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -140,6 +143,10 @@ export class SidePanelController {
     this.#approval = dependencies.approval ?? null;
     this.#commentInput = dependencies.commentInput ?? new ChromeCommentInputGateway();
     this.#lengthStore = dependencies.lengthStore ?? new CommentLengthPreferenceStore();
+    this.#savedNeighborMessage = boundNeighborMessage(
+      dependencies.neighborMessage ?? DEFAULT_MUTUAL_NEIGHBOR_MESSAGE,
+    );
+    this.#neighborMessage = this.#savedNeighborMessage;
     this.#engagement = dependencies.engagement ?? null;
     this.#view = view;
     this.#api = dependencies.api ?? new LocalApiClient();
@@ -203,6 +210,7 @@ export class SidePanelController {
     this.#regenerationIntent = null;
     this.#preferences = { ...this.#savedPreferences };
     this.#closingPhrase = this.#savedClosingPhrase;
+    this.#neighborMessage = this.#savedNeighborMessage;
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
   }
@@ -214,6 +222,7 @@ export class SidePanelController {
     this.#regenerationIntent = null;
     this.#preferences = { ...this.#savedPreferences };
     this.#closingPhrase = this.#savedClosingPhrase;
+    this.#neighborMessage = this.#savedNeighborMessage;
     this.#preferenceNotice = undefined;
     await this.#captureActivePost();
     if (
@@ -447,14 +456,12 @@ export class SidePanelController {
   }
 
   changeNeighborMessage(value: string): void {
-    if (
-      this.#busy ||
-      this.#discoveryPost?.source !== "search" ||
-      !["approved", "completed"].includes(this.#recommendation?.reviewStatus ?? "")
-    ) {
-      return;
-    }
-    this.#neighborMessage = Array.from(value).slice(0, 500).join("");
+    if (this.#busy) return;
+    this.#neighborMessage = boundNeighborMessage(value);
+  }
+
+  setNeighborMessageDefault(value: string): void {
+    this.#savedNeighborMessage = boundNeighborMessage(value);
   }
 
   async engage(): Promise<void> {
@@ -1236,6 +1243,10 @@ function approvedComment(recommendation: Recommendation): string {
     (candidate) => candidate.id === recommendation.selectedCandidateId,
   );
   return recommendation.editedComment ?? selected?.comment ?? "";
+}
+
+function boundNeighborMessage(value: string): string {
+  return Array.from(value).slice(0, 500).join("");
 }
 
 function sameOptionalPost(value: string | undefined, expected: string): boolean {

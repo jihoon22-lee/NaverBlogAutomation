@@ -1,3 +1,4 @@
+import type { DiscoveryPost } from "../api/types";
 import { PREVIEW_CODE_POINTS, boundCodePoints } from "../extraction/normalize";
 import type { CaptureFailureCode } from "../extraction/types";
 import { MAX_CLOSING_PHRASE_CODE_POINTS } from "../preferences/model";
@@ -31,6 +32,7 @@ export class DomPanelView implements PanelView {
   readonly #characterCount: HTMLElement;
   readonly #cleanupButton: HTMLButtonElement;
   readonly #completeButton: HTMLButtonElement;
+  readonly #completionNavigation: HTMLElement;
   readonly #copyButton: HTMLButtonElement;
   readonly #document: Document;
   readonly #editCount: HTMLElement;
@@ -58,6 +60,7 @@ export class DomPanelView implements PanelView {
   readonly #personalizationResultNotice: HTMLElement;
   readonly #neighborMessage: HTMLTextAreaElement;
   readonly #neighborMessageField: HTMLElement;
+  readonly #nextPostButton: HTMLButtonElement;
   readonly #relationshipOptions: HTMLFieldSetElement;
   readonly #regenerateButton: HTMLButtonElement;
   readonly #speechStyleOptions: HTMLFieldSetElement;
@@ -82,6 +85,7 @@ export class DomPanelView implements PanelView {
   readonly #topics: HTMLElement;
   readonly #truncationNotice: HTMLElement;
   #currentKind: PanelState["kind"] | null = null;
+  #currentDiscoverySource: DiscoveryPost["source"] | null = null;
 
   constructor(document: Document) {
     this.#document = document;
@@ -93,6 +97,7 @@ export class DomPanelView implements PanelView {
     this.#characterCount = requireElement(document, "#character-count");
     this.#cleanupButton = requireElement(document, "#cleanup-button");
     this.#completeButton = requireElement(document, "#complete-button");
+    this.#completionNavigation = requireElement(document, "#completion-navigation");
     this.#copyButton = requireElement(document, "#copy-button");
     this.#editCount = requireElement(document, "#edit-count");
     this.#editSection = requireElement(document, "#edit-section");
@@ -119,6 +124,7 @@ export class DomPanelView implements PanelView {
     this.#personalizationResultNotice = requireElement(document, "#personalization-result-notice");
     this.#neighborMessage = requireElement(document, "#neighbor-message");
     this.#neighborMessageField = requireElement(document, "#neighbor-message-field");
+    this.#nextPostButton = requireElement(document, "#next-post-button");
     this.#relationshipOptions = requireElement(document, "#relationship-options");
     this.#regenerateButton = requireElement(document, "#regenerate-button");
     this.#speechStyleOptions = requireElement(document, "#speech-style-options");
@@ -154,6 +160,11 @@ export class DomPanelView implements PanelView {
     this.#retryFillButton.addEventListener("click", actions.refill);
     this.#completeButton.addEventListener("click", actions.complete);
     this.#engagementRunButton.addEventListener("click", actions.engage);
+    this.#nextPostButton.addEventListener("click", () => {
+      if (this.#currentDiscoverySource !== null) {
+        this.#dispatch("discovery-open-next", { source: this.#currentDiscoverySource });
+      }
+    });
     this.#neighborMessage.addEventListener("input", () => {
       const bounded = Array.from(this.#neighborMessage.value).slice(0, 500).join("");
       if (bounded !== this.#neighborMessage.value) this.#neighborMessage.value = bounded;
@@ -354,7 +365,9 @@ export class DomPanelView implements PanelView {
         : kind === "saving"
           ? "검토 상태를 저장하고 있습니다."
           : kind === "completed"
-            ? "수동 등록 완료로 표시했습니다."
+            ? presentation.engagementRun?.state === "succeeded"
+              ? "이 글의 승인된 교류를 완료했습니다."
+              : "수동 등록 완료로 표시했습니다."
             : "추천 댓글을 직접 검토해 주세요.";
     this.#reviewStatus.textContent =
       kind === "engaging"
@@ -362,7 +375,9 @@ export class DomPanelView implements PanelView {
         : kind === "saving"
           ? "저장 중"
           : kind === "completed"
-            ? "수동 workflow 완료"
+            ? presentation.engagementRun?.state === "succeeded"
+              ? "교류 완료"
+              : "수동 workflow 완료"
             : kind === "approved"
               ? "승인됨"
               : "검토 중";
@@ -442,6 +457,9 @@ export class DomPanelView implements PanelView {
     this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
     this.#editedUseButton.hidden = kind !== "review";
     this.#renderEngagement(presentation, kind);
+    this.#currentDiscoverySource = presentation.discoveryPost?.source ?? null;
+    this.#completionNavigation.hidden = kind !== "completed";
+    this.#nextPostButton.hidden = kind !== "completed" || this.#currentDiscoverySource === null;
     this.#copyButton.hidden = kind === "review" || kind === "saving" || kind === "engaging";
     this.#retryFillButton.hidden = kind !== "approved";
     this.#completeButton.hidden = kind !== "approved";
@@ -499,6 +517,8 @@ export class DomPanelView implements PanelView {
     this.#engagementStepResults.replaceChildren(
       ...steps.map((step) => {
         const item = this.#document.createElement("li");
+        item.dataset.state = step.state;
+        if (step.state === "running") item.setAttribute("aria-current", "step");
         item.textContent = `${engagementStepLabel(step.name)} · ${engagementStateLabel(step.state)}`;
         return item;
       }),
@@ -507,6 +527,13 @@ export class DomPanelView implements PanelView {
 
   #focus(element: HTMLElement): void {
     this.#document.defaultView?.requestAnimationFrame(() => element.focus());
+  }
+
+  #dispatch(name: string, detail: object): void {
+    const EventConstructor = this.#document.defaultView?.CustomEvent;
+    if (EventConstructor !== undefined) {
+      this.#document.defaultView?.dispatchEvent(new EventConstructor(name, { detail }));
+    }
   }
 
   #clearSensitiveDom(): void {
@@ -520,6 +547,8 @@ export class DomPanelView implements PanelView {
     this.#neighborMessage.value = "";
     this.#engagementStepResults.replaceChildren();
     this.#engagementRunPanel.hidden = true;
+    this.#completionNavigation.hidden = true;
+    this.#currentDiscoverySource = null;
     this.#editCount.textContent = "";
     this.#reviewNotice.textContent = "";
     this.#generatedRelationship.textContent = "";
