@@ -302,6 +302,45 @@ def test_unconfirmed_step_cannot_be_retried_and_history_is_bounded(repositories)
             engagement.list_recent(limit)
 
 
+def test_manual_completion_finishes_failed_run_and_today_queue(repositories) -> None:
+    engine, recommendations, discovery, engagement, _ = repositories
+    source_url = "https://blog.naver.com/candidate/998"
+    item = recommendation(source_url)
+    persist_recommendation(recommendations, item)
+    post_id = create_post(discovery, source=DiscoverySource.NEIGHBOR, source_url=source_url)
+    run = engagement.start(
+        approval_id=UUID("00000000-0000-4000-8000-000000000033"),
+        discovery_post_id=post_id,
+        recommendation_id=item.id,
+    ).run
+    engagement.transition_step(run.id, EngagementStepName.LIKE, EngagementStepState.RUNNING)
+    engagement.transition_step(
+        run.id,
+        EngagementStepName.LIKE,
+        EngagementStepState.FAILED,
+        result_code="not_found",
+    )
+
+    finalized = engagement.complete_manually(
+        run.id,
+        completed_steps=(EngagementStepName.LIKE, EngagementStepName.COMMENT),
+    )
+
+    assert finalized.state is EngagementRunState.SUCCEEDED
+    assert [step.result_code for step in finalized.steps] == [
+        "manual_confirmed",
+        "manual_confirmed",
+    ]
+    assert recommendations.get(item.id).review_status is ReviewStatus.COMPLETED  # type: ignore[union-attr]
+    with engine.connect() as connection:
+        assert (
+            connection.execute(
+                select(discovered_posts.c.state).where(discovered_posts.c.id == str(post_id))
+            ).scalar_one()
+            == "completed"
+        )
+
+
 def test_start_rejects_unapproved_or_mismatched_sources(repositories) -> None:
     _, recommendations, discovery, engagement, _ = repositories
     source_url = "https://blog.naver.com/candidate/321"

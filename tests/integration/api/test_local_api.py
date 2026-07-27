@@ -224,6 +224,75 @@ def test_engagement_api_persists_ordered_results_and_completes_linked_records(
     assert client.get("/api/v1/discovery/queue?source=neighbor").json()["items"] == []
 
 
+def test_manual_engagement_completion_resolves_failed_run_and_queue(client: TestClient) -> None:
+    recommendation_id, recommendation = create(client)
+    assert (
+        client.patch(
+            f"/api/v1/recommendations/{recommendation_id}",
+            json={
+                "selected_candidate_id": recommendation["candidates"][0]["id"],
+                "review_status": "approved",
+            },
+        ).status_code
+        == 200
+    )
+    neighbor = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "수동 완료 이웃",
+            "blog_url": "https://blog.naver.com/manual",
+            "blog_id": "manual",
+        },
+    ).json()
+    assert (
+        client.post(
+            "/api/v1/discovery/import",
+            json={
+                "source": "neighbor",
+                "neighbor_id": neighbor["id"],
+                "posts": [{"source_url": BLOG_URL, "title": "주말 전시 후기"}],
+            },
+        ).status_code
+        == 200
+    )
+    post_id = client.get("/api/v1/discovery/queue?source=neighbor").json()["items"][0]["id"]
+    started = client.post(
+        "/api/v1/engagement-runs",
+        json={
+            "approval_id": str(UUID("00000000-0000-4000-8000-000000000041")),
+            "discovery_post_id": post_id,
+            "recommendation_id": str(recommendation_id),
+        },
+    ).json()
+    assert (
+        client.patch(
+            f"/api/v1/engagement-runs/{started['id']}/steps/like",
+            json={"state": "running"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/engagement-runs/{started['id']}/steps/like",
+            json={"state": "failed", "result_code": "not_found"},
+        ).status_code
+        == 200
+    )
+
+    completed = client.post(
+        f"/api/v1/engagement-runs/{started['id']}/manual-completion",
+        json={"completed_steps": ["like", "comment"]},
+    )
+
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "succeeded"
+    assert [step["result_code"] for step in completed.json()["steps"]] == [
+        "manual_confirmed",
+        "manual_confirmed",
+    ]
+    assert client.get("/api/v1/discovery/queue?source=neighbor").json()["items"] == []
+
+
 def test_automatic_discovery_settings_are_opt_in_and_preserve_last_run_state(
     client: TestClient,
 ) -> None:
@@ -406,6 +475,12 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
         client.get("/api/v1/discovery/queue?source=search").json()["items"][0]["publisher_name"]
         == "새 블로거"
     )
+    deleted_search = client.delete(f"/api/v1/discovery/searches/{search_id}")
+    assert deleted_search.status_code == 204
+    assert client.get("/api/v1/discovery/searches").json()["items"] == []
+    retained_candidates = client.get("/api/v1/discovery/queue?source=search").json()["items"]
+    assert retained_candidates[0]["title"] == "신규 이웃 후보"
+    assert retained_candidates[0]["search_id"] is None
 
     assert client.get("/api/v1/discovery/digest-settings").json() == {
         "timezone": "Asia/Seoul",

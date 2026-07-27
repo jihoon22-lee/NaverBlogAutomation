@@ -125,6 +125,7 @@ class DiscoveredPost:
     publisher_blog_id: str | None
     published_at: datetime | None
     neighbor_id: UUID | None
+    # A saved search may be deleted after candidates are collected.
     search_id: UUID | None
     created_at: datetime
     updated_at: datetime
@@ -141,8 +142,6 @@ class DiscoveredPost:
             raise DomainValidationError("publisher blog id is invalid")
         if self.source is DiscoverySource.NEIGHBOR and self.neighbor_id is None:
             raise DomainValidationError("neighbor posts require a neighbor id")
-        if self.source is DiscoverySource.SEARCH and self.search_id is None:
-            raise DomainValidationError("search posts require a saved search id")
 
 
 @dataclass(frozen=True, slots=True)

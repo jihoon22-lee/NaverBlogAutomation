@@ -54,6 +54,7 @@ from naver_blog_assistant.api.models import (
     EngagementRunStartRequest,
     EngagementStepTransitionRequest,
     HealthResponse,
+    ManualEngagementCompletionRequest,
     NeighborListResponse,
     NeighborRequest,
     NeighborResponse,
@@ -923,15 +924,52 @@ def create_app(
                 "The selected discovery post or recommendation was not found.",
             ) from error
         except ValueError as error:
+            code, detail = _engagement_start_conflict(error)
             raise ApiError(
                 409,
-                "engagement_conflict",
+                code,
                 "Engagement conflict",
-                "The selected post and approved recommendation cannot start this run.",
+                detail,
             ) from error
         response.status_code = 201 if result.created else 200
         response.headers["Engagement-Replayed"] = str(not result.created).lower()
         return EngagementRunResponse.from_domain(result.run)
+
+    @app.post(
+        "/api/v1/engagement-runs/{run_id}/manual-completion",
+        response_model=EngagementRunResponse,
+        responses={
+            404: _problem_metadata("The engagement run was not found."),
+            409: _problem_metadata("The engagement run cannot be manually finalized."),
+            422: _problem_metadata("Manual engagement completion is invalid."),
+        },
+        tags=["Engagement"],
+        operation_id="completeEngagementManually",
+    )
+    def complete_engagement_manually(
+        run_id: UUID,
+        payload: ManualEngagementCompletionRequest,
+    ) -> EngagementRunResponse:
+        try:
+            run = engagements.complete_manually(
+                run_id,
+                completed_steps=tuple(EngagementStepName(step) for step in payload.completed_steps),
+            )
+        except LookupError as error:
+            raise ApiError(
+                404,
+                "engagement_run_not_found",
+                "Engagement run not found",
+                "The selected engagement run was not found.",
+            ) from error
+        except ValueError as error:
+            raise ApiError(
+                409,
+                "engagement_manual_completion_conflict",
+                "Manual engagement completion conflict",
+                "The selected engagement result cannot be manually finalized.",
+            ) from error
+        return EngagementRunResponse.from_domain(run)
 
     @app.get(
         "/api/v1/engagement-runs/by-post/{post_id}",
@@ -1073,6 +1111,18 @@ def create_app(
                 422, "invalid_search", "Invalid saved search", "Saved search data is invalid."
             ) from error
         return SavedSearchResponse.from_domain(result)
+
+    @app.delete(
+        "/api/v1/discovery/searches/{search_id}",
+        status_code=204,
+        responses={404: _problem_metadata("The selected saved search was not found.")},
+        tags=["Discovery"],
+        operation_id="deleteDiscoverySearch",
+    )
+    def delete_discovery_search(search_id: UUID) -> Response:
+        if not discovery.delete_search(search_id):
+            raise _discovery_not_found()
+        return Response(status_code=204)
 
     @app.post(
         "/api/v1/discovery/searches/{search_id}/refresh",
@@ -1365,6 +1415,39 @@ def _configured_generator(settings: ApiSettings) -> CommentGenerator:
         reasoning_effort=settings.openai_reasoning_effort,
         timeout_seconds=settings.openai_timeout_seconds,
         max_output_tokens=settings.openai_max_output_tokens,
+    )
+
+
+def _engagement_start_conflict(error: ValueError) -> tuple[str, str]:
+    message = str(error)
+    if "approval is already bound" in message:
+        return (
+            "engagement_approval_bound",
+            "This approval token is already bound to a different engagement run.",
+        )
+    if "discovery post is already bound" in message:
+        return (
+            "engagement_post_recommendation_mismatch",
+            "This discovery post is already linked to a different recommendation.",
+        )
+    if "recommendation does not belong" in message:
+        return (
+            "engagement_source_mismatch",
+            "The selected recommendation does not belong to the discovery post.",
+        )
+    if "recommendation must be approved" in message:
+        return (
+            "engagement_recommendation_not_approved",
+            "Only an approved recommendation can start a new engagement run.",
+        )
+    if "publisher blog id" in message:
+        return (
+            "engagement_publisher_missing",
+            "A new-neighbor candidate needs its publisher blog ID before engagement can start.",
+        )
+    return (
+        "engagement_conflict",
+        "The selected post and approved recommendation cannot start this run.",
     )
 
 
