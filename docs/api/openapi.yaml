@@ -353,6 +353,7 @@ paths:
       responses:
         "204": {description: Saved search deleted.}
         "404": {$ref: "#/components/responses/NotFound"}
+        "422": {description: Validation Error}
   /api/v1/discovery/import:
     post:
       operationId: importDiscoveryPosts

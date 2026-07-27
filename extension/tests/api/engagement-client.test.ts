@@ -138,6 +138,14 @@ describe("LocalApiClient engagement API", () => {
     );
   });
 
+  it("rejects an unexpected manual-completion response without guessing completion", async () => {
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 409 })),
+      ).completeEngagementManually(run.id, ["comment"]),
+    ).rejects.toBeInstanceOf(ApiClientError);
+  });
+
   it("rejects malformed order, terminal results, and out-of-range limits", async () => {
     const malformed = {
       ...run,

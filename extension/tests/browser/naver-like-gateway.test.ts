@@ -264,4 +264,79 @@ describe("injected Naver like functions", () => {
     await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("clicked");
     expect(button.getAttribute("aria-pressed")).toBe("true");
   });
+
+  it("marks a click as unconfirmed when the live reaction state never changes", async () => {
+    const dom = new JSDOM(
+      '<div class="u_likeit_list_module _reactionModule _reactionModule_BLOG"><a class="u_likeit_button _face off" role="button" aria-pressed="false"></a></div>',
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const { api, executeScript: execute } = fixture({});
+    execute.mockReset();
+    execute.mockImplementation(
+      async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+        let now = 0;
+        const previous = {
+          Date: globalThis.Date,
+          document: globalThis.document,
+          getComputedStyle: globalThis.getComputedStyle,
+          window: globalThis.window,
+        };
+        Object.assign(globalThis, {
+          Date: { now: () => (now += 100) },
+          document: dom.window.document,
+          getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+          window: Object.assign(dom.window, { setTimeout: (callback: () => void) => callback() }),
+        });
+        try {
+          if (injection.func === undefined) throw new Error("Synthetic function is missing");
+          return [{ frameId: 0, result: await (injection.func as () => unknown)() }];
+        } finally {
+          Object.assign(globalThis, previous);
+        }
+      },
+    );
+
+    await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe("unconfirmed");
+  });
+
+  it("rechecks the exact frame before clicking and refuses missing or duplicate targets", async () => {
+    for (const [html, expected] of [
+      ["", "not_found"],
+      [
+        '<div class="u_likeit_list_module _reactionModule _reactionModule_BLOG"><a class="u_likeit_button _face off" role="button" aria-pressed="false"></a><a class="u_likeit_button _face off" role="button" aria-pressed="false"></a></div>',
+        "ambiguous",
+      ],
+    ] as const) {
+      const dom = new JSDOM(html, {
+        pretendToBeVisual: true,
+        url: "https://blog.naver.com/synthetic/7",
+      });
+      const { api, executeScript: execute } = fixture({});
+      execute.mockReset();
+      execute
+        .mockResolvedValueOnce([{ frameId: 0, result: { count: 1, liked: false } }])
+        .mockImplementationOnce(
+          async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
+            const previous = {
+              document: globalThis.document,
+              getComputedStyle: globalThis.getComputedStyle,
+              window: globalThis.window,
+            };
+            Object.assign(globalThis, {
+              document: dom.window.document,
+              getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+              window: dom.window,
+            });
+            try {
+              if (injection.func === undefined) throw new Error("Synthetic function is missing");
+              return [{ frameId: 0, result: await (injection.func as () => unknown)() }];
+            } finally {
+              Object.assign(globalThis, previous);
+            }
+          },
+        );
+
+      await expect(new ChromeNaverLikeGateway(api).like(7)).resolves.toBe(expected);
+    }
+  });
 });

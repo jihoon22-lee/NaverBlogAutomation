@@ -73,6 +73,12 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
   };
 }
 
+function submitEvent(): Event {
+  const event = document.createEvent("Event");
+  event.initEvent("submit", true, true);
+  return event;
+}
+
 beforeEach(async () => {
   const html = await readFile(htmlPath, "utf8");
   const dom = new JSDOM(html, {
@@ -84,6 +90,194 @@ beforeEach(async () => {
 });
 
 describe("DomPanelView", () => {
+  it("lets the user record only confirmed steps for a failed engagement run", () => {
+    const manualComplete = vi.fn();
+    view.bind(actions({ manualComplete }));
+    const dialog = document.querySelector("#engagement-manual-dialog") as HTMLDialogElement;
+    dialog.showModal = vi.fn();
+    dialog.close = vi.fn();
+    view.render({
+      ...recommendation,
+      discoveryPost: {
+        createdAt: "2026-07-28T00:00:00Z",
+        id: "post",
+        neighborId: "neighbor",
+        publishedAt: null,
+        publisherBlogId: null,
+        publisherName: "이웃",
+        searchId: null,
+        source: "neighbor",
+        sourceUrl: recommendation.recommendation.sourceUrl,
+        state: "opened",
+        title: recommendation.recommendation.title,
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      engagementRun: {
+        approvalId: "approval",
+        createdAt: "2026-07-28T00:00:00Z",
+        discoveryPostId: "post",
+        id: "run",
+        recommendationId: recommendation.recommendation.id,
+        source: "neighbor",
+        state: "failed",
+        steps: [
+          {
+            name: "like",
+            position: 0,
+            resultCode: "clicked",
+            state: "succeeded",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+          {
+            name: "comment",
+            position: 1,
+            resultCode: null,
+            state: "pending",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+        ],
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      kind: "approved",
+      recommendation: { ...recommendation.recommendation, reviewStatus: "approved" },
+    });
+
+    const button = document.querySelector("#engagement-manual-button") as HTMLButtonElement;
+    button.click();
+    expect(button.hidden).toBe(false);
+    expect(dialog.showModal).toHaveBeenCalledOnce();
+    const comment = document.querySelector<HTMLInputElement>(
+      'input[name="manual-engagement-step"][value="comment"]',
+    );
+    comment?.click();
+    (document.querySelector("#engagement-manual-form") as HTMLFormElement).dispatchEvent(
+      submitEvent(),
+    );
+    expect(dialog.close).toHaveBeenCalledOnce();
+    expect(manualComplete).toHaveBeenCalledWith(["like", "comment"]);
+  });
+
+  it("keeps a failed engagement unrecorded when comment registration is not confirmed", () => {
+    const manualComplete = vi.fn();
+    view.bind(actions({ manualComplete }));
+    const dialog = document.querySelector("#engagement-manual-dialog") as HTMLDialogElement;
+    dialog.showModal = vi.fn();
+    view.render({
+      ...recommendation,
+      discoveryPost: {
+        createdAt: "2026-07-28T00:00:00Z",
+        id: "post",
+        neighborId: "neighbor",
+        publishedAt: null,
+        publisherBlogId: null,
+        publisherName: "이웃",
+        searchId: null,
+        source: "neighbor",
+        sourceUrl: recommendation.recommendation.sourceUrl,
+        state: "opened",
+        title: recommendation.recommendation.title,
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      engagementRun: {
+        approvalId: "approval",
+        createdAt: "2026-07-28T00:00:00Z",
+        discoveryPostId: "post",
+        id: "run",
+        recommendationId: recommendation.recommendation.id,
+        source: "neighbor",
+        state: "failed",
+        steps: [
+          {
+            name: "like",
+            position: 0,
+            resultCode: "not_found",
+            state: "failed",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+          {
+            name: "comment",
+            position: 1,
+            resultCode: null,
+            state: "pending",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+        ],
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      kind: "approved",
+      recommendation: { ...recommendation.recommendation, reviewStatus: "approved" },
+    });
+
+    (document.querySelector("#engagement-manual-button") as HTMLButtonElement).click();
+    (document.querySelector("#engagement-manual-form") as HTMLFormElement).dispatchEvent(
+      submitEvent(),
+    );
+    expect(manualComplete).not.toHaveBeenCalled();
+    expect(document.querySelector("#engagement-manual-notice")?.textContent).toContain("댓글 등록");
+  });
+
+  it("closes the manual-completion dialog without recording anything when cancelled", () => {
+    const dialog = document.querySelector("#engagement-manual-dialog") as HTMLDialogElement;
+    dialog.close = vi.fn();
+    view.bind(actions());
+
+    (dialog.querySelector('button[value="cancel"]') as HTMLButtonElement).click();
+
+    expect(dialog.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer manual completion while an engagement result is unconfirmed", () => {
+    view.render({
+      ...recommendation,
+      discoveryPost: {
+        createdAt: "2026-07-28T00:00:00Z",
+        id: "post",
+        neighborId: "neighbor",
+        publishedAt: null,
+        publisherBlogId: null,
+        publisherName: "이웃",
+        searchId: null,
+        source: "neighbor",
+        sourceUrl: recommendation.recommendation.sourceUrl,
+        state: "opened",
+        title: recommendation.recommendation.title,
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      engagementRun: {
+        approvalId: "approval",
+        createdAt: "2026-07-28T00:00:00Z",
+        discoveryPostId: "post",
+        id: "run",
+        recommendationId: recommendation.recommendation.id,
+        source: "neighbor",
+        state: "unconfirmed",
+        steps: [
+          {
+            name: "like",
+            position: 0,
+            resultCode: "unconfirmed",
+            state: "unconfirmed",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+          {
+            name: "comment",
+            position: 1,
+            resultCode: null,
+            state: "pending",
+            updatedAt: "2026-07-28T00:00:00Z",
+          },
+        ],
+        updatedAt: "2026-07-28T00:00:00Z",
+      },
+      kind: "approved",
+      recommendation: { ...recommendation.recommendation, reviewStatus: "approved" },
+    });
+
+    expect((document.querySelector("#engagement-manual-button") as HTMLButtonElement).hidden).toBe(
+      true,
+    );
+  });
+
   it("announces progress without exposing preview controls", () => {
     view.render({ kind: "extracting" });
 

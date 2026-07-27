@@ -255,6 +255,14 @@ describe("LocalApiClient discovery API", () => {
     );
   });
 
+  it("does not pretend a saved search was deleted on an unexpected response", async () => {
+    await expect(
+      new LocalApiClient(
+        vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 })),
+      ).deleteDiscoverySearch(id),
+    ).rejects.toBeInstanceOf(Error);
+  });
+
   it("rejects malformed automatic-discovery settings and synchronization responses", async () => {
     const settings = {
       own_blog_id: "mine",

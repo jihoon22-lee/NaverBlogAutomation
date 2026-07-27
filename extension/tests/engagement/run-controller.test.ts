@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiClientError } from "../../src/api/client";
 import type {
   DiscoveryPost,
   EngagementRun,
@@ -137,6 +138,69 @@ function approvedSession(source: "neighbor" | "search") {
 }
 
 describe("EngagementRunController", () => {
+  it("keeps the stable API conflict code when a run cannot start", async () => {
+    const { session, token } = approvedSession("neighbor");
+    const api = fakeApi(createRun());
+    api.startEngagementRun.mockRejectedValueOnce(
+      new ApiClientError("safe synthetic conflict", {
+        problem: {
+          code: "engagement_approval_bound",
+          detail: "safe synthetic detail",
+          requestId: "00000000-0000-4000-8000-000000000099",
+          status: 409,
+          title: "Synthetic conflict",
+          type: "about:blank",
+        },
+        retryAfterSeconds: null,
+        status: 409,
+      }),
+    );
+    const controller = new EngagementRunController(session, {
+      api,
+      likes: { like: vi.fn() },
+      comments: { publish: vi.fn() },
+      mutualNeighbors: { request: vi.fn() },
+    });
+
+    await expect(
+      controller.execute({
+        discoveryPost: post(),
+        recommendation,
+        tabId: 7,
+        tokenId: token.id,
+      }),
+    ).resolves.toEqual({
+      code: "engagement_approval_bound",
+      run: null,
+      status: "failed",
+    });
+  });
+
+  it("uses a safe generic code when an API boundary throws a non-client error", async () => {
+    const { session, token } = approvedSession("neighbor");
+    const api = fakeApi(createRun());
+    api.startEngagementRun.mockRejectedValueOnce(new Error("private transport detail"));
+    const controller = new EngagementRunController(session, {
+      api,
+      likes: { like: vi.fn() },
+      comments: { publish: vi.fn() },
+      mutualNeighbors: { request: vi.fn() },
+    });
+
+    await expect(
+      controller.execute({
+        discoveryPost: post(),
+        recommendation,
+        tabId: 7,
+        tokenId: token.id,
+      }),
+    ).resolves.toEqual({
+      code: "engagement_api_error",
+      run: null,
+      status: "failed",
+    });
+  });
+
   it("executes one approved neighbor post in order and never repeats successful steps", async () => {
     const { session, token } = approvedSession("neighbor");
     const api = fakeApi(createRun());

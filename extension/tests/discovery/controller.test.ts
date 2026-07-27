@@ -199,6 +199,34 @@ describe("DiscoveryController", () => {
     );
   });
 
+  it("keeps a saved search when the user cancels deletion", async () => {
+    vi.spyOn(domWindow, "confirm").mockReturnValue(false);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    (document.querySelector("[data-action=delete-search]") as HTMLButtonElement).click();
+    await settle();
+
+    expect(client.deleteDiscoverySearch).not.toHaveBeenCalled();
+    expect(document.querySelector("#discovery-searches")?.textContent).toContain("여행");
+  });
+
+  it("keeps the delete action recoverable when saving fails", async () => {
+    vi.spyOn(domWindow, "confirm").mockReturnValue(true);
+    client.deleteDiscoverySearch.mockRejectedValueOnce(new Error("삭제 실패"));
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+    const button = document.querySelector("[data-action=delete-search]") as HTMLButtonElement;
+
+    button.click();
+    await settle();
+
+    expect(button.disabled).toBe(false);
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("삭제 실패");
+  });
+
   it("shows persisted automatic status and opens a queued post without a page import", async () => {
     client.automaticDiscoverySettings.mockResolvedValueOnce({
       ownBlogId: "mine",
