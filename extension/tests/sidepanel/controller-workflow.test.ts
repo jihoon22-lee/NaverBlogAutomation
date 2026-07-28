@@ -841,12 +841,20 @@ describe("integrated Side Panel workflow", () => {
     });
   });
 
-  it("records confirmed manual steps after a failed run and refreshes the completed workflow", async () => {
+  it("records a manual comment and resumes only the pending mutual-neighbor step", async () => {
+    const searchPost: DiscoveryPost = {
+      ...discoveryPost,
+      neighborId: null,
+      publisherBlogId: "synthetic",
+      searchId: "00000000-0000-4000-8000-000000000076",
+      source: "search",
+    };
     const token: EngagementApprovalToken = {
       details: {
         comment: "사용자가 다듬은 합성 댓글",
+        neighborMessage: "서로이웃으로 소통하고 싶어요.",
         sourceUrl: tab.url,
-        steps: ["like", "comment"],
+        steps: ["like", "comment", "mutual_neighbor"],
         title: tab.title,
       },
       id: "00000000-0000-4000-8000-000000000078",
@@ -854,22 +862,29 @@ describe("integrated Side Panel workflow", () => {
     const failedRun: EngagementRun = {
       approvalId: token.id,
       createdAt: "2026-07-28T00:00:00Z",
-      discoveryPostId: discoveryPost.id,
+      discoveryPostId: searchPost.id,
       id: "00000000-0000-4000-8000-000000000079",
       recommendationId: drafted.id,
-      source: "neighbor",
+      source: "search",
       state: "failed",
       steps: [
         {
           name: "like",
           position: 0,
-          resultCode: "not_found",
-          state: "failed",
+          resultCode: "clicked",
+          state: "succeeded",
           updatedAt: "2026-07-28T00:00:01Z",
         },
         {
           name: "comment",
           position: 1,
+          resultCode: "occupied",
+          state: "failed",
+          updatedAt: "2026-07-28T00:00:01Z",
+        },
+        {
+          name: "mutual_neighbor",
+          position: 2,
           resultCode: null,
           state: "pending",
           updatedAt: "2026-07-28T00:00:01Z",
@@ -877,35 +892,47 @@ describe("integrated Side Panel workflow", () => {
       ],
       updatedAt: "2026-07-28T00:00:01Z",
     };
-    const completedRun: EngagementRun = {
+    const resumedRun: EngagementRun = {
       ...failedRun,
+      state: "running",
+      steps: failedRun.steps.map((step) =>
+        step.name === "comment"
+          ? { ...step, resultCode: "manual_confirmed", state: "succeeded" }
+          : step,
+      ),
+    };
+    const completedRun: EngagementRun = {
+      ...resumedRun,
       state: "succeeded",
-      steps: failedRun.steps.map((step) => ({
-        ...step,
-        resultCode: "manual_confirmed",
-        state: "succeeded",
-      })),
+      steps: resumedRun.steps.map((step) =>
+        step.name === "mutual_neighbor"
+          ? { ...step, resultCode: "requested", state: "succeeded" }
+          : step,
+      ),
     };
     const approval = {
       cancelPendingApproval: vi.fn(),
       requestApproval: vi.fn(async () => token),
     };
     const engagement = {
-      execute: vi.fn(async () => ({
-        code: "not_found",
-        run: failedRun,
-        status: "failed" as const,
-      })),
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ code: "occupied", run: failedRun, status: "failed" as const })
+        .mockResolvedValueOnce({
+          code: "engagement_completed",
+          run: completedRun,
+          status: "completed" as const,
+        }),
     };
     const fixture = setup({ approval, engagement });
-    fixture.api.completeEngagementManually.mockResolvedValue(completedRun);
+    fixture.api.completeEngagementManually.mockResolvedValue(resumedRun);
     fixture.api.get.mockResolvedValue({
       ...drafted,
       editedComment: "사용자가 다듬은 합성 댓글",
       reviewStatus: "completed",
       selectedCandidateId: candidates[0]?.id ?? null,
     });
-    await fixture.controller.captureDiscoveryPost(discoveryPost, tab.id);
+    await fixture.controller.captureDiscoveryPost(searchPost, tab.id);
     fixture.view.actions?.generate();
     await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
     const selected = candidates[0];
@@ -927,6 +954,19 @@ describe("integrated Side Panel workflow", () => {
       ["like", "comment"],
       expect.any(AbortSignal),
     );
+    expect(fixture.view.states.at(-1)).toMatchObject({
+      engagementRun: { id: resumedRun.id, state: "running" },
+      notice: expect.stringContaining("남은 서로이웃 신청"),
+    });
+
+    fixture.api.getEngagementRunForPost.mockResolvedValue(resumedRun);
+    fixture.view.actions?.engage();
+
+    await vi.waitFor(() => expect(engagement.execute).toHaveBeenCalledTimes(2));
+    expect(engagement.execute.mock.calls[1]?.[0]).toMatchObject({
+      discoveryPost: searchPost,
+      recommendation: expect.objectContaining({ reviewStatus: "completed" }),
+    });
   });
 
   it("does not offer automatic execution for a recommendation opened outside the queue", async () => {

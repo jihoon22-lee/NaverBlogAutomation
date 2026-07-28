@@ -173,6 +173,29 @@ describe("injected comment publish functions", () => {
     expect(clicked).toHaveBeenCalledOnce();
   });
 
+  it("submits an exact draft that was already inserted before approval", async () => {
+    const dom = new JSDOM(
+      '<form class="u_cbox_write_area"><div class="u_cbox_text" contenteditable="true">승인 댓글</div><button class="u_cbox_btn_upload">등록</button></form>',
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const clicked = vi.fn();
+    dom.window.document.querySelector("button")?.addEventListener("click", () => {
+      clicked();
+      const input = dom.window.document.querySelector(".u_cbox_text");
+      if (input !== null) input.textContent = "";
+    });
+    const { executeScript } = injectedGateway(dom);
+    const gateway = new ChromeCommentPublishGateway({
+      scripting: { executeScript },
+      tabs: {
+        query: vi.fn().mockResolvedValue([{ id: 7, url: "https://blog.naver.com/synthetic/7" }]),
+      },
+    } as never);
+
+    await expect(gateway.publish(7, "승인 댓글")).resolves.toBe("submitted");
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
   it.each([
     '<form class="u_cbox_write_area"><textarea class="u_cbox_text">승인 댓글</textarea><button class="u_cbox_btn_upload">등록</button></form>',
     '<form class="u_cbox_write_wrap"><div class="u_cbox_text u_cbox_text_mention" contenteditable="true">승인 댓글</div><button class="_submitButton">등록</button></form>',

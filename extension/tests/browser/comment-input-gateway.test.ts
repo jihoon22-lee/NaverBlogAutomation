@@ -10,8 +10,14 @@ function apiFixture(
   options: {
     activeId?: number;
     activeUrl?: string;
-    frames?: Array<{ frameId: number; result: { count: number; empty: boolean } }>;
-    openers?: Array<{ frameId: number; result: { count: number; empty: boolean } }>;
+    frames?: Array<{
+      frameId: number;
+      result: { count: number; state: "empty" | "matching" | "occupied" };
+    }>;
+    openers?: Array<{
+      frameId: number;
+      result: { count: number; state: "empty" | "matching" | "occupied" };
+    }>;
     fillResult?: "ambiguous" | "filled" | "not_found" | "occupied" | "open_failed";
   } = {},
 ) {
@@ -21,7 +27,7 @@ function apiFixture(
         if (injection.func?.name === "probeCommentOpener") {
           return options.openers ?? [];
         }
-        return options.frames ?? [{ frameId: 3, result: { count: 1, empty: true } }];
+        return options.frames ?? [{ frameId: 3, result: { count: 1, state: "empty" } }];
       }
       return [{ frameId: 3, result: options.fillResult ?? "filled" }];
     },
@@ -53,12 +59,22 @@ describe("ChromeCommentInputGateway", () => {
     });
   });
 
+  it("reuses the exact approved draft without injecting a second time", async () => {
+    const { api, executeScript } = apiFixture({
+      frames: [{ frameId: 3, result: { count: 1, state: "matching" } }],
+    });
+
+    await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe("filled");
+    expect(executeScript).toHaveBeenCalledOnce();
+    expect(executeScript.mock.calls[0]?.[0]).toMatchObject({ args: ["합성 댓글"] });
+  });
+
   it.each([
-    [[{ frameId: 0, result: { count: 1, empty: false } }], "occupied"],
+    [[{ frameId: 0, result: { count: 1, state: "occupied" } }], "occupied"],
     [
       [
-        { frameId: 0, result: { count: 1, empty: true } },
-        { frameId: 2, result: { count: 1, empty: true } },
+        { frameId: 0, result: { count: 1, state: "empty" } },
+        { frameId: 2, result: { count: 1, state: "empty" } },
       ],
       "ambiguous",
     ],
@@ -81,7 +97,7 @@ describe("ChromeCommentInputGateway", () => {
   it("opens the sole trusted comment opener before filling its exact frame", async () => {
     const { api, executeScript } = apiFixture({
       frames: [],
-      openers: [{ frameId: 4, result: { count: 1, empty: false } }],
+      openers: [{ frameId: 4, result: { count: 1, state: "occupied" } }],
     });
 
     await expect(new ChromeCommentInputGateway(api).fill(7, "합성 댓글")).resolves.toBe("filled");
@@ -96,8 +112,8 @@ describe("ChromeCommentInputGateway", () => {
     const { api, executeScript } = apiFixture({
       frames: [],
       openers: [
-        { frameId: 0, result: { count: 1, empty: false } },
-        { frameId: 1, result: { count: 1, empty: false } },
+        { frameId: 0, result: { count: 1, state: "occupied" } },
+        { frameId: 1, result: { count: 1, state: "occupied" } },
       ],
     });
 

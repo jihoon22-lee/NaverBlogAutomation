@@ -239,7 +239,11 @@ class SqliteEngagementRepository:
         *,
         completed_steps: tuple[EngagementStepName, ...],
     ) -> EngagementRun:
-        """Record user-confirmed completion without re-running any browser action."""
+        """Record only user-confirmed steps without re-running browser actions.
+
+        Pending steps deliberately remain pending, so a user can complete a failed
+        comment manually and later approve a remaining mutual-neighbor request.
+        """
         if EngagementStepName.COMMENT not in completed_steps:
             raise ValueError("manual completion requires the comment step")
         if len(set(completed_steps)) != len(completed_steps):
@@ -261,32 +265,37 @@ class SqliteEngagementRepository:
             for step in run.steps:
                 if step.state in {EngagementStepState.SUCCEEDED, EngagementStepState.SKIPPED}:
                     continue
-                state = (
-                    EngagementStepState.SUCCEEDED
-                    if step.name in completed
-                    else EngagementStepState.SKIPPED
-                )
-                code = "manual_confirmed" if step.name in completed else "manual_not_performed"
+                if step.name not in completed:
+                    continue
                 connection.execute(
                     update(engagement_steps)
                     .where(
                         engagement_steps.c.run_id == str(run_id),
                         engagement_steps.c.name == step.name.value,
                     )
-                    .values(state=state.value, result_code=code, updated_at=timestamp)
+                    .values(
+                        state=EngagementStepState.SUCCEEDED.value,
+                        result_code="manual_confirmed",
+                        updated_at=timestamp,
+                    )
                 )
 
             self._complete_recommendation(connection, run.recommendation_id, updated_at=timestamp)
+            refreshed = self._get_with_connection(connection, run_id)
+            if refreshed is None:
+                raise RuntimeError("manually updated engagement run could not be read")
+            aggregate = _aggregate_state(refreshed.steps)
             connection.execute(
                 update(engagement_runs)
                 .where(engagement_runs.c.id == str(run_id))
-                .values(state=EngagementRunState.SUCCEEDED.value, updated_at=timestamp)
+                .values(state=aggregate.value, updated_at=timestamp)
             )
-            connection.execute(
-                update(discovered_posts)
-                .where(discovered_posts.c.id == str(run.discovery_post_id))
-                .values(state=DiscoveryState.COMPLETED.value, updated_at=timestamp)
-            )
+            if aggregate is EngagementRunState.SUCCEEDED:
+                connection.execute(
+                    update(discovered_posts)
+                    .where(discovered_posts.c.id == str(run.discovery_post_id))
+                    .values(state=DiscoveryState.COMPLETED.value, updated_at=timestamp)
+                )
             finalized = self._get_with_connection(connection, run_id)
             if finalized is None:
                 raise RuntimeError("manually finalized engagement run could not be read")

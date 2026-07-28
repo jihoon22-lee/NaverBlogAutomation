@@ -9,7 +9,7 @@ export type CommentInputResult =
 
 interface CommentTargetProbe {
   count: number;
-  empty: boolean;
+  state: "empty" | "matching" | "occupied";
 }
 
 export interface CommentInputGateway {
@@ -42,6 +42,7 @@ export class ChromeCommentInputGateway implements CommentInputGateway {
     let probes: chrome.scripting.InjectionResult<CommentTargetProbe>[];
     try {
       probes = await this.#api.scripting.executeScript({
+        args: [value],
         func: probeCommentTarget,
         target: { allFrames: true, tabId },
         world: "ISOLATED",
@@ -52,14 +53,17 @@ export class ChromeCommentInputGateway implements CommentInputGateway {
 
     const matches = probes.flatMap((probe) =>
       Array.from({ length: probe.result?.count ?? 0 }, () => ({
-        empty: probe.result?.empty ?? false,
+        state: probe.result?.state ?? "occupied",
         frameId: probe.frameId,
       })),
     );
     if (matches.length === 0) return this.#openAndFill(tabId, value);
     if (matches.length > 1) return "ambiguous";
     const [match] = matches;
-    if (match === undefined || !match.empty) return "occupied";
+    if (match === undefined || match.state === "occupied") return "occupied";
+    // The exact approved draft may already have been inserted by "댓글 사용하기".
+    // Preserve it and allow the explicit approval flow to continue to the submit button.
+    if (match.state === "matching") return "filled";
 
     try {
       const [filled] = await this.#api.scripting.executeScript({
@@ -121,11 +125,20 @@ function isSupportedUrl(value: string): boolean {
 }
 
 /** Keep runtime helpers inside functions serialized by chrome.scripting.executeScript. */
-function probeCommentTarget(): CommentTargetProbe {
+function probeCommentTarget(expectedValue: string): CommentTargetProbe {
   const candidates = findCommentTargets();
+  const target = candidates[0] as HTMLElement | undefined;
+  const value = target === undefined ? "" : readValue(target);
   return {
     count: candidates.length,
-    empty: candidates.length === 1 && readValue(candidates[0] as HTMLElement).trim().length === 0,
+    state:
+      candidates.length !== 1 || target === undefined
+        ? "occupied"
+        : value.trim().length === 0
+          ? "empty"
+          : value === expectedValue
+            ? "matching"
+            : "occupied",
   };
 
   function findCommentTargets(): HTMLElement[] {
@@ -184,7 +197,7 @@ function probeCommentTarget(): CommentTargetProbe {
 }
 
 function probeCommentOpener(): CommentTargetProbe {
-  return { count: findCommentOpeners().length, empty: false };
+  return { count: findCommentOpeners().length, state: "occupied" };
 
   function findCommentOpeners(): HTMLElement[] {
     const writeOpeners = Array.from(
@@ -230,7 +243,9 @@ function fillCommentTarget(value: string): CommentInputResult {
   if (candidates.length === 0) return "not_found";
   if (candidates.length > 1) return "ambiguous";
   const target = candidates[0] as HTMLElement;
-  if (readValue(target).trim().length > 0) return "occupied";
+  const currentValue = readValue(target);
+  if (currentValue === value) return "filled";
+  if (currentValue.trim().length > 0) return "occupied";
 
   target.focus();
   if (target instanceof HTMLTextAreaElement) {
@@ -317,7 +332,9 @@ async function openAndFillCommentTarget(value: string): Promise<CommentInputResu
     if (candidates.length > 1) return "ambiguous";
     const target = candidates[0];
     if (target !== undefined) {
-      if (readValue(target).trim().length > 0) return "occupied";
+      const currentValue = readValue(target);
+      if (currentValue === value) return "filled";
+      if (currentValue.trim().length > 0) return "occupied";
       writeValue(target, value);
       return readValue(target) === value ? "filled" : "open_failed";
     }
