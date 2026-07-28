@@ -576,7 +576,7 @@ export class DomPanelView implements PanelView {
     steps: readonly { name: EngagementStepName; state: string }[],
   ): void {
     const legend = this.#document.createElement("legend");
-    legend.textContent = "직접 완료한 단계";
+    legend.textContent = "직접 완료한 단계만 선택";
     this.#engagementManualSteps.replaceChildren(legend);
     for (const step of steps) {
       const label = this.#document.createElement("label");

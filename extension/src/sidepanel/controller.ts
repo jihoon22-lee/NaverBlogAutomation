@@ -762,7 +762,9 @@ export class SidePanelController {
       this.#assertCurrent(operation);
       this.#showRecommendation(
         updated,
-        "직접 완료한 단계를 기록하고 오늘의 작업에서 정리했습니다.",
+        this.#engagementRun.state === "succeeded"
+          ? "직접 완료한 단계를 기록하고 오늘의 작업에서 정리했습니다."
+          : "댓글 등록 수동 완료를 기록했습니다. 남은 서로이웃 신청은 다시 확인·승인하면 이어서 실행합니다.",
       );
       this.#dispatchEngagementUpdate();
     } catch (error) {
