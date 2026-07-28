@@ -296,14 +296,14 @@ describe("LocalApiClient discovery API", () => {
     const synchronization = {
       neighbors_added: 1,
       neighbor_posts_added: 2,
-      search_posts_added: 3,
+      search_posts_added: 183,
       search_provider: "naver_open_api",
       status: "success",
       detail: "동기화 완료",
     };
     const invalidSynchronizations = [
       { ...synchronization, neighbors_added: -1 },
-      { ...synchronization, neighbor_posts_added: 51 },
+      { ...synchronization, neighbor_posts_added: Number.MAX_SAFE_INTEGER + 1 },
       { ...synchronization, search_posts_added: "3" },
       { ...synchronization, search_provider: "unknown" },
       { ...synchronization, status: "running" },
