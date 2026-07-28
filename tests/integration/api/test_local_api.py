@@ -381,6 +381,46 @@ def test_automatic_discovery_sync_collects_public_metadata_without_browser_state
     assert settings_after["last_synced_at"] is not None
 
 
+def test_automatic_discovery_sync_returns_aggregate_search_count_over_fifty(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("naver_blog_assistant.api.factory.fetch_public_html", lambda _url: "")
+    monkeypatch.setattr("naver_blog_assistant.api.factory.fetch_rss_posts", lambda _url: ())
+
+    def search_posts(query: str, **_kwargs: object) -> tuple[ImportedDiscoveryPost, ...]:
+        return tuple(
+            ImportedDiscoveryPost(
+                source_url=f"https://blog.naver.com/{query}/{index}",
+                title=f"{query} 후보 {index}",
+                publisher_blog_id=f"{query}{index}",
+            )
+            for index in range(50)
+        )
+
+    monkeypatch.setattr("naver_blog_assistant.api.factory.fetch_naver_blog_search", search_posts)
+    assert (
+        client.put(
+            "/api/v1/discovery/automation-settings",
+            json={"own_blog_id": "mine", "enabled": True},
+        ).status_code
+        == 200
+    )
+    for query in ("전시", "여행", "맛집", "독서"):
+        assert (
+            client.post(
+                "/api/v1/discovery/searches",
+                json={"query": query, "excluded_terms": [], "freshness_days": 14},
+            ).status_code
+            == 201
+        )
+
+    response = client.post("/api/v1/discovery/sync")
+
+    assert response.status_code == 200
+    assert response.json()["search_posts_added"] == 200
+    assert response.json()["status"] == "success"
+
+
 def test_saved_search_refresh_explains_when_official_api_credentials_are_missing(
     database_path: Path,
 ) -> None:

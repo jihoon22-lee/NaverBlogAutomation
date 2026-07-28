@@ -529,9 +529,11 @@ class AutomaticDiscoverySettingsResponse(AutomaticDiscoverySettingsRequest):
 
 
 class AutomaticDiscoverySyncResponse(StrictModel):
-    neighbors_added: Annotated[int, Field(ge=0, le=50)]
-    neighbor_posts_added: Annotated[int, Field(ge=0, le=50)]
-    search_posts_added: Annotated[int, Field(ge=0, le=50)]
+    # A saved search is capped independently, but one sync aggregates every
+    # enabled search and can therefore legitimately exceed 50.
+    neighbors_added: Annotated[int, Field(ge=0)]
+    neighbor_posts_added: Annotated[int, Field(ge=0)]
+    search_posts_added: Annotated[int, Field(ge=0)]
     search_provider: Literal["naver_open_api", "none"]
     status: Literal["success", "partial", "failed"]
     detail: str

@@ -1076,11 +1076,8 @@ function parseAutomaticDiscoverySync(value: unknown): AutomaticDiscoverySyncResu
     !isInteger(value.neighbor_posts_added) ||
     !isInteger(value.search_posts_added) ||
     value.neighbors_added < 0 ||
-    value.neighbors_added > 50 ||
     value.neighbor_posts_added < 0 ||
-    value.neighbor_posts_added > 50 ||
     value.search_posts_added < 0 ||
-    value.search_posts_added > 50 ||
     !["naver_open_api", "none"].includes(String(value.search_provider)) ||
     !["success", "partial", "failed"].includes(String(value.status)) ||
     typeof value.detail !== "string" ||
