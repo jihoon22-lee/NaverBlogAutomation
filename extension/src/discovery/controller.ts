@@ -1,5 +1,10 @@
 import { LocalApiClient } from "../api/client";
-import type { AutomaticDiscoverySettings, DiscoveryPost, DiscoverySource } from "../api/types";
+import type {
+  AutomaticDiscoverySettings,
+  DiscoveryPost,
+  DiscoverySource,
+  EngagementRun,
+} from "../api/types";
 import {
   ChromeDiscoveryTabNavigator,
   type DiscoveryNavigationTarget,
@@ -7,6 +12,7 @@ import {
 } from "../browser/discovery-tab-navigator";
 
 type QueueTab = DiscoverySource;
+const UNFINISHED_ENGAGEMENT_STATES = new Set(["pending", "failed", "running"]);
 
 export class DiscoveryController {
   readonly #api: LocalApiClient;
@@ -18,6 +24,7 @@ export class DiscoveryController {
     search: [],
   };
   #currentPost: DiscoveryPost | null = null;
+  #currentEngagementRun: EngagementRun | null = null;
   #tab: QueueTab = "neighbor";
 
   constructor(
@@ -86,6 +93,7 @@ export class DiscoveryController {
       this.#queues.search = searchPosts;
       this.#currentPost =
         [...neighborPosts, ...searchPosts].find((post) => post.state === "opened") ?? null;
+      this.#currentEngagementRun = await this.#currentRun(this.#currentPost);
       this.#renderNeighbors(neighbors);
       this.#renderSearches(searches);
       this.#renderCounts();
@@ -356,10 +364,41 @@ export class DiscoveryController {
   #renderCurrentPost(): void {
     const card = this.#element("today-current-card");
     card.hidden = this.#currentPost === null;
-    this.#element("today-current-post").textContent =
-      this.#currentPost === null
-        ? ""
-        : `${this.#currentPost.source === "search" ? "신규 이웃 후보" : "이웃 새 글"} · ${this.#currentPost.title}`;
+    const title = this.#element("today-current-title");
+    const button = this.#button("today-continue-button");
+    if (this.#currentPost === null) {
+      title.textContent = "이어서 할 작업";
+      button.textContent = "이 글 이어서 처리하기";
+      this.#element("today-current-post").textContent = "";
+      return;
+    }
+    const postType = this.#currentPost.source === "search" ? "신규 이웃 후보" : "이웃 새 글";
+    const run = this.#currentEngagementRun;
+    const commentCompleted = run?.steps.some(
+      (step) => step.name === "comment" && step.state === "succeeded",
+    );
+    const mutualPending = run?.steps.some(
+      (step) => step.name === "mutual_neighbor" && UNFINISHED_ENGAGEMENT_STATES.has(step.state),
+    );
+    if (this.#currentPost.source === "search" && commentCompleted && mutualPending) {
+      title.textContent = "서로이웃 신청 대기";
+      button.textContent = "서로이웃 신청 계속하기";
+      this.#element("today-current-post").textContent =
+        `댓글 등록 완료 · ${postType} · ${this.#currentPost.title}`;
+      return;
+    }
+    title.textContent = "이어서 할 작업";
+    button.textContent = "이 글 이어서 처리하기";
+    this.#element("today-current-post").textContent = `${postType} · ${this.#currentPost.title}`;
+  }
+
+  async #currentRun(post: DiscoveryPost | null): Promise<EngagementRun | null> {
+    if (post === null) return null;
+    try {
+      return await this.#api.getEngagementRunForPost(post.id);
+    } catch {
+      return null;
+    }
   }
 
   #renderDigestSettings(settings: {

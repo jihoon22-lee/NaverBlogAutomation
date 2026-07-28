@@ -93,34 +93,23 @@ describe("EngagementConsentController", () => {
     expect(JSON.stringify(storage.value)).not.toContain("blog.naver.com");
   });
 
-  it("shows one final confirmation and issues a consumable token only on execute", async () => {
+  it("issues a consumable token from the one-post execution click when consent is active", async () => {
     const { controller, session } = setup(true);
     await controller.start();
-    const pending = controller.requestApproval({
+    const token = await controller.requestApproval({
       comment: "최종 승인 댓글",
       neighborMessage: "서로이웃 신청 메시지",
       sourceUrl: "https://blog.naver.com/synthetic/7",
       steps: ["like", "comment", "mutual_neighbor"],
       title: "합성 글 제목",
     });
-    expect(document.querySelector("#engagement-confirmation")?.hasAttribute("hidden")).toBe(false);
-    expect(document.querySelector("#engagement-confirm-steps")?.textContent).toContain("공감");
-    expect(document.querySelector("#engagement-confirm-comment")?.textContent).toBe(
-      "최종 승인 댓글",
-    );
-    expect(document.querySelector("#engagement-confirmation")?.getAttribute("role")).toBe("dialog");
-    expect(document.activeElement?.id).toBe("engagement-confirm-execute");
-
-    (document.querySelector("#engagement-confirm-execute") as HTMLButtonElement).click();
-    const token = await pending;
 
     expect(token?.id).toBe("approval-1");
     expect(session.consume(token?.id ?? "")?.details.comment).toBe("최종 승인 댓글");
     expect(session.consume(token?.id ?? "")).toBeNull();
-    expect(document.querySelector("#engagement-confirmation")?.hasAttribute("hidden")).toBe(true);
   });
 
-  it("does not issue approval without consent, confirmation, or a supported exact origin", async () => {
+  it("does not issue approval without consent or a supported exact origin", async () => {
     const consentRequired = vi.fn();
     document.defaultView?.addEventListener("engagement-consent-required", consentRequired, {
       once: true,
@@ -148,36 +137,26 @@ describe("EngagementConsentController", () => {
         title: "지원하지 않는 글",
       }),
     ).resolves.toBeNull();
-    expect(document.querySelector("#engagement-confirmation")?.hasAttribute("hidden")).toBe(true);
     expect(active.session.consume("approval-1")).toBeNull();
   });
 
-  it("cancels pending approval on withdrawal and keeps manual assistance available", async () => {
+  it("revokes issued approval on withdrawal and keeps manual assistance available", async () => {
     const { controller, session } = setup(true);
     await controller.start();
-    const pending = controller.requestApproval({
+    const token = await controller.requestApproval({
       comment: "취소할 댓글",
       sourceUrl: "https://blog.naver.com/synthetic/8",
       steps: ["like", "comment"],
       title: "취소할 글",
     });
-    expect(
-      await controller.requestApproval({
-        comment: "두 번째 댓글",
-        sourceUrl: "https://blog.naver.com/synthetic/9",
-        steps: ["comment"],
-        title: "두 번째 글",
-      }),
-    ).toBeNull();
 
     (document.querySelector("#engagement-consent-withdraw") as HTMLButtonElement).click();
     await settle();
 
-    await expect(pending).resolves.toBeNull();
+    expect(session.consume(token?.id ?? "")).toBeNull();
     expect(document.querySelector("#engagement-consent-notice")?.textContent).toContain(
-      "입력 보조와 복사",
+      "댓글 복사",
     );
-    session.revokeAll();
     await expect(
       controller.requestApproval({
         comment: "철회 뒤 댓글",
@@ -188,10 +167,10 @@ describe("EngagementConsentController", () => {
     ).resolves.toBeNull();
   });
 
-  it("cancels a pending approval when navigation invalidates the current page", async () => {
-    const { controller } = setup(true);
+  it("revokes an issued approval when navigation invalidates the current page", async () => {
+    const { controller, session } = setup(true);
     await controller.start();
-    const pending = controller.requestApproval({
+    const token = await controller.requestApproval({
       comment: "이동 전 댓글",
       sourceUrl: "https://blog.naver.com/synthetic/11",
       steps: ["comment"],
@@ -200,6 +179,6 @@ describe("EngagementConsentController", () => {
 
     controller.cancelPendingApproval();
 
-    await expect(pending).resolves.toBeNull();
+    expect(session.consume(token?.id ?? "")).toBeNull();
   });
 });

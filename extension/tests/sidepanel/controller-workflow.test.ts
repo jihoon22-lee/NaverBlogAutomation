@@ -10,10 +10,6 @@ import type {
   ReviewRecommendationRequest,
 } from "../../src/api/types";
 import type { TabCaptureGateway, TabInvalidation } from "../../src/browser/tab-capture-gateway";
-import type {
-  CommentInputGateway,
-  CommentInputResult,
-} from "../../src/browser/comment-input-gateway";
 import type { EngagementApprovalToken } from "../../src/engagement/approval-session";
 import type {
   EngagementExecutionRequest,
@@ -271,7 +267,6 @@ function setup(
         title: string;
       }): Promise<EngagementApprovalToken | null>;
     };
-    commentInput?: CommentInputGateway;
     digest?: (payload: CreateRecommendationRequest) => Promise<string>;
     engagement?: {
       execute(request: EngagementExecutionRequest): Promise<EngagementExecutionResult>;
@@ -295,11 +290,6 @@ function setup(
   const controller = new SidePanelController(gateway, view, {
     api: api.asClient(),
     ...(options.approval === undefined ? {} : { approval: options.approval }),
-    commentInput:
-      options.commentInput ??
-      ({
-        fill: vi.fn(async (): Promise<CommentInputResult> => "filled"),
-      } satisfies CommentInputGateway),
     digest: options.digest ?? vi.fn(async () => DIGEST),
     ...(options.engagement === undefined ? {} : { engagement: options.engagement }),
     lengthStore: options.lengthStore ?? new CommentLengthPreferenceStore(storage),
@@ -740,7 +730,7 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.review.mock.calls[1]?.[1]).toEqual({ review_status: "completed" });
   });
 
-  it("binds a queue post to one final approval and renders persisted engagement results", async () => {
+  it("uses one queue execution click to approve and run persisted engagement results", async () => {
     const token: EngagementApprovalToken = {
       details: {
         comment: "사용자가 다듬은 합성 댓글",
@@ -799,8 +789,6 @@ describe("integrated Side Panel workflow", () => {
     if (selected === undefined) throw new Error("Synthetic candidate missing");
     fixture.view.actions?.select(selected.id);
     fixture.view.actions?.edit("사용자가 다듬은 합성 댓글");
-    fixture.view.actions?.approve();
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
     fixture.api.get.mockResolvedValue({
       ...drafted,
       editedComment: "사용자가 다듬은 합성 댓글",
@@ -808,7 +796,7 @@ describe("integrated Side Panel workflow", () => {
       selectedCandidateId: selected.id,
     });
 
-    fixture.view.actions?.engage();
+    fixture.view.actions?.useEdited();
 
     await vi.waitFor(() => expect(engagement.execute).toHaveBeenCalledOnce());
     fixture.gateway.invalidation?.({ kind: "activated", tabId: 99 });
@@ -1065,7 +1053,7 @@ describe("integrated Side Panel workflow", () => {
     });
   });
 
-  it("keeps the approved fallback when final engagement confirmation is cancelled", async () => {
+  it("keeps the approved fallback when one-post execution consent is unavailable", async () => {
     const approval = {
       cancelPendingApproval: vi.fn(),
       requestApproval: vi.fn(async () => null),
@@ -1086,7 +1074,7 @@ describe("integrated Side Panel workflow", () => {
     await vi.waitFor(() =>
       expect(fixture.view.states.at(-1)).toMatchObject({
         kind: "approved",
-        notice: expect.stringContaining("최종 확인"),
+        notice: expect.stringContaining("자동 실행 동의"),
       }),
     );
     expect(engagement.execute).not.toHaveBeenCalled();
@@ -1163,20 +1151,21 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.get).not.toHaveBeenCalled();
   });
 
-  it("approves and fills a candidate through the two-click quick flow", async () => {
-    const fill = vi.fn(async (): Promise<CommentInputResult> => "filled");
-    const fixture = setup({ commentInput: { fill } });
+  it("approves the edited comment without inserting a manual draft into the page", async () => {
+    const fixture = setup();
     await extractAndGenerate(fixture.view, fixture.controller);
     const selected = candidates[0];
     if (selected === undefined) throw new Error("Synthetic candidate missing");
 
-    fixture.view.actions?.useCandidate(selected.id);
+    fixture.view.actions?.select(selected.id);
+    fixture.view.actions?.edit("직접 붙여넣을 다듬은 댓글");
+    fixture.view.actions?.useEdited();
 
-    await vi.waitFor(() => expect(fill).toHaveBeenCalledWith(tab.id, selected.comment));
+    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
     expect(fixture.api.review).toHaveBeenCalledWith(
       drafted.id,
       {
-        edited_comment: selected.comment,
+        edited_comment: "직접 붙여넣을 다듬은 댓글",
         review_status: "approved",
         selected_candidate_id: selected.id,
       },
@@ -1184,107 +1173,8 @@ describe("integrated Side Panel workflow", () => {
     );
     expect(fixture.view.states.at(-1)).toMatchObject({
       kind: "approved",
-      notice: expect.stringContaining("입력란에 초안을"),
+      notice: expect.stringContaining("직접 붙여넣어"),
     });
-  });
-
-  it("applies a local-only closing phrase without adding it to the generation request", async () => {
-    const fill = vi.fn(async (): Promise<CommentInputResult> => "filled");
-    const fixture = setup({ commentInput: { fill } });
-    await fixture.controller.captureActivePost();
-    fixture.view.actions?.changeClosingPhrase("  오늘도   좋은 하루 보내세요!  ");
-    fixture.view.actions?.generate();
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("review"));
-    const selected = candidates[0];
-    if (selected === undefined) throw new Error("Synthetic candidate missing");
-
-    fixture.view.actions?.useCandidate(selected.id);
-
-    const personalized = `${selected.comment} 오늘도 좋은 하루 보내세요!`;
-    await vi.waitFor(() => expect(fill).toHaveBeenCalledWith(tab.id, personalized));
-    expect(JSON.stringify(fixture.api.create.mock.calls[0]?.[0])).not.toContain("좋은 하루");
-    expect(fixture.api.review).toHaveBeenCalledWith(
-      drafted.id,
-      {
-        edited_comment: personalized,
-        review_status: "approved",
-        selected_candidate_id: selected.id,
-      },
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("keeps the approved comment available when safe page insertion is unavailable", async () => {
-    const fill = vi.fn(async (): Promise<CommentInputResult> => "occupied");
-    const fixture = setup({ commentInput: { fill } });
-    await extractAndGenerate(fixture.view, fixture.controller);
-
-    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
-
-    await vi.waitFor(() =>
-      expect(fixture.view.states.at(-1)).toMatchObject({
-        kind: "approved",
-        notice: expect.stringContaining("덮어쓰지 않았습니다"),
-      }),
-    );
-    expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
-  });
-
-  it("retries page insertion for the approved comment without another review request", async () => {
-    const fill = vi
-      .fn<() => Promise<CommentInputResult>>()
-      .mockResolvedValueOnce("not_found")
-      .mockResolvedValueOnce("filled");
-    const fixture = setup({ commentInput: { fill } });
-    await extractAndGenerate(fixture.view, fixture.controller);
-
-    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
-    fixture.view.actions?.refill();
-
-    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(2));
-    expect(fixture.api.review).toHaveBeenCalledOnce();
-    expect(fixture.view.states.at(-1)).toMatchObject({
-      kind: "approved",
-      notice: expect.stringContaining("입력란에 초안을"),
-    });
-  });
-
-  it("keeps copy fallback guidance when retrying approved page insertion fails", async () => {
-    const fill = vi
-      .fn<() => Promise<CommentInputResult>>()
-      .mockResolvedValueOnce("filled")
-      .mockRejectedValueOnce(new Error("synthetic injection failure"));
-    const fixture = setup({ commentInput: { fill } });
-    await extractAndGenerate(fixture.view, fixture.controller);
-
-    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
-    fixture.view.actions?.refill();
-
-    await vi.waitFor(() =>
-      expect(fixture.view.states.at(-1)).toMatchObject({
-        kind: "approved",
-        notice: expect.stringContaining("복사해서 붙여넣어"),
-      }),
-    );
-    expect(fixture.api.review).toHaveBeenCalledOnce();
-  });
-
-  it("explains when the comment editor could not be opened", async () => {
-    const fill = vi.fn(async (): Promise<CommentInputResult> => "open_failed");
-    const fixture = setup({ commentInput: { fill } });
-    await extractAndGenerate(fixture.view, fixture.controller);
-
-    fixture.view.actions?.useCandidate(candidates[1]?.id ?? "");
-
-    await vi.waitFor(() =>
-      expect(fixture.view.states.at(-1)).toMatchObject({
-        kind: "approved",
-        notice: expect.stringContaining("댓글 쓰기를 열었지만"),
-      }),
-    );
-    expect(fixture.view.states.at(-1)).toMatchObject({ editedComment: candidates[1]?.comment });
   });
 
   it("refreshes GET after review_conflict without reapplying stale edits", async () => {

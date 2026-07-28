@@ -7,11 +7,6 @@ import type {
   Recommendation,
 } from "../api/types";
 import { BrowserCaptureError, type TabCaptureGateway } from "../browser/tab-capture-gateway";
-import {
-  ChromeCommentInputGateway,
-  type CommentInputGateway,
-  type CommentInputResult,
-} from "../browser/comment-input-gateway";
 import { chooseCapturedPost } from "../extraction/rank-captures";
 import { parseSupportedNaverUrl, sameSupportedNaverPost } from "../extraction/source-url";
 import type { CaptureFailure, CapturedPostPreview } from "../extraction/types";
@@ -69,7 +64,6 @@ export interface WorkflowDependencies {
       title: string;
     }): Promise<EngagementApprovalToken | null>;
   };
-  commentInput?: CommentInputGateway;
   digest?: typeof requestDigest;
   now?: () => number;
   registry?: IdempotencyRegistry;
@@ -102,7 +96,6 @@ interface RegenerationIntent {
 export class SidePanelController {
   readonly #api: LocalApiClient;
   readonly #approval: NonNullable<WorkflowDependencies["approval"]> | null;
-  readonly #commentInput: CommentInputGateway;
   readonly #digest: typeof requestDigest;
   readonly #gateway: TabCaptureGateway;
   readonly #lengthStore: CommentLengthPreferenceStore;
@@ -142,7 +135,6 @@ export class SidePanelController {
   ) {
     this.#gateway = gateway;
     this.#approval = dependencies.approval ?? null;
-    this.#commentInput = dependencies.commentInput ?? new ChromeCommentInputGateway();
     this.#lengthStore = dependencies.lengthStore ?? new CommentLengthPreferenceStore();
     this.#savedNeighborMessage = boundNeighborMessage(
       dependencies.neighborMessage ?? DEFAULT_MUTUAL_NEIGHBOR_MESSAGE,
@@ -176,10 +168,8 @@ export class SidePanelController {
       regenerate: () => void this.regenerate(),
       replace: () => void this.confirmReplacement(),
       retry: () => void this.captureActivePost(),
-      refill: () => void this.refill(),
       savePreferences: () => void this.savePreferences(),
       select: (candidateId) => this.select(candidateId),
-      useCandidate: (candidateId) => void this.useCandidate(candidateId),
       useEdited: () => void this.useEdited(),
     });
   }
@@ -537,7 +527,7 @@ export class SidePanelController {
     });
     if (operation !== this.#operation) return;
     if (token === null) {
-      this.#renderReview("자동 실행 동의와 이 글의 최종 확인이 필요합니다.");
+      this.#renderReview("자동 실행 동의를 켠 뒤 이 글의 실행 버튼을 다시 눌러 주세요.");
       return;
     }
     this.#busy = true;
@@ -572,32 +562,32 @@ export class SidePanelController {
     }
   }
 
-  async useCandidate(candidateId: string): Promise<void> {
-    this.select(candidateId);
-    await this.#approveSelected(true);
-  }
-
   async approve(): Promise<void> {
-    await this.#approveSelected(false);
+    await this.#approveSelected();
   }
 
   async useEdited(): Promise<void> {
-    await this.#approveSelected(true);
+    if (!(await this.#approveSelected())) return;
+    if (this.#discoveryPost !== null) {
+      await this.engage();
+      return;
+    }
+    this.#renderReview("댓글을 승인했습니다. 필요하면 복사해 네이버에 직접 붙여넣어 주세요.");
   }
 
-  async #approveSelected(fillAfterApproval: boolean): Promise<void> {
+  async #approveSelected(): Promise<boolean> {
     const recommendation = this.#recommendation;
     if (this.#busy || recommendation === null || recommendation.reviewStatus !== "drafted") {
-      return;
+      return false;
     }
     if (this.#selectedCandidateId === null) {
       this.#renderReview("승인할 댓글 후보를 먼저 선택해 주세요.");
-      return;
+      return false;
     }
     const edited = this.#editedComment.trim();
     if (edited.length === 0) {
       this.#renderReview("댓글 내용을 비워 둘 수 없습니다.");
-      return;
+      return false;
     }
     const operation = this.#beginOperation();
     this.#busy = true;
@@ -618,12 +608,10 @@ export class SidePanelController {
         this.#assertCurrent(operation);
       }
       this.#showRecommendation(updated);
-      if (fillAfterApproval) {
-        await this.#fillApprovedComment(updated, operation);
-      }
+      return true;
     } catch (error) {
       if (operation !== this.#operation) {
-        return;
+        return false;
       }
       if (error instanceof ApiClientError && error.problem?.code === "review_conflict") {
         await this.#refreshAfterConflict(recommendation.id, operation);
@@ -635,18 +623,7 @@ export class SidePanelController {
         this.#busy = false;
       }
     }
-  }
-
-  async #fillApprovedComment(recommendation: Recommendation, operation: number): Promise<void> {
-    const tabId = this.#activeTabId;
-    const candidate = recommendation.candidates.find(
-      (item) => item.id === recommendation.selectedCandidateId,
-    );
-    const value = recommendation.editedComment ?? candidate?.comment;
-    if (tabId === null || value === undefined) return;
-    const result = await this.#commentInput.fill(tabId, value);
-    this.#assertCurrent(operation);
-    this.#renderReview(commentInputNotice(result));
+    return false;
   }
 
   async copy(): Promise<void> {
@@ -672,23 +649,6 @@ export class SidePanelController {
         ? "클립보드에 복사했습니다. 블로그 댓글 등록은 직접 진행해 주세요."
         : "자동 복사에 실패했습니다. 편집 영역의 댓글을 직접 선택해 복사해 주세요.",
     );
-  }
-
-  async refill(): Promise<void> {
-    const recommendation = this.#recommendation;
-    if (this.#busy || recommendation === null || recommendation.reviewStatus !== "approved") {
-      return;
-    }
-    const operation = this.#beginOperation();
-    this.#busy = true;
-    try {
-      await this.#fillApprovedComment(recommendation, operation);
-    } catch (error) {
-      if (operation !== this.#operation || error instanceof StaleOperation) return;
-      this.#renderReview("댓글 입력을 다시 시도하지 못했습니다. 복사해서 붙여넣어 주세요.");
-    } finally {
-      if (operation === this.#operation) this.#busy = false;
-    }
   }
 
   async complete(): Promise<void> {
@@ -1298,24 +1258,6 @@ export class SidePanelController {
     this.#releaseAllContent();
     this.#view.render({ failure, kind: "error" });
   }
-}
-
-function commentInputNotice(result: CommentInputResult): string {
-  return {
-    ambiguous:
-      "댓글 입력란이 여러 개 보여 자동으로 선택하지 않았습니다. 승인된 댓글을 복사해 직접 붙여넣어 주세요.",
-    filled: "네이버 댓글 입력란에 초안을 넣었습니다. 내용을 확인한 뒤 직접 등록해 주세요.",
-    not_found:
-      "댓글 입력란과 댓글쓰기 버튼을 찾지 못했습니다. 로그인·댓글 허용 상태를 확인하거나 복사해 주세요.",
-    open_failed:
-      "댓글 쓰기를 열었지만 입력란을 확인하지 못했습니다. 로그인·댓글 허용 상태를 확인하거나 복사해 주세요.",
-    occupied:
-      "댓글 입력란에 기존 내용이 있어 덮어쓰지 않았습니다. 기존 내용을 확인하거나 승인된 댓글을 복사해 주세요.",
-    permission_denied:
-      "현재 페이지에 댓글을 넣을 권한이 없습니다. toolbar 아이콘을 다시 누르거나 댓글을 복사해 주세요.",
-    stale_page:
-      "현재 탭이 바뀌어 댓글을 넣지 않았습니다. 원래 글로 돌아가거나 댓글을 복사해 주세요.",
-  }[result];
 }
 
 function approvedComment(recommendation: Recommendation): string {

@@ -64,10 +64,8 @@ function actions(overrides: Partial<PanelActions> = {}): PanelActions {
     regenerate: vi.fn(),
     replace: vi.fn(),
     retry: vi.fn(),
-    refill: vi.fn(),
     savePreferences: vi.fn(),
     select: vi.fn(),
-    useCandidate: vi.fn(),
     useEdited: vi.fn(),
     ...overrides,
   };
@@ -494,20 +492,18 @@ describe("DomPanelView", () => {
     expect(document.querySelectorAll("#quality-warning-list li")).toHaveLength(2);
     expect(document.querySelector("#quality-warning-list")?.textContent).toContain("길이 범위");
     expect(document.querySelectorAll('#candidate-list input[name="candidate"]')).toHaveLength(3);
-    expect(document.querySelectorAll("button[data-use-candidate]")).toHaveLength(3);
+    expect(document.querySelectorAll("button[data-use-candidate]")).toHaveLength(0);
   });
 
-  it("offers a direct candidate-use action without requiring the edit flow", () => {
-    const useCandidate = vi.fn();
-    view.bind(actions({ useCandidate }));
+  it("uses candidate selection to open the edit flow without a direct page-input action", () => {
+    const select = vi.fn();
+    view.bind(actions({ select }));
     view.render({ kind: "review", ...recommendation });
 
-    const buttons = document.querySelectorAll<HTMLButtonElement>("button[data-use-candidate]");
-    buttons[1]?.click();
+    (document.querySelector<HTMLInputElement>("#candidate-2") as HTMLInputElement).click();
 
-    expect(buttons).toHaveLength(3);
-    expect(useCandidate).toHaveBeenCalledWith("2");
-    expect((document.querySelector("#edit-section") as HTMLElement).hidden).toBe(true);
+    expect(select).toHaveBeenCalledWith("2");
+    expect(document.querySelectorAll("button[data-use-candidate]")).toHaveLength(0);
   });
 
   it("renders actionable errors and invokes retry from a keyboard-operable button", async () => {

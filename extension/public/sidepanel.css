@@ -124,18 +124,6 @@ h2 {
   margin: 0;
 }
 
-.engagement-confirmation {
-  border: 2px solid #17673a;
-}
-
-.confirmation-text {
-  padding: 0.75rem;
-  border-radius: 8px;
-  background: #f0f6f2;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
 .discovery-card {
   display: grid;
   gap: 0.75rem;
@@ -641,15 +629,6 @@ fieldset {
   border: 1px solid #cdd8d1;
   border-radius: 8px;
   cursor: pointer;
-}
-
-.candidate-use {
-  grid-column: 2;
-  justify-self: start;
-  min-height: 38px;
-  padding: 7px 12px;
-  background: #167746;
-  color: #ffffff;
 }
 
 #edit-section {
