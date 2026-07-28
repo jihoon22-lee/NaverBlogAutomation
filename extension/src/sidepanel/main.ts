@@ -1,7 +1,7 @@
 import { LocalApiClient } from "../api/client";
 import type { DiscoveryPost } from "../api/types";
-import { ChromeTabCaptureGateway } from "../browser/tab-capture-gateway";
 import { NaverSitePermission } from "../browser/naver-site-permission";
+import { ChromeTabCaptureGateway } from "../browser/tab-capture-gateway";
 import { DiscoveryController } from "../discovery/controller";
 import { EngagementApprovalSession } from "../engagement/approval-session";
 import { EngagementConsentController } from "../engagement/consent-controller";
@@ -107,6 +107,10 @@ window.addEventListener("discovery-open-post", (event) => {
     workspaceController.activate("comment");
     void controller?.captureDiscoveryPost(detail.post, detail.tabId);
   }
+});
+
+window.addEventListener("today-continue-requested", () => {
+  void discoveryController?.resumeCurrent();
 });
 
 window.addEventListener("engagement-run-updated", () => {

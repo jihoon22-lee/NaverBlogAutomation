@@ -470,6 +470,54 @@ describe("DiscoveryController", () => {
     expect(document.querySelector("#today-continue-button")?.textContent).toBe(
       "서로이웃 신청 계속하기",
     );
+
+    const opened = vi.fn();
+    window.addEventListener("discovery-open-post", opened, { once: true });
+    await controller.resumeCurrent();
+
+    expect(navigator.open).toHaveBeenLastCalledWith(
+      "https://blog.naver.com/candidate/2",
+      "current",
+    );
+    expect(client.updateDiscoveryPostState).toHaveBeenLastCalledWith(searchId, "opened");
+    expect(opened).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ tabId: 7 }) }),
+    );
+  });
+
+  it("keeps resume safe when the saved post is gone or cannot be opened", async () => {
+    client.listDiscoveryQueue.mockResolvedValue([]);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    await controller.resumeCurrent();
+    expect(document.querySelector("#discovery-notice")?.textContent).toContain("찾지 못했습니다");
+
+    client.listDiscoveryQueue.mockImplementation(async (source: "neighbor" | "search") =>
+      source === "neighbor"
+        ? [
+            {
+              createdAt: "2026-07-26T00:00:00Z",
+              id,
+              neighborId: "neighbor-id",
+              publishedAt: null,
+              publisherBlogId: "friend",
+              publisherName: "이웃",
+              searchId: null,
+              source,
+              sourceUrl: "https://blog.naver.com/friend/1",
+              state: "opened",
+              title: "현재 글",
+              updatedAt: "2026-07-26T00:00:00Z",
+            },
+          ]
+        : [],
+    );
+    navigator.open.mockRejectedValueOnce(new Error("탭 접근 실패"));
+
+    await controller.resumeCurrent();
+    expect(document.querySelector("#discovery-notice")?.textContent).toBe("탭 접근 실패");
   });
 
   it("returns to Today when no next queue item remains", async () => {

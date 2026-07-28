@@ -137,6 +137,20 @@ export class DiscoveryController {
     await this.#openPost(next, "current");
   }
 
+  /** Reopens the saved post before returning to its comment or mutual-neighbor flow. */
+  async resumeCurrent(): Promise<void> {
+    await this.render();
+    if (this.#currentPost === null) {
+      this.#notice("이어서 처리할 글을 찾지 못했습니다. 대기열에서 글을 먼저 열어 주세요.");
+      return;
+    }
+    try {
+      await this.#openPost(this.#currentPost, "current");
+    } catch (error) {
+      this.#notice(error instanceof Error ? error.message : "이어서 처리할 글을 열지 못했습니다.");
+    }
+  }
+
   private async syncNow(): Promise<void> {
     this.#notice("공개 이웃 목록·RSS·저장한 검색어를 동기화하고 있습니다.");
     try {
