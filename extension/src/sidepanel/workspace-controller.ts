@@ -21,9 +21,9 @@ export class SidePanelWorkspaceController {
       if (workspace !== null) this.activate(workspace);
     });
     navigation.addEventListener("keydown", (event) => this.#navigateByKey(event));
-    this.#required<HTMLButtonElement>("#today-continue-button").addEventListener("click", () =>
-      this.activate("comment"),
-    );
+    this.#required<HTMLButtonElement>("#today-continue-button").addEventListener("click", () => {
+      this.#dispatch("today-continue-requested", {});
+    });
     this.#required<HTMLButtonElement>("#back-today-button").addEventListener("click", () =>
       this.activate("today"),
     );

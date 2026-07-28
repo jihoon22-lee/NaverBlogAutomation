@@ -79,12 +79,15 @@ describe("SidePanelWorkspaceController", () => {
     expect(changed).toHaveBeenCalled();
   });
 
-  it("returns to Today and resumes Comment with the completion shortcuts", () => {
+  it("returns to Today and requests that the saved post be reopened before continuing", () => {
+    const continued = vi.fn();
+    domWindow.addEventListener("today-continue-requested", continued);
     controller.activate("comment", false);
     document.querySelector<HTMLButtonElement>("#back-today-button")?.click();
     expect(controller.active).toBe("today");
 
     document.querySelector<HTMLButtonElement>("#today-continue-button")?.click();
-    expect(controller.active).toBe("comment");
+    expect(continued).toHaveBeenCalledOnce();
+    expect(controller.active).toBe("today");
   });
 });
