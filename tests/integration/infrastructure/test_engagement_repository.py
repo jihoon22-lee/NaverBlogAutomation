@@ -341,7 +341,9 @@ def test_manual_completion_finishes_failed_run_and_today_queue(repositories) -> 
         )
 
 
-def test_manual_comment_completion_keeps_pending_mutual_neighbor_for_later_approval(repositories) -> None:
+def test_manual_comment_completion_keeps_pending_mutual_neighbor_for_later_approval(
+    repositories,
+) -> None:
     engine, recommendations, discovery, engagement, _ = repositories
     source_url = "https://blog.naver.com/candidate/997"
     item = recommendation(source_url)
@@ -379,11 +381,14 @@ def test_manual_comment_completion_keeps_pending_mutual_neighbor_for_later_appro
         (EngagementStepName.MUTUAL_NEIGHBOR, EngagementStepState.PENDING, None),
     ]
     assert recommendations.get(item.id).review_status is ReviewStatus.COMPLETED  # type: ignore[union-attr]
-    assert engagement.start(
-        approval_id=UUID("00000000-0000-4000-8000-000000000035"),
-        discovery_post_id=post_id,
-        recommendation_id=item.id,
-    ).run == resumed
+    assert (
+        engagement.start(
+            approval_id=UUID("00000000-0000-4000-8000-000000000035"),
+            discovery_post_id=post_id,
+            recommendation_id=item.id,
+        ).run
+        == resumed
+    )
     with engine.connect() as connection:
         assert (
             connection.execute(
