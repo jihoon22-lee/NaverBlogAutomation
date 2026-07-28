@@ -148,7 +148,7 @@ the user can still finish or skip them.
 
 ## 사용자 승인형 교류 실행
 
-`POST /api/v1/engagement-runs`는 마지막 확인에서 발급한 `approval_id`, 기존
+`POST /api/v1/engagement-runs`는 글별 실행 버튼에서 발급한 `approval_id`, 기존
 `discovery_post_id`, 승인된 `recommendation_id`만 받습니다. 댓글 text와 서로이웃 신청
 message는 API 또는 SQLite에 보내지 않습니다. 같은 승인 또는 같은 탐색 글을 다시 시작하면 새
 작업을 만들지 않고 `200 OK`, `Engagement-Replayed: true`와 기존 작업을 반환합니다.

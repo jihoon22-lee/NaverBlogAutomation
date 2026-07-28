@@ -254,6 +254,47 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     expect(closed).toHaveBeenCalledOnce();
   });
 
+  it("selects a custom-rendered mutual option and default group before filling the message", async () => {
+    const dom = postDom(`
+      <button class="btn_add_buddy">이웃추가</button>
+      <form name="buddyFrm" hidden>
+        <label for="hidden-mutual">서로이웃</label>
+        <input id="hidden-mutual" name="relation" type="radio" value="mutual" style="display:none">
+        <a class="button_next" href="#">다음</a>
+      </form>
+    `);
+    const relationship = dom.window.document.querySelector(
+      "form[name='buddyFrm']",
+    ) as HTMLFormElement;
+    const mutual = relationship.querySelector("#hidden-mutual") as HTMLInputElement;
+    const closed = vi.fn();
+    dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+      relationship.hidden = false;
+    });
+    relationship.querySelector(".button_next")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      dom.window.document.body.innerHTML = `
+        <form id="buddyGroupForm">
+          <select name="buddyGroup"><option value="">그룹 선택</option><option value="daily">일상</option></select>
+          <textarea name="buddyMessage"></textarea>
+          <button type="button">다음</button>
+        </form>
+      `;
+      dom.window.document.querySelector("#buddyGroupForm button")?.addEventListener("click", () => {
+        dom.window.document.body.innerHTML =
+          '<p role="status">서로이웃 신청이 완료되었습니다.</p><button>닫기</button>';
+        dom.window.document.querySelector("button")?.addEventListener("click", closed);
+      });
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "자동 입력 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
+    expect(mutual.checked).toBe(true);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
   it("fails closed when a completed mutual-neighbor popup has duplicate close controls", async () => {
     const dom = postDom();
     installInlineForm(dom, () => {

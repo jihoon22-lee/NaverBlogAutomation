@@ -598,6 +598,7 @@ function probeMutualNeighborForm(): FormProbe {
       ["naver_buddy_application_form_name", "form[name='buddyApplyFrm']"],
       ["buddy_add_form_class", "form._buddyAddForm"],
       ["buddy_add_form_testid", "form[data-testid='buddy-add-form']"],
+      ["buddy_popup_form", "form[name*='buddy' i], form[id*='buddy' i]"],
     ] as const;
     const seen = new Set<Element>();
     const forms: { element: HTMLElement; kind: string }[] = [];
@@ -642,7 +643,17 @@ function selectMutualNeighborAndAdvance(message: string): NeighborFormActionCode
   if (mutualOptions.length > 1) return "ambiguous";
   const mutual = mutualOptions[0] as HTMLInputElement;
   if (!mutual.checked) {
-    mutual.click();
+    const label =
+      (mutual.id === ""
+        ? null
+        : form.querySelector<HTMLLabelElement>(`label[for='${mutual.id}']`)) ??
+      mutual.closest<HTMLLabelElement>("label");
+    (label ?? mutual).click();
+    if (!mutual.checked) {
+      mutual.checked = true;
+      mutual.dispatchEvent(new Event("input", { bubbles: true }));
+      mutual.dispatchEvent(new Event("change", { bubbles: true }));
+    }
     if (!mutual.checked) return "state_unknown";
   }
 
@@ -705,7 +716,7 @@ function selectMutualNeighborAndAdvance(message: string): NeighborFormActionCode
     const matches: HTMLInputElement[] = [];
     for (const selector of selectors) {
       for (const element of root.querySelectorAll<HTMLInputElement>(selector)) {
-        if (seen.has(element) || element.disabled || !isVisible(element)) continue;
+        if (seen.has(element) || element.disabled || !isVisibleOption(element)) continue;
         seen.add(element);
         matches.push(element);
       }
@@ -719,6 +730,16 @@ function selectMutualNeighborAndAdvance(message: string): NeighborFormActionCode
         "textarea#message, textarea[name='message'], textarea[name='buddyMessage'], textarea._message",
       ),
     ).filter((element) => !element.disabled && !element.readOnly && isVisible(element));
+  }
+
+  function isVisibleOption(element: HTMLInputElement): boolean {
+    if (isVisible(element)) return true;
+    const label =
+      (element.id === ""
+        ? null
+        : form.querySelector<HTMLLabelElement>(`label[for='${element.id}']`)) ??
+      element.closest<HTMLLabelElement>("label");
+    return label !== null && isVisible(label);
   }
 
   function findSubmitButtons(root: HTMLElement): HTMLElement[] {
@@ -778,14 +799,18 @@ function selectMutualNeighborAndAdvance(message: string): NeighborFormActionCode
 
 function fillMutualNeighborApplicationAndSubmit(message: string): NeighborFormActionCode {
   const forms = Array.from(
-    document.querySelectorAll<HTMLElement>("form[name='buddyApplyFrm']"),
-  ).filter(isVisible);
+    document.querySelectorAll<HTMLElement>(
+      "form[name='buddyApplyFrm'], form#buddyApplyFrm, form._buddyApplyForm, form[data-testid='buddy-apply-form'], form[name*='buddy' i], form[id*='buddy' i]",
+    ),
+  ).filter((form) => isVisible(form) && isApplicationForm(form));
   if (forms.length === 0) return diagnose();
   if (forms.length > 1) return "ambiguous";
   const form = forms[0] as HTMLElement;
+  const group = selectDefaultGroup(form);
+  if (group !== "ready") return group;
   const messages = Array.from(
-    form.querySelectorAll<HTMLTextAreaElement>(
-      "textarea#message, textarea[name='message'], textarea[name='buddyMessage'], textarea._message",
+    form.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>(
+      "textarea#message, textarea[name='message'], textarea[name='buddyMessage'], textarea._message, input[name*='message' i], input[name*='memo' i]",
     ),
   ).filter((element) => !element.disabled && !element.readOnly && isVisible(element));
   if (messages.length === 0) return "not_found";
@@ -809,6 +834,54 @@ function fillMutualNeighborApplicationAndSubmit(message: string): NeighborFormAc
   if (next.length > 1) return "ambiguous";
   (next[0] as HTMLElement).click();
   return "submitted";
+
+  function isApplicationForm(form: HTMLElement): boolean {
+    const message = form.querySelector(
+      "textarea#message, textarea[name='message'], textarea[name='buddyMessage'], textarea._message, input[name*='message' i], input[name*='memo' i]",
+    );
+    return message !== null;
+  }
+
+  function selectDefaultGroup(form: HTMLElement): "ready" | NeighborFormActionCode {
+    const selects = Array.from(
+      form.querySelectorAll<HTMLSelectElement>(
+        "select[name*='group' i], select[id*='group' i], select[name*='category' i], select[id*='category' i]",
+      ),
+    ).filter((element) => !element.disabled && isVisible(element));
+    if (selects.length > 1) return "ambiguous";
+    const select = selects[0];
+    if (select !== undefined) {
+      const selected = select.selectedOptions[0];
+      if (selected !== undefined && selected.value !== "" && !selected.disabled) return "ready";
+      const fallback = Array.from(select.options).find(
+        (option) => option.value !== "" && !option.disabled,
+      );
+      if (fallback === undefined) return "state_unknown";
+      select.value = fallback.value;
+      select.dispatchEvent(new Event("input", { bubbles: true }));
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      return select.value === fallback.value ? "ready" : "state_unknown";
+    }
+
+    const radios = Array.from(
+      form.querySelectorAll<HTMLInputElement>(
+        "input[type='radio'][name*='group' i], input[type='radio'][name*='category' i]",
+      ),
+    ).filter((element) => !element.disabled && isVisibleOption(element));
+    if (radios.length === 0 || radios.some((radio) => radio.checked)) return "ready";
+    const first = radios[0];
+    if (first === undefined) return "ready";
+    const label =
+      (first.id === "" ? null : form.querySelector<HTMLLabelElement>(`label[for='${first.id}']`)) ??
+      first.closest<HTMLLabelElement>("label");
+    (label ?? first).click();
+    if (!first.checked) {
+      first.checked = true;
+      first.dispatchEvent(new Event("input", { bubbles: true }));
+      first.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return first.checked ? "ready" : "state_unknown";
+  }
 
   function diagnose(): NeighborFormActionCode {
     const text = document.body?.innerText ?? document.body?.textContent ?? "";
@@ -843,6 +916,16 @@ function fillMutualNeighborApplicationAndSubmit(message: string): NeighborFormAc
         return false;
     }
     return true;
+  }
+
+  function isVisibleOption(element: HTMLInputElement): boolean {
+    if (isVisible(element)) return true;
+    const label =
+      (element.id === ""
+        ? null
+        : document.querySelector<HTMLLabelElement>(`label[for='${element.id}']`)) ??
+      element.closest<HTMLLabelElement>("label");
+    return label !== null && isVisible(label);
   }
 }
 

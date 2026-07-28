@@ -15,7 +15,6 @@ export class EngagementConsentController {
   readonly #session: EngagementApprovalSession;
   readonly #store: EngagementConsentStore;
   #active = false;
-  #pendingApproval: ((approved: boolean) => void) | null = null;
 
   constructor(
     document: Document,
@@ -32,12 +31,6 @@ export class EngagementConsentController {
       "click",
       () => void this.#withdraw(),
     );
-    this.#button("engagement-confirm-execute").addEventListener("click", () =>
-      this.#resolveApproval(true),
-    );
-    this.#button("engagement-confirm-cancel").addEventListener("click", () =>
-      this.#resolveApproval(false),
-    );
     this.#renderConsent(await this.#store.load());
   }
 
@@ -48,7 +41,6 @@ export class EngagementConsentController {
     }
     const host = supportedHost(details.sourceUrl);
     if (
-      this.#pendingApproval !== null ||
       host === null ||
       details.title.trim() === "" ||
       details.comment.trim() === "" ||
@@ -56,30 +48,7 @@ export class EngagementConsentController {
     ) {
       return Promise.resolve(null);
     }
-    this.#element("engagement-confirm-title").textContent = details.title;
-    this.#element("engagement-confirm-host").textContent = host;
-    this.#element("engagement-confirm-comment").textContent = details.comment;
-    const message = this.#element("engagement-confirm-neighbor-message");
-    message.textContent = details.neighborMessage ?? "";
-    message
-      .closest<HTMLElement>("[data-neighbor-message]")
-      ?.toggleAttribute("hidden", details.neighborMessage === undefined);
-    this.#element("engagement-confirm-steps").replaceChildren(
-      ...details.steps.map((step) => {
-        const item = this.#document.createElement("li");
-        item.textContent = stepLabel(step);
-        return item;
-      }),
-    );
-    const dialog = this.#element("engagement-confirmation");
-    dialog.hidden = false;
-    this.#button("engagement-confirm-execute").focus();
-    return new Promise((resolve) => {
-      this.#pendingApproval = (approved) => {
-        dialog.hidden = true;
-        resolve(approved ? this.#session.issue(details) : null);
-      };
-    });
+    return Promise.resolve(this.#session.issue(details));
   }
 
   dispose(): void {
@@ -88,7 +57,7 @@ export class EngagementConsentController {
   }
 
   cancelPendingApproval(): void {
-    this.#resolveApproval(false);
+    this.#session.revokeAll();
   }
 
   async #agree(): Promise<void> {
@@ -110,24 +79,17 @@ export class EngagementConsentController {
     try {
       this.#renderConsent(await this.#store.withdraw());
       this.cancelPendingApproval();
-      this.#session.revokeAll();
-      this.#notice("자동 실행 동의를 철회했습니다. 입력 보조와 복사는 계속 사용할 수 있습니다.");
+      this.#notice("자동 실행 동의를 철회했습니다. 댓글 복사는 계속 사용할 수 있습니다.");
     } catch {
       this.#notice("동의 철회를 저장하지 못했습니다. Browser storage를 확인해 주세요.");
     }
-  }
-
-  #resolveApproval(approved: boolean): void {
-    const resolve = this.#pendingApproval;
-    this.#pendingApproval = null;
-    resolve?.(approved);
   }
 
   #renderConsent(consent: { active: boolean; agreedAt: string | null }): void {
     this.#active = consent.active;
     this.#element("engagement-consent-status").textContent = consent.active
       ? `동의함 · ${consent.agreedAt === null ? "시각 미상" : new Date(consent.agreedAt).toLocaleString()}`
-      : "동의하지 않음 · 기존 입력 보조만 사용";
+      : "동의하지 않음 · 댓글 복사만 사용";
     this.#button("engagement-consent-agree").hidden = consent.active;
     this.#button("engagement-consent-withdraw").hidden = !consent.active;
     this.#checkbox("engagement-consent-checkbox").disabled = consent.active;
@@ -173,12 +135,4 @@ function supportedHost(sourceUrl: string): string | null {
   } catch {
     return null;
   }
-}
-
-function stepLabel(step: EngagementApprovalDetails["steps"][number]): string {
-  return {
-    comment: "선택한 댓글 등록",
-    like: "미공감 상태일 때 공감 누르기",
-    mutual_neighbor: "현재 관계 확인 후 서로이웃 신청",
-  }[step];
 }

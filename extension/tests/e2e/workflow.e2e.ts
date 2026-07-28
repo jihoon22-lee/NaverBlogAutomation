@@ -205,19 +205,9 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     expect(recommendationPosts[2]?.idempotencyKey).not.toBe(recommendationPosts[0]?.idempotencyKey);
     expect(await recommendationId(regenerationResponse)).not.toBe(replayedId);
 
-    const reusableCandidate =
-      (await panel.locator(".candidate > :is(span, label) > span").first().textContent()) ?? "";
-    await blogPage.bringToFront();
-    await panel.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("button[data-use-candidate]");
-      if (button === null) throw new Error("Candidate use control is unavailable");
-      button.click();
-    });
+    await panel.locator('#candidate-list input[name="candidate"]').first().check();
+    await panel.locator("#edited-use-button").click();
     await expect(panel.locator("#review-status")).toHaveText("승인됨");
-    await expect(blogPage.locator(".u_cbox_text")).toHaveText(
-      `${reusableCandidate} ${closingPhrase}`,
-    );
-    await blogPage.locator(".u_cbox_text").fill("");
 
     await panel.evaluate(() => {
       const button = document.querySelector<HTMLButtonElement>("#change-options-button");
@@ -246,17 +236,9 @@ test("built production Side Panel completes, replays, and restores the reviewed 
     await candidate.check();
     const editedComment = "합성 본문의 전시 동선이 잘 드러나는 댓글로 직접 다듬었습니다.";
     await panel.locator("#edited-comment").fill(editedComment);
-    await blogPage.bringToFront();
-    await panel.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("#edited-use-button");
-      if (button === null) {
-        throw new Error("Edited comment use control is unavailable");
-      }
-      button.click();
-    });
+    await panel.locator("#edited-use-button").click();
     await expect(panel.locator("#review-status")).toHaveText("승인됨");
-    await expect(blogPage.locator(".u_cbox_text")).toHaveText(editedComment);
-    await expect(panel.locator("#review-notice")).toContainText("입력란에 초안을");
+    await expect(panel.locator("#review-notice")).toContainText("직접 붙여넣어");
 
     await panel.locator("#copy-button").click();
     await expect(panel.locator("#review-notice")).toContainText(/복사/u);
@@ -419,26 +401,13 @@ async function openQueuedPost(
 
 async function completeCurrentEngagement(
   panel: Page,
-  blogPage: Page,
+  _blogPage: Page,
   expectedResult: "교류 완료" | "확인 필요",
 ): Promise<void> {
   await panel.locator("#generate-button").click();
   await expect(panel.locator("#review-panel")).toBeVisible();
-  await blogPage.bringToFront();
-  await panel.evaluate(() => {
-    document.querySelector<HTMLButtonElement>("button[data-use-candidate]")?.click();
-  });
-  await expect(panel.locator("#review-status")).toHaveText("승인됨");
-  await blogPage.locator(".u_cbox_text").fill("");
-  await blogPage.bringToFront();
-  await panel.evaluate(() => {
-    document.querySelector<HTMLButtonElement>("#engagement-run-button")?.click();
-  });
-  await expect(panel.locator("#engagement-confirmation")).toBeVisible();
-  await blogPage.bringToFront();
-  await panel.evaluate(() => {
-    document.querySelector<HTMLButtonElement>("#engagement-confirm-execute")?.click();
-  });
+  await panel.locator('#candidate-list input[name="candidate"]').first().check();
+  await panel.locator("#edited-use-button").click();
   if (expectedResult === "교류 완료") {
     await expect(panel.locator("#review-status")).toHaveText("교류 완료");
   } else {

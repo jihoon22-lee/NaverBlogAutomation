@@ -81,7 +81,6 @@ export class DomPanelView implements PanelView {
   readonly #replaceButton: HTMLButtonElement;
   readonly #resultTitle: HTMLElement;
   readonly #retryButton: HTMLButtonElement;
-  readonly #retryFillButton: HTMLButtonElement;
   readonly #reviewNotice: HTMLElement;
   readonly #reviewPanel: HTMLElement;
   readonly #reviewStatus: HTMLElement;
@@ -150,7 +149,6 @@ export class DomPanelView implements PanelView {
     this.#replaceButton = requireElement(document, "#replace-button");
     this.#resultTitle = requireElement(document, "#result-title");
     this.#retryButton = requireElement(document, "#retry-button");
-    this.#retryFillButton = requireElement(document, "#retry-fill-button");
     this.#reviewNotice = requireElement(document, "#review-notice");
     this.#reviewPanel = requireElement(document, "#review-panel");
     this.#reviewStatus = requireElement(document, "#review-status");
@@ -167,7 +165,6 @@ export class DomPanelView implements PanelView {
     this.#changeOptionsButton.addEventListener("click", actions.changeOptions);
     this.#editedUseButton.addEventListener("click", actions.useEdited);
     this.#copyButton.addEventListener("click", actions.copy);
-    this.#retryFillButton.addEventListener("click", actions.refill);
     this.#completeButton.addEventListener("click", actions.complete);
     this.#engagementRunButton.addEventListener("click", actions.engage);
     this.#engagementManualButton.addEventListener("click", () => {
@@ -242,14 +239,6 @@ export class DomPanelView implements PanelView {
       const Input = this.#document.defaultView?.HTMLInputElement;
       if (Input !== undefined && input instanceof Input && input.name === "candidate") {
         actions.select(input.value);
-      }
-    });
-    this.#candidateList.addEventListener("click", (event) => {
-      const target = event.target;
-      const Button = this.#document.defaultView?.HTMLButtonElement;
-      if (Button !== undefined && target instanceof Button) {
-        const candidateId = target.dataset.useCandidate;
-        if (candidateId !== undefined) actions.useCandidate(candidateId);
       }
     });
     this.#replaceButton.addEventListener("click", () => {
@@ -471,14 +460,6 @@ export class DomPanelView implements PanelView {
       detail.textContent = `본문 근거: ${candidate.referencedDetail}`;
       content.append(tone, comment, detail);
       container.append(input, content);
-      if (kind === "review") {
-        const useButton = this.#document.createElement("button");
-        useButton.className = "candidate-use";
-        useButton.dataset.useCandidate = candidate.id;
-        useButton.type = "button";
-        useButton.textContent = "이 댓글 사용";
-        container.append(useButton);
-      }
       this.#candidateList.append(container);
     }
     if (this.#editedComment.value !== presentation.editedComment) {
@@ -488,12 +469,18 @@ export class DomPanelView implements PanelView {
     this.#editSection.hidden = kind === "review" && presentation.selectedCandidateId === null;
     this.#editCount.textContent = `${Array.from(presentation.editedComment).length.toLocaleString("ko-KR")} / 500자`;
     this.#editedUseButton.hidden = kind !== "review";
+    const discoveryPost = presentation.discoveryPost ?? null;
+    this.#editedUseButton.textContent =
+      discoveryPost === null
+        ? "댓글 승인하기"
+        : discoveryPost.source === "search"
+          ? "공감·댓글·서로이웃 신청 계속하기"
+          : "공감·댓글 등록 계속하기";
     this.#renderEngagement(presentation, kind);
     this.#currentDiscoverySource = presentation.discoveryPost?.source ?? null;
     this.#completionNavigation.hidden = kind !== "completed";
     this.#nextPostButton.hidden = kind !== "completed" || this.#currentDiscoverySource === null;
     this.#copyButton.hidden = kind === "review" || kind === "saving" || kind === "engaging";
-    this.#retryFillButton.hidden = kind !== "approved";
     this.#completeButton.hidden =
       kind !== "approved" ||
       (presentation.engagementRun?.state === "failed" &&

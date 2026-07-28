@@ -65,10 +65,8 @@ export interface PanelActions {
   regenerate(): void;
   replace(): void;
   retry(): void;
-  refill(): void;
   savePreferences(): void;
   select(candidateId: string): void;
-  useCandidate(candidateId: string): void;
   useEdited(): void;
 }
 
