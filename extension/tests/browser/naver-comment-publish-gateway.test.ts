@@ -1,11 +1,11 @@
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CommentInputResult } from "../../src/browser/comment-input-gateway";
 import {
   ChromeCommentPublishGateway,
   type CommentPublishResult,
 } from "../../src/browser/naver-comment-publish-gateway";
-import type { CommentInputResult } from "../../src/browser/comment-input-gateway";
 
 function gatewayFixture(options: {
   confirmResult?: CommentPublishResult;
@@ -191,6 +191,30 @@ describe("injected comment publish functions", () => {
         query: vi.fn().mockResolvedValue([{ id: 7, url: "https://blog.naver.com/synthetic/7" }]),
       },
     } as never);
+
+    await expect(gateway.publish(7, "승인 댓글")).resolves.toBe("submitted");
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("finds Naver's sibling upload button from the outer write wrap", async () => {
+    const dom = new JSDOM(
+      `
+        <div class="u_cbox_write_wrap">
+          <form><fieldset><div class="u_cbox_write"><div class="u_cbox_write_inner">
+            <div class="u_cbox_write_area"><div class="u_cbox_text u_cbox_text_mention" contenteditable="true">승인 댓글</div></div>
+            <div class="u_cbox_upload"><button class="u_cbox_btn_upload">등록</button></div>
+          </div></div></fieldset></form>
+        </div>
+      `,
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    const clicked = vi.fn();
+    dom.window.document.querySelector("button")?.addEventListener("click", () => {
+      clicked();
+      const input = dom.window.document.querySelector(".u_cbox_text");
+      if (input !== null) input.textContent = "";
+    });
+    const { gateway } = injectedGateway(dom);
 
     await expect(gateway.publish(7, "승인 댓글")).resolves.toBe("submitted");
     expect(clicked).toHaveBeenCalledOnce();
