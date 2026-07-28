@@ -730,7 +730,7 @@ describe("integrated Side Panel workflow", () => {
     expect(fixture.api.review.mock.calls[1]?.[1]).toEqual({ review_status: "completed" });
   });
 
-  it("binds a queue post to one final approval and renders persisted engagement results", async () => {
+  it("uses one queue execution click to approve and run persisted engagement results", async () => {
     const token: EngagementApprovalToken = {
       details: {
         comment: "사용자가 다듬은 합성 댓글",
@@ -789,8 +789,6 @@ describe("integrated Side Panel workflow", () => {
     if (selected === undefined) throw new Error("Synthetic candidate missing");
     fixture.view.actions?.select(selected.id);
     fixture.view.actions?.edit("사용자가 다듬은 합성 댓글");
-    fixture.view.actions?.approve();
-    await vi.waitFor(() => expect(fixture.view.states.at(-1)?.kind).toBe("approved"));
     fixture.api.get.mockResolvedValue({
       ...drafted,
       editedComment: "사용자가 다듬은 합성 댓글",
@@ -798,7 +796,7 @@ describe("integrated Side Panel workflow", () => {
       selectedCandidateId: selected.id,
     });
 
-    fixture.view.actions?.engage();
+    fixture.view.actions?.useEdited();
 
     await vi.waitFor(() => expect(engagement.execute).toHaveBeenCalledOnce());
     fixture.gateway.invalidation?.({ kind: "activated", tabId: 99 });

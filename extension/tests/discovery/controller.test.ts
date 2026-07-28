@@ -229,6 +229,18 @@ describe("DiscoveryController", () => {
     expect(document.querySelector("#discovery-notice")?.textContent).toContain("삭제 실패");
   });
 
+  it("ignores clicks in saved-search rows that are not an explicit delete action", async () => {
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+
+    document
+      .querySelector("#discovery-searches")
+      ?.dispatchEvent(new domWindow.Event("click", { bubbles: true }));
+
+    expect(client.deleteDiscoverySearch).not.toHaveBeenCalled();
+  });
+
   it("shows persisted automatic status and opens a queued post without a page import", async () => {
     client.automaticDiscoverySettings.mockResolvedValueOnce({
       ownBlogId: "mine",
@@ -371,10 +383,26 @@ describe("DiscoveryController", () => {
             ]
           : [],
     );
+    client.getEngagementRunForPost.mockRejectedValueOnce(new Error("synthetic run lookup failure"));
     const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();
     await settle();
     expect((document.querySelector("#today-current-card") as HTMLElement).hidden).toBe(false);
+    expect(document.querySelector("#today-current-title")?.textContent).toBe("이어서 할 작업");
+
+    client.getEngagementRunForPost.mockResolvedValueOnce({
+      approvalId: "approval",
+      createdAt: "2026-07-26T00:00:00Z",
+      discoveryPostId: id,
+      id: "run",
+      recommendationId: "recommendation",
+      source: "neighbor",
+      state: "running",
+      steps: [{ name: "comment", position: 1, resultCode: null, state: "pending" }],
+      updatedAt: "2026-07-26T00:00:00Z",
+    });
+    await controller.refresh();
+    expect(document.querySelector("#today-current-title")?.textContent).toBe("이어서 할 작업");
 
     current = false;
     await controller.refresh();
@@ -414,7 +442,7 @@ describe("DiscoveryController", () => {
       steps: [
         { name: "like", position: 0, resultCode: "clicked", state: "succeeded" },
         { name: "comment", position: 1, resultCode: "manual", state: "succeeded" },
-        { name: "mutual_neighbor", position: 2, resultCode: null, state: "pending" },
+        { name: "mutual_neighbor", position: 2, resultCode: null, state: "failed" },
       ],
       updatedAt: "2026-07-26T00:00:00Z",
     });

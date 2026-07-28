@@ -12,6 +12,7 @@ import {
 } from "../browser/discovery-tab-navigator";
 
 type QueueTab = DiscoverySource;
+const UNFINISHED_ENGAGEMENT_STATES = new Set(["pending", "failed", "running"]);
 
 export class DiscoveryController {
   readonly #api: LocalApiClient;
@@ -377,9 +378,7 @@ export class DiscoveryController {
       (step) => step.name === "comment" && step.state === "succeeded",
     );
     const mutualPending = run?.steps.some(
-      (step) =>
-        step.name === "mutual_neighbor" &&
-        (step.state === "pending" || step.state === "failed" || step.state === "running"),
+      (step) => step.name === "mutual_neighbor" && UNFINISHED_ENGAGEMENT_STATES.has(step.state),
     );
     if (this.#currentPost.source === "search" && commentCompleted && mutualPending) {
       title.textContent = "서로이웃 신청 대기";
