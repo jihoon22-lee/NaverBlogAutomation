@@ -149,6 +149,21 @@ describe("DiscoveryController", () => {
     expect(client.updateDiscoveryPostState).toHaveBeenCalledWith(id, "skipped");
   });
 
+  it("shows the saved search that produced each visible search candidate", async () => {
+    client.listDiscoverySearches.mockResolvedValue([
+      { id: "saved-search-id", query: "코스트코 고기", freshnessDays: 14 },
+    ]);
+    const controller = new DiscoveryController(document, client as never, navigator);
+    controller.start();
+    await settle();
+    (document.querySelector("#discovery-search-tab") as HTMLButtonElement).click();
+    await settle();
+
+    expect(document.querySelector("#discovery-queue")?.textContent).toContain(
+      "검색어: 코스트코 고기",
+    );
+  });
+
   it("keeps failures understandable and leaves queue actions safe", async () => {
     const controller = new DiscoveryController(document, client as never, navigator);
     controller.start();

@@ -19,6 +19,7 @@ export class DiscoveryController {
   readonly #document: Document;
   readonly #navigator: DiscoveryTabNavigator;
   readonly #posts = new Map<string, DiscoveryPost>();
+  readonly #searchQueries = new Map<string, string>();
   readonly #queues: Record<QueueTab, readonly DiscoveryPost[]> = {
     neighbor: [],
     search: [],
@@ -91,6 +92,8 @@ export class DiscoveryController {
         ]);
       this.#queues.neighbor = neighborPosts;
       this.#queues.search = searchPosts;
+      this.#searchQueries.clear();
+      for (const search of searches) this.#searchQueries.set(search.id, search.query);
       this.#currentPost =
         [...neighborPosts, ...searchPosts].find((post) => post.state === "opened") ?? null;
       this.#currentEngagementRun = await this.#currentRun(this.#currentPost);
@@ -332,6 +335,9 @@ export class DiscoveryController {
         const meta = this.#document.createElement("small");
         meta.textContent = [
           item.publisherName,
+          item.source === "search" && item.searchId !== null
+            ? `검색어: ${this.#searchQueries.get(item.searchId) ?? "저장 검색어"}`
+            : null,
           item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : "게시일 미상",
         ]
           .filter(Boolean)

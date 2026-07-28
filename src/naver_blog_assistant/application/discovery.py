@@ -170,11 +170,13 @@ def filter_saved_search_posts(
     *,
     now: datetime,
 ) -> tuple[ImportedDiscoveryPost, ...]:
-    """Apply an opt-in saved search's exclusion and freshness rules to metadata."""
+    """Apply an opt-in saved search's title, exclusion, and freshness rules to metadata."""
     cutoff = now.astimezone(UTC) - timedelta(days=search.freshness_days)
     allowed: list[ImportedDiscoveryPost] = []
     excluded_terms = tuple(term.casefold() for term in search.excluded_terms)
     for post in posts:
+        if not saved_search_title_matches(search, post.title):
+            continue
         searchable = " ".join((post.title, post.publisher_name or "")).casefold()
         if any(term in searchable for term in excluded_terms):
             continue
@@ -182,6 +184,18 @@ def filter_saved_search_posts(
             continue
         allowed.append(post)
     return _one_post_per_blog(allowed)
+
+
+def saved_search_title_matches(search: SavedSearch, title: str) -> bool:
+    """Return whether every whitespace-separated saved-search term occurs in a title.
+
+    Naver's documented Search API may rank a post through metadata outside the
+    displayed title. The candidate queue intentionally uses a stricter contract:
+    users only see posts whose displayed title visibly matches their saved query.
+    """
+    normalized_title = " ".join(title.casefold().split())
+    terms = tuple(term for term in " ".join(search.query.casefold().split()).split(" ") if term)
+    return bool(terms) and all(term in normalized_title for term in terms)
 
 
 def _one_post_per_blog(posts: list[ImportedDiscoveryPost]) -> tuple[ImportedDiscoveryPost, ...]:

@@ -487,7 +487,7 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
             "posts": [
                 {
                     "source_url": "https://blog.naver.com/newfriend/456",
-                    "title": "신규 이웃 후보",
+                    "title": "전시 후기 신규 이웃 후보",
                     "publisher_name": "새 블로거",
                 }
             ],
@@ -519,8 +519,7 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
     assert deleted_search.status_code == 204
     assert client.get("/api/v1/discovery/searches").json()["items"] == []
     retained_candidates = client.get("/api/v1/discovery/queue?source=search").json()["items"]
-    assert retained_candidates[0]["title"] == "신규 이웃 후보"
-    assert retained_candidates[0]["search_id"] is None
+    assert retained_candidates == []
 
     assert client.get("/api/v1/discovery/digest-settings").json() == {
         "timezone": "Asia/Seoul",

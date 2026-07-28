@@ -143,8 +143,9 @@ bodies, or browser-tab data. An empty blog ID returns a successful transport res
 `failed` collection status and an actionable detail, allowing the Side Panel to guide setup.
 
 `DELETE /api/v1/discovery/searches/{search_id}` removes only the saved query. Existing candidates
-already collected from that query remain in the local queue and have their `search_id` cleared, so
-the user can still finish or skip them.
+already collected from that query remain in local storage and have their `search_id` cleared, but
+the active search queue hides them. Search queue responses expose only candidates whose active
+saved-search terms all occur in the displayed title.
 
 ## 사용자 승인형 교류 실행
 
