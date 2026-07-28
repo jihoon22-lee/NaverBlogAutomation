@@ -18,6 +18,7 @@ from naver_blog_assistant.application.discovery import (
     filter_saved_search_posts,
     parse_buddy_list,
     rss_url_for,
+    saved_search_title_matches,
 )
 from naver_blog_assistant.domain import ImportedDiscoveryPost, SavedSearch
 
@@ -100,6 +101,22 @@ def test_saved_search_filters_excluded_and_stale_dated_metadata() -> None:
         posts[0],
         posts[3],
     )
+
+
+def test_saved_search_requires_every_query_term_in_the_displayed_title() -> None:
+    search = SavedSearch(
+        id=uuid4(),
+        query="코스트코 고기",
+        excluded_terms=(),
+        freshness_days=7,
+        enabled=True,
+        created_at=datetime(2026, 7, 26, tzinfo=UTC),
+    )
+
+    assert saved_search_title_matches(search, "코스트코 고기 할인 후기")
+    assert saved_search_title_matches(search, "코스트코고기 보관법")
+    assert not saved_search_title_matches(search, "코스트코 장보기 후기")
+    assert not saved_search_title_matches(search, "고기 요리 모음")
 
 
 def test_public_list_parsers_keep_only_direct_bounded_naver_metadata() -> None:

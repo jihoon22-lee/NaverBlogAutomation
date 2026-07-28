@@ -97,6 +97,7 @@ from naver_blog_assistant.application.discovery import (
     filter_saved_search_posts,
     parse_buddy_list,
     rss_url_for,
+    saved_search_title_matches,
 )
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
@@ -1223,11 +1224,17 @@ def create_app(
     def list_discovery_queue(
         source: Annotated[Literal["neighbor", "search"], Query()],
     ) -> DiscoveryQueueResponse:
+        posts = discovery.list_posts(DiscoverySource(source))
+        if source == "search":
+            searches = {search.id: search for search in discovery.list_searches() if search.enabled}
+            visible_posts = []
+            for post in posts:
+                search = searches.get(post.search_id) if post.search_id is not None else None
+                if search is not None and saved_search_title_matches(search, post.title):
+                    visible_posts.append(post)
+            posts = tuple(visible_posts)
         return DiscoveryQueueResponse(
-            items=[
-                DiscoveryPostResponse.from_domain(item)
-                for item in discovery.list_posts(DiscoverySource(source))
-            ]
+            items=[DiscoveryPostResponse.from_domain(item) for item in posts]
         )
 
     @app.patch(
