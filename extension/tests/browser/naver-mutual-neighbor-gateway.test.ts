@@ -21,6 +21,10 @@ const wizardFixture = readFileSync(
   new URL("../fixtures/naver-mutual-neighbor-wizard.html", import.meta.url),
   "utf8",
 );
+const livePopupApplicationFixture = readFileSync(
+  new URL("../fixtures/naver-mutual-neighbor-popup-application.html", import.meta.url),
+  "utf8",
+);
 
 function postDom(html = '<button class="btn_add_buddy">이웃추가</button>'): JSDOM {
   return new JSDOM(html, { pretendToBeVisual: true, url: POST_URL });
@@ -39,7 +43,18 @@ function requestForm(message = ""): string {
 function browserFixture(dom: JSDOM, activeUrl = POST_URL) {
   let active: Partial<chrome.tabs.Tab> = { id: 7, status: "complete", url: activeUrl };
   const documents = new Map<number, JSDOM>([[7, dom]]);
-  const query = vi.fn(async () => [active]);
+  const tabs = new Map<number, Partial<chrome.tabs.Tab>>([[7, active]]);
+  const query = vi.fn(async (queryInfo?: chrome.tabs.QueryInfo) => {
+    if (queryInfo?.url === undefined) return [active];
+    const patterns = Array.isArray(queryInfo.url) ? queryInfo.url : [queryInfo.url];
+    return [...tabs.values()].filter((tab) =>
+      patterns.some((pattern) =>
+        new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\*", ".*")}$`).test(
+          tab.url ?? "",
+        ),
+      ),
+    );
+  });
   const executeScript = vi.fn(
     async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
       const target = injection.target;
@@ -81,16 +96,29 @@ function browserFixture(dom: JSDOM, activeUrl = POST_URL) {
       scripting: { executeScript },
       tabs: { query },
     } as never),
-    openPopup(id: number, popup: JSDOM): void {
+    openPopup(id: number, popup: JSDOM, focus = true): void {
       documents.set(id, popup);
-      active = {
+      const tab: Partial<chrome.tabs.Tab> = {
         id,
         status: "complete",
         url: "https://blog.naver.com/BuddyAddForm.naver?blogId=candidate",
       };
+      tabs.set(id, tab);
+      if (focus) active = tab;
+    },
+    navigatePopup(id: number, popup: JSDOM): void {
+      documents.set(id, popup);
+      const tab: Partial<chrome.tabs.Tab> = {
+        id,
+        status: "complete",
+        url: "https://blog.naver.com/BuddyAdd.naver",
+      };
+      tabs.set(id, tab);
+      if (active.id === id) active = tab;
     },
     setActive(tab: Partial<chrome.tabs.Tab>): void {
       active = tab;
+      if (tab.id !== undefined) tabs.set(tab.id, tab);
     },
     query,
   };
@@ -164,6 +192,66 @@ describe("ChromeNaverMutualNeighborGateway", () => {
           (injection as chrome.scripting.ScriptInjection<unknown[], unknown>).target.tabId === 8,
       ),
     ).toBe(true);
+  });
+
+  it("finds an unfocused Naver popup, follows its second page, and preserves the selected group", async () => {
+    const dom = postDom();
+    const relationship = new JSDOM(
+      `
+        <form name="buddyFrm">
+          <label><input id="buddy_add" name="relation" type="radio" value="0" checked>이웃</label>
+          <label><input id="each_buddy_add" name="relation" type="radio" value="1">서로이웃</label>
+          <a class="button_next _buddyAddNext" href="#">다음</a>
+        </form>
+      `,
+      {
+        pretendToBeVisual: true,
+        url: "https://blog.naver.com/BuddyAdd.naver?blogId=candidate",
+      },
+    );
+    const application = new JSDOM(livePopupApplicationFixture, {
+      pretendToBeVisual: true,
+      url: "https://blog.naver.com/BuddyAdd.naver",
+    });
+    const fixture = browserFixture(dom);
+    const closed = vi.fn();
+    let submittedMessage = "";
+    dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+      fixture.openPopup(8, relationship, false);
+    });
+    relationship.window.document
+      .querySelector("._buddyAddNext")
+      ?.addEventListener("click", (event) => {
+        event.preventDefault();
+        fixture.navigatePopup(8, application);
+      });
+    application.window.document
+      .querySelector("._addBothBuddy")
+      ?.addEventListener("click", (event) => {
+        event.preventDefault();
+        submittedMessage = (
+          application.window.document.querySelector("#message") as HTMLTextAreaElement
+        ).value;
+        application.window.document.body.innerHTML =
+          '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close" href="#">닫기</a>';
+        application.window.document
+          .querySelector(".button_close")
+          ?.addEventListener("click", closed);
+      });
+
+    await expect(fixture.gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
+    expect(
+      (relationship.window.document.querySelector("#each_buddy_add") as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(submittedMessage).toBe("승인한 신청 메시지");
+    expect(closed).toHaveBeenCalledOnce();
+    expect(fixture.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: expect.arrayContaining(["https://blog.naver.com/BuddyAdd.naver*"]),
+      }),
+    );
   });
 
   it("recognizes the sanitized current Naver post entry selector", async () => {
@@ -274,7 +362,7 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     relationship.querySelector(".button_next")?.addEventListener("click", (event) => {
       event.preventDefault();
       dom.window.document.body.innerHTML = `
-        <form id="buddyGroupForm">
+        <form id="buddyGroupForm" name="buddyApplyFrm">
           <select name="buddyGroup"><option value="">그룹 선택</option><option value="daily">일상</option></select>
           <textarea name="buddyMessage"></textarea>
           <button type="button">다음</button>
@@ -292,6 +380,74 @@ describe("ChromeNaverMutualNeighborGateway", () => {
       code: "requested",
     });
     expect(mutual.checked).toBe(true);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed instead of guessing between unselected custom neighbor groups", async () => {
+    const dom = postDom(
+      '<button class="btn_add_buddy">이웃추가</button><form name="buddyFrm"><input id="each_buddy_add" type="radio" value="1"><a class="button_next">다음</a></form>',
+    );
+    const relationship = dom.window.document.querySelector(
+      "form[name='buddyFrm']",
+    ) as HTMLFormElement;
+    relationship.hidden = true;
+    dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+      relationship.hidden = false;
+    });
+    relationship.querySelector(".button_next")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      dom.window.document.body.innerHTML = `
+        <form name="buddyApplyFrm">
+          <a aria-selected="false" class="_selectGroup" groupid="1">새 그룹</a>
+          <a aria-selected="false" class="_selectGroup" groupid="2">의학</a>
+          <textarea id="message"></textarea><a class="button_next">다음</a>
+        </form>
+      `;
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "state_unknown",
+    });
+  });
+
+  it("selects the only custom neighbor group before submitting the message", async () => {
+    const dom = postDom(
+      '<button class="btn_add_buddy">이웃추가</button><form name="buddyFrm"><input id="each_buddy_add" type="radio" value="1"><a class="button_next">다음</a></form>',
+    );
+    const relationship = dom.window.document.querySelector(
+      "form[name='buddyFrm']",
+    ) as HTMLFormElement;
+    relationship.hidden = true;
+    const closed = vi.fn();
+    dom.window.document.querySelector(".btn_add_buddy")?.addEventListener("click", () => {
+      relationship.hidden = false;
+    });
+    relationship.querySelector(".button_next")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      dom.window.document.body.innerHTML = `
+        <form name="buddyApplyFrm">
+          <a aria-selected="false" class="_selectGroup" groupid="1">새 그룹</a>
+          <textarea id="message"></textarea><a class="button_next">다음</a>
+        </form>
+      `;
+      dom.window.document
+        .querySelector("._selectGroup")
+        ?.addEventListener("click", (groupEvent) => {
+          (groupEvent.currentTarget as HTMLElement | null)?.setAttribute("aria-selected", "true");
+        });
+      dom.window.document.querySelector(".button_next")?.addEventListener("click", (nextEvent) => {
+        nextEvent.preventDefault();
+        dom.window.document.body.innerHTML =
+          '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close">닫기</a>';
+        dom.window.document.querySelector(".button_close")?.addEventListener("click", closed);
+      });
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
     expect(closed).toHaveBeenCalledOnce();
   });
 

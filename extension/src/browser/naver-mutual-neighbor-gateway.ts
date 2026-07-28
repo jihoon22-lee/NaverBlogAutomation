@@ -41,6 +41,7 @@ interface RelationshipProbe {
 }
 
 interface FormProbe {
+  blogId: string | null;
   count: number;
   kinds: string[];
 }
@@ -48,6 +49,11 @@ interface FormProbe {
 interface FormLocation {
   frameId: number;
   tabId: number;
+}
+
+interface CandidateTab {
+  id: number;
+  url?: string;
 }
 
 interface PageDiagnosis {
@@ -133,7 +139,7 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
     const openResult = opened[0]?.result ?? "not_found";
     if (openResult !== "opened") return { code: openResult };
 
-    const relationshipForm = await this.#locateForm(tabId, normalizedBlogId);
+    const relationshipForm = await this.#locateForm(tabId, normalizedBlogId, "relationship");
     if ("code" in relationshipForm) return relationshipForm;
     try {
       const [advanced] = await this.#api.scripting.executeScript({
@@ -143,14 +149,21 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
         world: "ISOLATED",
       });
       const result = advanced?.result ?? "request_unconfirmed";
-      if (result === "submitted") return this.#waitForRequestConfirmation(tabId, attemptKey);
+      if (result === "submitted") {
+        return this.#waitForRequestConfirmation(tabId, attemptKey, relationshipForm.tabId);
+      }
       if (result !== "advanced") return { code: result as MutualNeighborActionCode };
     } catch {
       this.#unconfirmed.add(attemptKey);
       return { code: "request_unconfirmed" };
     }
 
-    const applicationForm = await this.#locateForm(tabId, normalizedBlogId);
+    const applicationForm = await this.#locateForm(
+      tabId,
+      normalizedBlogId,
+      "application",
+      relationshipForm.tabId,
+    );
     if ("code" in applicationForm) return applicationForm;
     try {
       const [submitted] = await this.#api.scripting.executeScript({
@@ -165,7 +178,7 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
       this.#unconfirmed.add(attemptKey);
       return { code: "request_unconfirmed" };
     }
-    return this.#waitForRequestConfirmation(tabId, attemptKey);
+    return this.#waitForRequestConfirmation(tabId, attemptKey, applicationForm.tabId);
   }
 
   async #activeTab(): Promise<chrome.tabs.Tab | null> {
@@ -222,47 +235,53 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
   async #locateForm(
     originalTabId: number,
     expectedBlogId: string,
+    stage: "relationship" | "application",
+    preferredTabId?: number,
   ): Promise<FormLocation | MutualNeighborActionResult> {
     const deadline = Date.now() + 3_000;
     while (Date.now() <= deadline) {
       const active = await this.#activeTab();
-      if (active === null) return { code: "permission_denied" };
-      if (active.url !== undefined && isNaverLoginUrl(active.url))
-        return { code: "login_required" };
       if (
-        active.id !== undefined &&
+        active?.id !== undefined &&
         active.id !== originalTabId &&
         active.url !== undefined &&
-        isSupportedBlogUrl(active.url) &&
         formBlogIdFromUrl(active.url) !== null &&
         formBlogIdFromUrl(active.url)?.toLocaleLowerCase() !== expectedBlogId.toLocaleLowerCase()
       ) {
         return { code: "author_mismatch" };
       }
-      const tabIds = uniqueNumbers([
-        ...(active.id !== undefined && active.url !== undefined && isSupportedBlogUrl(active.url)
-          ? [active.id]
-          : []),
-        originalTabId,
-      ]);
+      const tabs = await this.#candidateTabs(originalTabId, preferredTabId);
+      if (tabs.length === 0) return { code: "permission_denied" };
       const locations: (FormLocation & { kinds: string[] })[] = [];
-      for (const candidateTabId of tabIds) {
+      for (const candidate of tabs) {
+        if (candidate.url !== undefined && isNaverLoginUrl(candidate.url)) {
+          return { code: "login_required" };
+        }
+        if (!isCandidateForBlog(candidate, originalTabId, expectedBlogId)) continue;
         let probes: chrome.scripting.InjectionResult<FormProbe>[];
         try {
           probes = await this.#api.scripting.executeScript({
+            args: [stage],
             func: probeMutualNeighborForm,
-            target: { allFrames: true, tabId: candidateTabId },
+            target: { allFrames: true, tabId: candidate.id as number },
             world: "ISOLATED",
           });
         } catch {
           continue;
         }
         for (const probe of probes) {
+          if (
+            probe.result?.blogId !== null &&
+            probe.result?.blogId !== undefined &&
+            probe.result.blogId.toLocaleLowerCase() !== expectedBlogId.toLocaleLowerCase()
+          ) {
+            continue;
+          }
           for (let index = 0; index < (probe.result?.count ?? 0); index += 1) {
             locations.push({
               frameId: probe.frameId,
               kinds: probe.result?.kinds ?? [],
-              tabId: candidateTabId,
+              tabId: candidate.id as number,
             });
           }
         }
@@ -292,24 +311,20 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
   async #waitForRequestConfirmation(
     originalTabId: number,
     attemptKey: string,
+    preferredTabId: number,
   ): Promise<MutualNeighborActionResult> {
     const deadline = Date.now() + 3_000;
     while (Date.now() <= deadline) {
-      const active = await this.#activeTab();
-      if (active === null) return { code: "permission_denied" };
-      if (active.url !== undefined && isNaverLoginUrl(active.url))
-        return { code: "login_required" };
-      const tabIds = uniqueNumbers([
-        originalTabId,
-        ...(active.id === undefined ? [] : [active.id]),
-      ]);
+      const tabs = await this.#candidateTabs(originalTabId, preferredTabId);
+      if (tabs.length === 0) return { code: "permission_denied" };
       const confirmations: FormLocation[] = [];
-      for (const tabId of tabIds) {
+      for (const tab of tabs) {
+        if (tab.url !== undefined && isNaverLoginUrl(tab.url)) return { code: "login_required" };
         let probes: chrome.scripting.InjectionResult<MutualNeighborConfirmationProbe>[];
         try {
           probes = await this.#api.scripting.executeScript({
             func: probeMutualNeighborConfirmation,
-            target: { allFrames: true, tabId },
+            target: { allFrames: true, tabId: tab.id as number },
             world: "ISOLATED",
           });
         } catch {
@@ -319,7 +334,8 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
           if (probe.result?.diagnosis !== null && probe.result?.diagnosis !== undefined) {
             return { code: probe.result.diagnosis };
           }
-          if (probe.result?.confirmed) confirmations.push({ frameId: probe.frameId, tabId });
+          if (probe.result?.confirmed)
+            confirmations.push({ frameId: probe.frameId, tabId: tab.id as number });
         }
       }
       if (confirmations.length > 1) return { code: "ambiguous" };
@@ -361,6 +377,35 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
       return "permission_denied";
     }
   }
+
+  async #candidateTabs(originalTabId: number, preferredTabId?: number): Promise<CandidateTab[]> {
+    const candidates = new Map<number, CandidateTab>();
+    const add = (tab: Pick<chrome.tabs.Tab, "id" | "url"> | undefined): void => {
+      if (tab?.id === undefined) return;
+      candidates.set(tab.id, tab.url === undefined ? { id: tab.id } : { id: tab.id, url: tab.url });
+    };
+    const active = await this.#activeTab();
+    add(active ?? undefined);
+    try {
+      const popups = await this.#api.tabs.query({
+        url: [
+          "https://blog.naver.com/BuddyAdd.naver*",
+          "https://blog.naver.com/BuddyAddForm.naver*",
+          "https://m.blog.naver.com/BuddyAdd.naver*",
+          "https://m.blog.naver.com/BuddyAddForm.naver*",
+        ],
+      });
+      for (const popup of popups) add(popup);
+    } catch {
+      // The active/original tabs remain a safe fallback when optional host access is limited.
+    }
+    add({ id: originalTabId });
+    const tabs = [...candidates.values()];
+    if (preferredTabId === undefined) return tabs;
+    return tabs.sort(
+      (left, right) => Number(right.id === preferredTabId) - Number(left.id === preferredTabId),
+    );
+  }
 }
 
 function normalizeBlogId(value: string): string | null {
@@ -389,6 +434,16 @@ function formBlogIdFromUrl(value: string): string | null {
   }
 }
 
+function isCandidateForBlog(
+  tab: CandidateTab,
+  originalTabId: number,
+  expectedBlogId: string,
+): boolean {
+  if (tab.id === originalTabId || tab.url === undefined) return true;
+  const blogId = formBlogIdFromUrl(tab.url);
+  return blogId === null || blogId.toLocaleLowerCase() === expectedBlogId.toLocaleLowerCase();
+}
+
 function isSupportedBlogUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -414,10 +469,6 @@ function unique(values: string[]): string[] {
   return [...new Set(values)].sort();
 }
 
-function uniqueNumbers(values: number[]): number[] {
-  return [...new Set(values)];
-}
-
 /** Keep runtime helpers inside functions serialized by chrome.scripting.executeScript. */
 function probeNeighborEntry(): RelationshipProbe {
   const candidates = findCandidates();
@@ -428,13 +479,13 @@ function probeNeighborEntry(): RelationshipProbe {
   };
 
   function findCandidates(): { element: HTMLElement; kind: string }[] {
-    const selectors = [
+    const selectors: readonly (readonly [string, string])[] = [
       ["btn_add_buddy", "a.btn_add_buddy, button.btn_add_buddy"],
       ["add_buddy_action", "a._addBuddy, button._addBuddy"],
       ["buddy_popup_action", "a._buddy_popup_btn, button._buddy_popup_btn"],
       ["buddy_add_href", "a[href*='BuddyAddForm.naver']"],
       ["buddy_status", "[data-buddy-status], .buddy_state, ._buddyState"],
-    ] as const;
+    ];
     const seen = new Set<Element>();
     const matches: { element: HTMLElement; kind: string }[] = [];
     for (const [kind, selector] of selectors) {
@@ -583,23 +634,33 @@ function clickNeighborEntry(): NeighborEntryActionCode {
   }
 }
 
-function probeMutualNeighborForm(): FormProbe {
-  const forms = findForms();
+function probeMutualNeighborForm(stage: "relationship" | "application"): FormProbe {
+  const forms = findForms(stage);
   return {
+    blogId: findBlogId(forms),
     count: forms.length,
     kinds: [...new Set(forms.map((form) => form.kind))].sort(),
   };
 
-  function findForms(): { element: HTMLElement; kind: string }[] {
-    const selectors = [
+  function findForms(expectedStage: "relationship" | "application"): {
+    element: HTMLElement;
+    kind: string;
+  }[] {
+    const relationshipSelectors: readonly (readonly [string, string])[] = [
       ["buddy_add_form_id", "form#buddyAddForm"],
       ["buddy_add_form_name", "form[name='buddyAddForm']"],
       ["naver_buddy_form_name", "form[name='buddyFrm']"],
-      ["naver_buddy_application_form_name", "form[name='buddyApplyFrm']"],
       ["buddy_add_form_class", "form._buddyAddForm"],
       ["buddy_add_form_testid", "form[data-testid='buddy-add-form']"],
-      ["buddy_popup_form", "form[name*='buddy' i], form[id*='buddy' i]"],
-    ] as const;
+    ];
+    const applicationSelectors: readonly (readonly [string, string])[] = [
+      ["naver_buddy_application_form_name", "form[name='buddyApplyFrm']"],
+      ["naver_buddy_application_form_id", "form#buddyApplyFrm"],
+      ["naver_buddy_application_form_class", "form._buddyApplyForm"],
+      ["naver_buddy_application_form_testid", "form[data-testid='buddy-apply-form']"],
+    ];
+    const selectors =
+      expectedStage === "relationship" ? relationshipSelectors : applicationSelectors;
     const seen = new Set<Element>();
     const forms: { element: HTMLElement; kind: string }[] = [];
     for (const [kind, selector] of selectors) {
@@ -610,6 +671,24 @@ function probeMutualNeighborForm(): FormProbe {
       }
     }
     return forms;
+  }
+
+  function findBlogId(forms: readonly { element: HTMLElement }[]): string | null {
+    const fromUrl = new URL(window.location.href).searchParams.get("blogId");
+    if (fromUrl !== null && /^[A-Za-z0-9._-]{1,100}$/.test(fromUrl)) return fromUrl;
+    const values = [
+      ...new Set(
+        forms
+          .map((form) =>
+            form.element.querySelector<HTMLInputElement>("input[name='blogId']")?.value.trim(),
+          )
+          .filter(
+            (value): value is string =>
+              value !== undefined && /^[A-Za-z0-9._-]{1,100}$/.test(value),
+          ),
+      ),
+    ];
+    return values.length === 1 ? (values[0] as string) : null;
   }
 
   function isVisible(element: HTMLElement): boolean {
@@ -861,6 +940,21 @@ function fillMutualNeighborApplicationAndSubmit(message: string): NeighborFormAc
       select.dispatchEvent(new Event("input", { bubbles: true }));
       select.dispatchEvent(new Event("change", { bubbles: true }));
       return select.value === fallback.value ? "ready" : "state_unknown";
+    }
+
+    const customGroups = Array.from(
+      form.querySelectorAll<HTMLElement>("._selectGroup[groupid], [data-group-id]"),
+    ).filter((element) => !element.hasAttribute("disabled") && isVisible(element));
+    if (customGroups.length > 0) {
+      const selected = customGroups.filter(
+        (element) => element.getAttribute("aria-selected") === "true",
+      );
+      if (selected.length === 1) return "ready";
+      if (selected.length > 1 || customGroups.length > 1) return "state_unknown";
+      const [onlyGroup] = customGroups;
+      if (onlyGroup === undefined) return "state_unknown";
+      onlyGroup.click();
+      return onlyGroup.getAttribute("aria-selected") === "true" ? "ready" : "state_unknown";
     }
 
     const radios = Array.from(
