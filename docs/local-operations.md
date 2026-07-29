@@ -147,6 +147,24 @@ Preview 확인, generation, 후보 선택, 편집과 copy를 먼저 검증합니
 Screenshot이나 terminal capture에는 글 본문, account identifier, source URL, API key를 남기지
 않습니다.
 
+### 승인된 실제 DOM 점검(CDP)
+
+WSL에서 Windows Chrome의 remote debugging port(`127.0.0.1:9222`)에 연결한 경우에는
+`scripts/cdp-evaluate.ps1`로 **정확히 한 개의 열린 page**에서 DOM을 점검할 수 있습니다.
+이 도구는 secret·cookie를 읽거나 출력하지 않으며, 지정한 JavaScript expression만 실행합니다.
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'E:\projects\NaverBlogAutomation\scripts\cdp-evaluate.ps1' \
+  -TargetUrl 'https://blog.naver.com/example/123' \
+  -Expression 'JSON.stringify({ title: document.title })'
+```
+
+읽기 전용 expression을 기본으로 사용합니다. click·submit처럼 외부 상태를 바꾸는 expression은
+사용자가 해당 대상과 동작을 명시적으로 승인한 경우에만 실행합니다. 실제 구조를 확인했다면 원본 HTML을
+저장하지 말고 [`extension/tests/fixtures/README.md`](../extension/tests/fixtures/README.md)의 규칙에 따라
+sanitized fixture와 연결 테스트를 함께 갱신합니다.
+
 ## System E2E Scope and Limitation
 
 CI의 `System E2E` job은 wheel을 temporary venv에 설치하고 그 absolute

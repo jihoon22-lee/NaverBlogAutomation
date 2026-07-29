@@ -25,6 +25,10 @@ const livePopupApplicationFixture = readFileSync(
   new URL("../fixtures/naver-mutual-neighbor-popup-application.html", import.meta.url),
   "utf8",
 );
+const livePopupCompleteFixture = readFileSync(
+  new URL("../fixtures/naver-mutual-neighbor-popup-complete.html", import.meta.url),
+  "utf8",
+);
 
 function postDom(html = '<button class="btn_add_buddy">이웃추가</button>'): JSDOM {
   return new JSDOM(html, { pretendToBeVisual: true, url: POST_URL });
@@ -54,6 +58,10 @@ function browserFixture(dom: JSDOM, activeUrl = POST_URL) {
         ),
       ),
     );
+  });
+  const remove = vi.fn(async (tabId: number) => {
+    documents.delete(tabId);
+    tabs.delete(tabId);
   });
   const executeScript = vi.fn(
     async (injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => {
@@ -89,12 +97,13 @@ function browserFixture(dom: JSDOM, activeUrl = POST_URL) {
     },
   );
   return {
-    api: { scripting: { executeScript }, tabs: { query } } as never,
+    api: { scripting: { executeScript }, tabs: { query, remove } } as never,
     documents,
     executeScript,
+    remove,
     gateway: new ChromeNaverMutualNeighborGateway({
       scripting: { executeScript },
-      tabs: { query },
+      tabs: { query, remove },
     } as never),
     openPopup(id: number, popup: JSDOM, focus = true): void {
       documents.set(id, popup);
@@ -232,8 +241,8 @@ describe("ChromeNaverMutualNeighborGateway", () => {
         submittedMessage = (
           application.window.document.querySelector("#message") as HTMLTextAreaElement
         ).value;
-        application.window.document.body.innerHTML =
-          '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close" href="#">닫기</a>';
+        const complete = new JSDOM(livePopupCompleteFixture);
+        application.window.document.body.innerHTML = complete.window.document.body.innerHTML;
         application.window.document
           .querySelector(".button_close")
           ?.addEventListener("click", closed);
@@ -247,6 +256,7 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     ).toBe(true);
     expect(submittedMessage).toBe("승인한 신청 메시지");
     expect(closed).toHaveBeenCalledOnce();
+    expect(fixture.remove).toHaveBeenCalledWith(8);
     expect(fixture.query).toHaveBeenCalledWith(
       expect.objectContaining({
         url: expect.arrayContaining(["https://blog.naver.com/BuddyAdd.naver*"]),

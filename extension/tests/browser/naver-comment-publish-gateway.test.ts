@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +8,11 @@ import {
   ChromeCommentPublishGateway,
   type CommentPublishResult,
 } from "../../src/browser/naver-comment-publish-gateway";
+
+const liveCommentPublishFixture = readFileSync(
+  new URL("../fixtures/naver-comment-publish-live.html", import.meta.url),
+  "utf8",
+);
 
 function gatewayFixture(options: {
   confirmResult?: CommentPublishResult;
@@ -197,17 +204,10 @@ describe("injected comment publish functions", () => {
   });
 
   it("finds Naver's sibling upload button from the outer write wrap", async () => {
-    const dom = new JSDOM(
-      `
-        <div class="u_cbox_write_wrap">
-          <form><fieldset><div class="u_cbox_write"><div class="u_cbox_write_inner">
-            <div class="u_cbox_write_area"><div class="u_cbox_text u_cbox_text_mention" contenteditable="true">승인 댓글</div></div>
-            <div class="u_cbox_upload"><button class="u_cbox_btn_upload">등록</button></div>
-          </div></div></fieldset></form>
-        </div>
-      `,
-      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
-    );
+    const dom = new JSDOM(liveCommentPublishFixture, {
+      pretendToBeVisual: true,
+      url: "https://blog.naver.com/synthetic/7",
+    });
     const clicked = vi.fn();
     dom.window.document.querySelector("button")?.addEventListener("click", () => {
       clicked();
@@ -295,10 +295,10 @@ describe("injected comment publish functions", () => {
   });
 
   it("confirms a submitted comment before ignoring Naver's zero-sized captcha placeholder", async () => {
-    const dom = new JSDOM(
-      '<form class="u_cbox_write_wrap"><div class="u_cbox_write_area"><div class="u_cbox_text" contenteditable="true">승인 댓글</div></div><div class="u_cbox_upload"><button class="u_cbox_btn_upload">등록</button></div></form><iframe id="captchalayeredframe" title="안부게시판 캡차" src="about:blank"></iframe>',
-      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
-    );
+    const dom = new JSDOM(liveCommentPublishFixture, {
+      pretendToBeVisual: true,
+      url: "https://blog.naver.com/synthetic/7",
+    });
     dom.window.document.querySelector("button")?.addEventListener("click", () => {
       const input = dom.window.document.querySelector(".u_cbox_text");
       if (input !== null) input.textContent = "";

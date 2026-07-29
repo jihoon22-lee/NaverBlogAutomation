@@ -40,15 +40,25 @@
                 class="u_likeit_button _face off"
                 href="https://blog.naver.com/"
                 role="button"
+                aria-haspopup="true"
                 aria-pressed="false"
+                aria-expanded="false"
+                data-label="news"
+                data-isopenfacelayer="false"
+                data-like-click-area="face.release"
               >공감</a>
               <ul id="canonical-like-layer" hidden>
                 <li>
+                  <!-- biome-ignore lint/a11y/useAriaPropsSupportedByRole: Sanitized fixture mirrors Naver's reaction item. -->
                   <a
                     id="canonical-default-like"
                     class="u_likeit_list_button _button off"
                     href="https://blog.naver.com/"
+                    role="menuitem"
+                    aria-selected="false"
+                    aria-pressed="false"
                     data-type="like"
+                    data-like-click-area="normal.like"
                   >공감</a>
                 </li>
               </ul>

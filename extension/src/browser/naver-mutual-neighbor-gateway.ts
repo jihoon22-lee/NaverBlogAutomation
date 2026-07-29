@@ -85,7 +85,7 @@ export interface NaverMutualNeighborGateway {
 
 export interface ChromeNaverMutualNeighborApi {
   scripting: Pick<typeof chrome.scripting, "executeScript">;
-  tabs: Pick<typeof chrome.tabs, "query">;
+  tabs: Pick<typeof chrome.tabs, "query" | "remove">;
 }
 
 export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGateway {
@@ -348,8 +348,10 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
             world: "ISOLATED",
           });
           if (closed?.result === "ambiguous") return { code: "ambiguous" };
-          if (closed?.result === "not_found" || closed?.result === "closed")
+          if (closed?.result === "not_found" || closed?.result === "closed") {
+            await this.#dismissPopupTab(originalTabId, confirmation.tabId);
             return { code: "requested" };
+          }
           return { code: "request_unconfirmed" };
         } catch {
           this.#unconfirmed.add(attemptKey);
@@ -405,6 +407,15 @@ export class ChromeNaverMutualNeighborGateway implements NaverMutualNeighborGate
     return tabs.sort(
       (left, right) => Number(right.id === preferredTabId) - Number(left.id === preferredTabId),
     );
+  }
+
+  async #dismissPopupTab(originalTabId: number, popupTabId: number): Promise<void> {
+    if (popupTabId === originalTabId) return;
+    try {
+      await this.#api.tabs.remove(popupTabId);
+    } catch {
+      // The Naver close control may already have closed the popup. The request itself is confirmed.
+    }
   }
 }
 
