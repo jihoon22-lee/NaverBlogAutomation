@@ -198,9 +198,11 @@ async function clickAndConfirmComment(expectedValue: string): Promise<CommentPub
   pair.button.click();
   const deadline = Date.now() + 3_000;
   while (Date.now() <= deadline) {
-    if (captchaVisible()) return "captcha_required";
+    // A hidden Naver captcha placeholder can remain in the document after a successful post.
+    // Confirm the post before treating an actually rendered captcha as a terminal failure.
     if (!pair.input.isConnected || readValue(pair.input).trim().length === 0) return "submitted";
     if (matchingCommentCount(expectedValue) > before) return "submitted";
+    if (captchaVisible()) return "captcha_required";
     await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
   }
   return "submission_unconfirmed";
@@ -272,7 +274,11 @@ async function clickAndConfirmComment(expectedValue: string): Promise<CommentPub
       document.querySelectorAll<HTMLElement>(
         ".u_cbox_captcha, #captcha, iframe[title*='캡차'], iframe[title*='captcha' i]",
       ),
-    ).some(isVisible);
+    ).some((element) => {
+      if (!isVisible(element)) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
   }
 
   function isEditable(element: HTMLElement): boolean {
