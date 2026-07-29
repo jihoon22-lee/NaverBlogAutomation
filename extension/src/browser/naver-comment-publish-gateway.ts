@@ -1,6 +1,6 @@
 import {
-  ChromeCommentInputGateway,
   type ChromeCommentInputApi,
+  ChromeCommentInputGateway,
   type CommentInputGateway,
   type CommentInputResult,
 } from "./comment-input-gateway";
@@ -149,8 +149,12 @@ function probePublishTarget(expectedValue: string): PublishTargetProbe {
   }
 
   function findSubmitButtons(input: HTMLElement): HTMLElement[] {
+    // Naver places the editor in `.u_cbox_write_area` and the 등록 button in its sibling
+    // `.u_cbox_upload`; their common scope is the outer write wrap (or its form).
     const root =
-      input.closest<HTMLElement>(".u_cbox_write_wrap, .u_cbox_write_area, form") ??
+      input.closest<HTMLElement>(".u_cbox_write_wrap") ??
+      input.closest<HTMLElement>("form") ??
+      input.closest<HTMLElement>(".u_cbox_write_area") ??
       input.parentElement;
     if (root === null) return [];
     return Array.from(
@@ -238,7 +242,9 @@ async function clickAndConfirmComment(expectedValue: string): Promise<CommentPub
 
   function findSubmitButtons(input: HTMLElement): HTMLElement[] {
     const root =
-      input.closest<HTMLElement>(".u_cbox_write_wrap, .u_cbox_write_area, form") ??
+      input.closest<HTMLElement>(".u_cbox_write_wrap") ??
+      input.closest<HTMLElement>("form") ??
+      input.closest<HTMLElement>(".u_cbox_write_area") ??
       input.parentElement;
     if (root === null) return [];
     return Array.from(
