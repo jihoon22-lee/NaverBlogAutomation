@@ -466,6 +466,24 @@ describe("ChromeNaverMutualNeighborGateway", () => {
     });
   });
 
+  it("closes Naver's class-only completion control after a confirmed request", async () => {
+    const dom = postDom();
+    const closed = vi.fn();
+    installInlineForm(dom, () => {
+      dom.window.document.body.insertAdjacentHTML(
+        "beforeend",
+        '<p role="status">서로이웃 신청이 완료되었습니다.</p><a class="button_close" title="완료">×</a>',
+      );
+      dom.window.document.querySelector(".button_close")?.addEventListener("click", closed);
+    });
+    const { gateway } = browserFixture(dom);
+
+    await expect(gateway.request(7, "candidate", "승인한 신청 메시지")).resolves.toEqual({
+      code: "requested",
+    });
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
   it.each([
     [
       '<form name="buddyApplyFrm"><textarea id="message"></textarea><textarea name="buddyMessage"></textarea><a class="button_next">다음</a></form>',

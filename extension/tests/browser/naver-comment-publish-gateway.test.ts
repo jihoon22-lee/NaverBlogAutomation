@@ -283,12 +283,29 @@ describe("injected comment publish functions", () => {
       clicked();
       const captcha = dom.window.document.createElement("div");
       captcha.className = "u_cbox_captcha";
+      Object.defineProperty(captcha, "getBoundingClientRect", {
+        value: () => new dom.window.DOMRect(0, 0, 320, 160),
+      });
       dom.window.document.body.append(captcha);
     });
     const { gateway } = injectedGateway(dom);
 
     await expect(gateway.publish(7, "승인 댓글")).resolves.toBe("captcha_required");
     expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("confirms a submitted comment before ignoring Naver's zero-sized captcha placeholder", async () => {
+    const dom = new JSDOM(
+      '<form class="u_cbox_write_wrap"><div class="u_cbox_write_area"><div class="u_cbox_text" contenteditable="true">승인 댓글</div></div><div class="u_cbox_upload"><button class="u_cbox_btn_upload">등록</button></div></form><iframe id="captchalayeredframe" title="안부게시판 캡차" src="about:blank"></iframe>',
+      { pretendToBeVisual: true, url: "https://blog.naver.com/synthetic/7" },
+    );
+    dom.window.document.querySelector("button")?.addEventListener("click", () => {
+      const input = dom.window.document.querySelector(".u_cbox_text");
+      if (input !== null) input.textContent = "";
+    });
+    const { gateway } = injectedGateway(dom);
+
+    await expect(gateway.publish(7, "승인 댓글")).resolves.toBe("submitted");
   });
 
   it("does not submit when two buttons are associated with the input", async () => {

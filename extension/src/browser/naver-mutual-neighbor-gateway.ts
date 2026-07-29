@@ -1038,10 +1038,7 @@ function probeMutualNeighborConfirmation(): MutualNeighborConfirmationProbe {
     );
   const closeCount = confirmed
     ? Array.from(document.querySelectorAll<HTMLElement>("button, a, [role='button']")).filter(
-        (element) =>
-          `${element.getAttribute("aria-label") ?? ""} ${element.textContent ?? ""}`
-            .replace(/\s+/g, "")
-            .trim() === "닫기" && isVisible(element),
+        (element) => isCloseControl(element) && isVisible(element),
       ).length
     : 0;
   return {
@@ -1069,17 +1066,26 @@ function probeMutualNeighborConfirmation(): MutualNeighborConfirmationProbe {
     }
     return true;
   }
+
+  function isCloseControl(element: HTMLElement): boolean {
+    const label = `${element.getAttribute("aria-label") ?? ""} ${
+      element.getAttribute("title") ?? ""
+    } ${element.textContent ?? ""}`
+      .replace(/\s+/g, "")
+      .trim()
+      .toLocaleLowerCase();
+    return (
+      label === "닫기" ||
+      label === "close" ||
+      element.matches(".button_close, .btn_close, ._close, [data-action='close']")
+    );
+  }
 }
 
 function closeMutualNeighborConfirmation(): "ambiguous" | "closed" | "not_found" {
   const buttons = Array.from(
     document.querySelectorAll<HTMLElement>("button, a, [role='button']"),
-  ).filter(
-    (element) =>
-      `${element.getAttribute("aria-label") ?? ""} ${element.textContent ?? ""}`
-        .replace(/\s+/g, "")
-        .trim() === "닫기" && isVisible(element),
-  );
+  ).filter((element) => isCloseControl(element) && isVisible(element));
   if (buttons.length === 0) return "not_found";
   if (buttons.length > 1) return "ambiguous";
   (buttons[0] as HTMLElement).click();
@@ -1103,6 +1109,20 @@ function closeMutualNeighborConfirmation(): "ambiguous" | "closed" | "not_found"
         return false;
     }
     return true;
+  }
+
+  function isCloseControl(element: HTMLElement): boolean {
+    const label = `${element.getAttribute("aria-label") ?? ""} ${
+      element.getAttribute("title") ?? ""
+    } ${element.textContent ?? ""}`
+      .replace(/\s+/g, "")
+      .trim()
+      .toLocaleLowerCase();
+    return (
+      label === "닫기" ||
+      label === "close" ||
+      element.matches(".button_close, .btn_close, ._close, [data-action='close']")
+    );
   }
 }
 

@@ -103,6 +103,9 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   영역으로 배치할 수 있습니다. 최신 extension은 두 요소의 공통 댓글 작성 영역에서 버튼을 찾습니다.
   Reload 뒤 글을 새로고침해도 반복되면, 공감·댓글을 다시 실행하지 말고 최근 작업의 code와 DOM 정보를
   공유해 주세요.
+- **댓글은 등록됐지만 `captcha_required`로 표시됨:** 최신 extension은 네이버의 크기 0 Captcha
+  placeholder를 실제 Captcha로 처리하지 않습니다. extension을 Reload한 뒤 이후 글에서 다시
+  확인하세요. 이미 등록된 댓글은 다시 실행하지 마세요.
 - **공감이 `not_found` 또는 `ambiguous`로 중단됨:** extension을 Reload한 뒤 글을 새로고침하고 다시
   실행합니다. 현재 게시글의 `#area_sympathy… > .my_reaction` 표준 하트 control만 선택하고, 숨은
   중복·다른 반응 control은 제외합니다. 하트가 반응 레이어를 여는 글에서는 기본 `like` 항목을 한 번
@@ -115,6 +118,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   신청 메시지 입력, 두 번의 **다음**, 완료 문구와 **닫기**를 모두 확인합니다. popup이 여러 개이거나
   기본 이웃만 가능한 경우에는 추측해서 신청하지 않습니다. popup이 원문 탭의 앞에 뜨지 않아도
   해당 `BuddyAdd` 탭을 찾아 같은 탭에서 두 단계를 이어가며, 이미 선택된 이웃 그룹은 바꾸지 않습니다.
+  신청 완료 뒤에는 **닫기** text뿐 아니라 Naver의 close class·title·aria-label control도 눌러 popup을
+  닫습니다.
 - **저장한 신규 이웃 검색어를 지우고 싶음:** **설정 > 신규 이웃 검색어**의 삭제 버튼을 사용합니다.
   삭제해도 기존에 수집된 후보 글은 유지됩니다.
 - **Clipboard 실패:** 편집 영역에 선택된 text를 OS copy command로 직접 복사합니다. 자동 게시로
