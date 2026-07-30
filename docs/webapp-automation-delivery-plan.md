@@ -280,8 +280,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 완료 |
 | 4 | 4 | `feat(automation): extract article content through browser session` | 완료 |
 | 5 | 5 | `feat(client): add local web app workspace shell` | 완료 |
-| 6 | 6 | `feat(api): persist web app settings in sqlite` | 진행 |
-| 7 | 7 | `feat(client): add comment generation and review workspace` | 대기 |
+| 6 | 6 | `feat(api): persist web app settings in sqlite` | 완료 |
+| 7 | 7 | `feat(client): add comment generation and review workspace` | 진행 |
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 대기 |
 | 9 | 9 | `feat(automation): add session-scoped engagement batches` | 대기 |
 | 10 | 10 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
@@ -415,7 +415,7 @@ Demo 실행 결과: `GET /api/v1/settings/generation_profile` → 저장 전 def
 timestamp, 재조회 시 동일, 501자 `neighbor_message` → 422 `invalid_setting`
 ("message must not exceed 500 code points").
 
-### [ ] Task 7 — 댓글 생성·검토 화면 (PR 7)
+### [x] Task 7 — 댓글 생성·검토 화면 (PR 7)
 
 목표: 추출 → 옵션 확인 → 생성 → 후보 선택·편집 → 마무리 문구 부착을 SPA에 구현하고 idempotency key
 발급과 재시도 상태를 서버가 소유하도록 옮깁니다. timeout·indeterminate 시 자동으로 새 key를
@@ -426,7 +426,13 @@ timeout 후 복구 안내, 429와 `Retry-After`, provider 거부, 편집 길이 
 
 Demo: 웹앱만으로 글 하나의 후보를 생성하고 다듬어 승인 상태로 만듭니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **774 passed / 7 skipped**, `npm --prefix client run check` **264 passed**,
+coverage statements 94.61% / branches 87.41%(게이트 80%).
+
+Demo 실행 결과: 생성 → `attempt=1 replayed=False`, 후보 3개(warm/curious/supportive),
+동일 요청 반복 → `replayed=True`와 `Idempotency-Replayed: true`, `replace: true` → `attempt=2`와
+새 recommendation id, 승인 → `review_status=approved`이고 저장된 댓글이 마무리 문구로 끝남.
 
 ### [ ] Task 8 — 단일 글 실행 엔진과 SSE (PR 8)
 
@@ -520,6 +526,10 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-31 | settings payload 검증은 domain layer가 단독 소유 | 웹앱과 무인 scheduler가 같은 규칙을 쓰도록 보장 |
 | 2026-07-31 | 저장 전 조회는 문서화된 default를 반환(`updated_at: null`) | 화면이 빈 상태를 특별 처리하지 않아도 됨 |
 | 2026-07-31 | `safety_policy`·`schedule_policy`·`browser_profile` kind를 0010에서 미리 정의 | Task 10·11이 migration을 추가하지 않고 값만 채우도록 |
+| 2026-07-31 | idempotency key를 `uuid5(digest, attempt)`로 서버가 파생 | 같은 요청은 항상 같은 key로 replay되고 client는 registry를 갖지 않음 |
+| 2026-07-31 | 교체 생성은 `replace: true`로만 attempt를 올림 | timeout·불명확 결과에서 자동으로 새 key를 만들지 않음 |
+| 2026-07-31 | 웹앱은 URL만 보내고 서버가 추출·생성을 수행 | 본문이 client에 머무르지 않고 요청 동안만 메모리에 존재 |
+| 2026-07-31 | 마무리 문구는 provider 요청에 넣지 않고 후보 선택 시 로컬에서 부착 | 기존 정책 유지 |
 
 ## 미해결 검증 항목
 

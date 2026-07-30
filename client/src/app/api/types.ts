@@ -58,3 +58,70 @@ export interface ProblemDetails {
   status: number;
   title: string;
 }
+
+export type CandidateTone = "warm" | "curious" | "supportive";
+
+export type ReviewStatus = "drafted" | "approved" | "completed";
+
+export type RelationshipLevel = "new" | "polite" | "friendly" | "close";
+
+export type SpeechStyle = "honorific" | "banmal";
+
+export type CommentLength = "short" | "medium" | "long";
+
+export type CommentMood = "calm" | "warm" | "lively";
+
+export type PersonalizationMode = "off" | "completed_examples";
+
+export type QualityWarning =
+  | "length_target_missed"
+  | "candidate_roles_blurred"
+  | "candidates_too_similar";
+
+export interface CommentCandidate {
+  id: string;
+  tone: CandidateTone;
+  comment: string;
+  referencedDetail: string;
+}
+
+export interface Recommendation {
+  id: string;
+  sourceUrl: string;
+  title: string;
+  summary: string;
+  topics: string[];
+  candidates: CommentCandidate[];
+  selectedCandidateId: string | null;
+  editedComment: string | null;
+  reviewStatus: ReviewStatus;
+  relationshipLevel: RelationshipLevel;
+  speechStyle: SpeechStyle;
+  commentLength: CommentLength;
+  commentMood: CommentMood;
+  qualityWarnings: QualityWarning[];
+  version: number;
+}
+
+export interface GenerationOptions {
+  relationshipLevel?: RelationshipLevel;
+  speechStyle?: SpeechStyle;
+  commentLength?: CommentLength;
+  commentMood?: CommentMood;
+  personalizationMode?: PersonalizationMode;
+  replace?: boolean;
+}
+
+export interface CommentGeneration {
+  attempt: number;
+  extraction: ArticleExtraction;
+  recommendation: Recommendation;
+  replayed: boolean;
+}
+
+export interface AppSettingRecord {
+  kind: string;
+  schemaVersion: number;
+  payload: Record<string, unknown>;
+  updatedAt: string | null;
+}

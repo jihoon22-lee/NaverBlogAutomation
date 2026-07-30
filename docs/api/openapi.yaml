@@ -529,6 +529,37 @@ paths:
         "422": {$ref: "#/components/responses/ValidationError"}
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
         "503": {$ref: "#/components/responses/BrowserUnavailable"}
+  /api/v1/automation/comments:
+    post:
+      operationId: generateComment
+      tags: [Automation]
+      summary: Generate comment candidates for one supported post
+      description: >-
+        The service extracts the post itself, applies the saved generation profile for options the
+        request omits, and derives its own idempotency key. Duplicate requests, interrupted
+        responses, and timeouts reuse that key; a replacement attempt requires `replace: true`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentGenerationRequest"
+      responses:
+        "200":
+          description: The stored recommendation for this request.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentGenerationResponse"
+        "409": {$ref: "#/components/responses/GenerationConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+        "503": {$ref: "#/components/responses/BrowserUnavailable"}
+        "504": {$ref: "#/components/responses/GenerationTimeout"}
   /api/v1/settings/{kind}:
     parameters:
       - name: kind
@@ -952,6 +983,53 @@ components:
             - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
             - {type: "null"}
         updated_at: {type: string, format: date-time}
+    CommentGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        relationship_level:
+          oneOf:
+            - {type: string, enum: [new, polite, friendly, close]}
+            - {type: "null"}
+        speech_style:
+          oneOf:
+            - {type: string, enum: [honorific, banmal]}
+            - {type: "null"}
+        comment_length:
+          oneOf:
+            - {type: string, enum: [short, medium, long]}
+            - {type: "null"}
+        comment_mood:
+          oneOf:
+            - {type: string, enum: [calm, warm, lively]}
+            - {type: "null"}
+        personalization_mode:
+          oneOf:
+            - {type: string, enum: [off, completed_examples]}
+            - {type: "null"}
+        replace:
+          type: boolean
+          default: false
+          description: Start a new attempt after accepting that the prior provider result is unknown.
+    CommentGenerationResponse:
+      type: object
+      additionalProperties: false
+      required: [attempt, extraction, recommendation, replayed]
+      properties:
+        attempt:
+          type: integer
+          minimum: 1
+        extraction:
+          $ref: "#/components/schemas/ArticleExtractionResponse"
+        recommendation:
+          $ref: "#/components/schemas/RecommendationResponse"
+        replayed:
+          type: boolean
     AppSettingRequest:
       type: object
       additionalProperties: false
@@ -1174,6 +1252,12 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     GenerationTimeout:
       description: Model generation did not finish within the configured timeout.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    GenerationConflict:
+      description: Generation is in progress, indeterminate, or the key was reused for other content.
       content:
         application/problem+json:
           schema:
