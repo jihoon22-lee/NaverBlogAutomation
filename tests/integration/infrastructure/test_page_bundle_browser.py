@@ -15,7 +15,11 @@ from typing import Any
 
 import pytest
 
-from naver_blog_assistant.infrastructure.browser import PageScriptRunner, create_browser_driver
+from naver_blog_assistant.infrastructure.browser import (
+    PageScriptRunner,
+    bundle_path,
+    create_browser_driver,
+)
 from naver_blog_assistant.infrastructure.browser.playwright_driver import PlaywrightBrowserDriver
 
 MODERN_POST = """
@@ -61,6 +65,8 @@ def _browser_available(module_name: str) -> bool:
 
 
 def _driver_or_skip() -> PlaywrightBrowserDriver:
+    if not bundle_path().exists():
+        pytest.skip("run `npm --prefix client run build:page` to build the page bundle")
     driver = create_browser_driver("patchright")
     assert isinstance(driver, PlaywrightBrowserDriver)
     if not _browser_available(driver.module_name):

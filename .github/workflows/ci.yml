@@ -59,13 +59,13 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Install locked dependencies
-        run: uv sync --frozen
-
       - name: Build the injected page bundle
         run: |
           npm ci --prefix client
           npm --prefix client run build:page
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
 
       - name: Lint
         id: ruff
@@ -476,9 +476,9 @@ jobs:
         id: dependencies
         continue-on-error: true
         run: |
-          uv sync --frozen
           npm ci --prefix client
           npm --prefix client run build:page
+          uv sync --frozen
 
       - name: Install the automation browser
         id: browser
