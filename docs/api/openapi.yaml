@@ -500,6 +500,31 @@ paths:
                 format: binary
         "409": {$ref: "#/components/responses/BrowserSessionConflict"}
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+  /api/v1/automation/extract:
+    post:
+      operationId: extractArticle
+      tags: [Automation]
+      summary: Capture one supported post through the automation session
+      description: >-
+        The supported-host policy is enforced by the service, not by the injected script. The full
+        body is held in memory for the generation request; only a bounded preview is returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArticleExtractionRequest"
+      responses:
+        "200":
+          description: The strongest capture across eligible frames.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleExtractionResponse"
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+        "503": {$ref: "#/components/responses/BrowserUnavailable"}
 components:
   parameters:
     IdempotencyKey:
@@ -876,6 +901,45 @@ components:
             - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
             - {type: "null"}
         updated_at: {type: string, format: date-time}
+    ArticleExtractionRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: HTTPS URL on an explicitly supported Naver Blog host.
+    ArticleExtractionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        [source_url, title, selector_kind, original_length, transmitted_length, truncated, preview]
+      properties:
+        source_url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        selector_kind:
+          type: string
+          enum: [modern, legacy, semantic]
+        original_length:
+          type: integer
+          minimum: 0
+        transmitted_length:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+        preview:
+          type: string
+          maxLength: 1200
+          description: Bounded excerpt for human review; the full body is never returned.
     BrowserSessionResponse:
       type: object
       additionalProperties: false

@@ -25,3 +25,15 @@ class BrowserSessionUnavailableError(AutomationError):
 
 class BrowserSessionOperationFailedError(AutomationError):
     """Raised when a live session rejects navigation, evaluation, or capture."""
+
+
+class ArticleExtractionFailedError(AutomationError):
+    """Raised with a stable code when an article cannot be captured for review."""
+
+    CODES = frozenset({"unsupported_url", "empty_article", "short_article", "extraction_failed"})
+
+    def __init__(self, code: str) -> None:
+        if code not in self.CODES:
+            raise ValueError(f"{code} is not a known extraction failure code")
+        super().__init__(code)
+        self.code = code

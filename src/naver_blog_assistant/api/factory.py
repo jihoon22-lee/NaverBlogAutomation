@@ -90,7 +90,7 @@ from naver_blog_assistant.application import (
     ReplayedGenerationFailure,
     ReviewRecommendation,
 )
-from naver_blog_assistant.application.automation import BrowserSessionManager
+from naver_blog_assistant.application.automation import BrowserSessionManager, ExtractArticle
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
     buddy_list_url,
@@ -409,6 +409,7 @@ def create_app(
         headless=settings.automation_headless,
         channel=settings.automation_browser_channel or None,
     )
+    article_extractions = ExtractArticle(browser_sessions)
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
         window_seconds=settings.rate_limit_window_seconds,
@@ -688,6 +689,7 @@ def create_app(
         app,
         sessions=browser_sessions,
         problem_metadata=_problem_metadata,
+        extractions=article_extractions,
     )
 
     @app.exception_handler(Exception)

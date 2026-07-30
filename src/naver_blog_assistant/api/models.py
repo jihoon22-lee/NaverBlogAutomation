@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from naver_blog_assistant.domain import (
+    ArticleExtraction,
     AutoDiscoverySettings,
     BrowserSessionStatus,
     CommentLength,
@@ -544,6 +545,36 @@ class DiscoverySearchRefreshResponse(StrictModel):
     imported_count: Annotated[int, Field(ge=0, le=50)]
     provider: Literal["naver_open_api"]
     detail: str
+
+
+class ArticleExtractionRequest(StrictModel):
+    """One explicitly requested article capture."""
+
+    url: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+
+
+class ArticleExtractionResponse(StrictModel):
+    """Bounded capture returned for human review; the full body stays in memory."""
+
+    source_url: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+    title: ShortText
+    selector_kind: Literal["modern", "legacy", "semantic"]
+    original_length: Annotated[int, Field(ge=0)]
+    transmitted_length: Annotated[int, Field(ge=0)]
+    truncated: bool
+    preview: Annotated[str, StringConstraints(max_length=1200)]
+
+    @classmethod
+    def from_domain(cls, extraction: ArticleExtraction) -> Self:
+        return cls(
+            source_url=extraction.source_url,
+            title=extraction.title,
+            selector_kind=cast(Literal["modern", "legacy", "semantic"], extraction.selector_kind),
+            original_length=extraction.original_length,
+            transmitted_length=extraction.transmitted_length,
+            truncated=extraction.truncated,
+            preview=extraction.preview,
+        )
 
 
 class BrowserSessionResponse(StrictModel):
