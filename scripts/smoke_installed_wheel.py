@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import yaml
 
 from naver_blog_assistant.api import ApiSettings, create_app
+from naver_blog_assistant.infrastructure.browser import PAGE_PROBES, load_page_bundle
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 EXPECTED_MIGRATION_HEAD = "20260728_0009"
@@ -18,6 +19,10 @@ CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "op
 
 def main() -> None:
     """Create the packaged app, load OpenAPI, and apply packaged migrations."""
+    bundle = load_page_bundle()
+    assert "__nbaPage" in bundle
+    for probe in PAGE_PROBES:
+        assert probe in bundle, f"the packaged page bundle is missing {probe}"
     with TemporaryDirectory() as directory:
         database_path = Path(directory) / "wheel-smoke.db"
         settings = ApiSettings(

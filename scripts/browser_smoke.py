@@ -15,7 +15,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from naver_blog_assistant.application.automation import BrowserSessionManager
-from naver_blog_assistant.infrastructure.browser import create_browser_driver, resolve_profile_dir
+from naver_blog_assistant.infrastructure.browser import (
+    PageScriptRunner,
+    create_browser_driver,
+    resolve_profile_dir,
+)
+from naver_blog_assistant.ports.browser import EvaluationTarget
 
 DEFAULT_PROBE_URL = "about:blank"
 
@@ -27,6 +32,7 @@ async def _report(
     profile_dir: Path,
     probe_url: str,
     channel: str,
+    probe_page: bool,
 ) -> list[str]:
     driver = create_browser_driver(driver_name)
     sessions = BrowserSessionManager(
@@ -49,9 +55,27 @@ async def _report(
         lines.append(f"navigator.webdriver={await page.evaluate('() => navigator.webdriver')}")
         lines.append(f"title_length={len(str(await page.evaluate('() => document.title')))}")
         lines.append(f"screenshot_bytes={len(await sessions.screenshot())}")
+        if probe_page:
+            lines.extend(await _probe_lines(page))
     finally:
         await sessions.shutdown()
     return lines
+
+
+async def _probe_lines(page: EvaluationTarget) -> list[str]:
+    """Report page-probe codes only, never article text or account details."""
+    runner = PageScriptRunner()
+    article = await runner.call(page, "captureArticle")
+    like = await runner.call(page, "probeLike")
+    comment = await runner.call(page, "probeComment", "")
+    neighbor = await runner.call(page, "probeNeighborRelationship")
+    return [
+        f"article={'none' if article is None else article['selectorKind']}",
+        f"article_length={0 if article is None else article['originalLength']}",
+        f"like={like['code']}",
+        f"comment={comment['code']}",
+        f"neighbor={neighbor['state']}",
+    ]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -81,6 +105,11 @@ def _parser() -> argparse.ArgumentParser:
         default=os.getenv("AUTOMATION_BROWSER_CHANNEL", "chrome"),
         help="browser channel such as chrome; pass an empty value to use bundled Chromium",
     )
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="also report page-probe codes for the loaded document without printing its content",
+    )
     return parser
 
 
@@ -101,6 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 profile_dir=profile_dir,
                 probe_url=arguments.url,
                 channel=arguments.channel.strip(),
+                probe_page=arguments.probe,
             )
         )
     except Exception as error:  # noqa: BLE001 - report the failure without a stack trace

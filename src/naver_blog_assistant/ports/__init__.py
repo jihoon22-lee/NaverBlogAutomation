@@ -5,6 +5,7 @@ from naver_blog_assistant.ports.browser import (
     BrowserDriver,
     BrowserLaunchError,
     BrowserOperationError,
+    EvaluationTarget,
     FrameHandle,
     PageHandle,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "BrowserLaunchError",
     "BrowserOperationError",
     "CommentGenerator",
+    "EvaluationTarget",
     "FrameHandle",
     "GenerationNotStartedError",
     "GenerationFailureSnapshot",

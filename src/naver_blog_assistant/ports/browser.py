@@ -19,6 +19,14 @@ class BrowserOperationError(RuntimeError):
     """Raised when navigation, evaluation, or capture fails inside a live session."""
 
 
+class EvaluationTarget(Protocol):
+    """Anything that can evaluate a script in an isolated context."""
+
+    async def evaluate(self, expression: str, argument: Any = None) -> Any:
+        """Evaluate ``expression`` and return a JSON-safe value."""
+        ...
+
+
 class FrameHandle(Protocol):
     """One document inside a page, addressed for read-only probing."""
 

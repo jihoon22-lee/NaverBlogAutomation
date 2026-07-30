@@ -276,8 +276,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | PR | Task | Conventional Commit | 상태 |
 | --- | --- | --- | --- |
 | 1 | 0 | `docs: add webapp automation delivery plan` | 완료 |
-| 2 | 1+2 | `feat(automation): add browser driver port and session control` | 진행 |
-| 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 대기 |
+| 2 | 1+2 | `feat(automation): add browser driver port and session control` | 완료 |
+| 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 진행 |
 | 4 | 4 | `feat(automation): extract article content through browser session` | 대기 |
 | 5 | 5 | `feat(client): add local web app workspace shell` | 대기 |
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 대기 |
@@ -333,7 +333,7 @@ Demo 실행 결과: `uv run python -m scripts.browser_smoke --headless --channel
 `driver=patchright`, `state=ready`, `navigator.webdriver=False`, `screenshot_bytes=2727`.
 실제 Chromium 통합 테스트 4건 통과(`patchright`), `playwright` 변형 4건은 fallback 미설치로 skip.
 
-### [ ] Task 3 — page-scripts 패키지와 읽기·판별 전용 이식 (PR 3)
+### [x] Task 3 — page-scripts 패키지와 읽기·판별 전용 이식 (PR 3)
 
 목표: `client/`를 신설하고 extension의 DOM 로직과 jsdom 테스트를 복사합니다. `.click()` 호출을
 제거해 대상 식별 정보(frame, selector, 상태)만 반환하는 형태로 정리하고 중복 helper를 `dom.ts`로
@@ -346,7 +346,16 @@ bundle을 evaluate해 fixture HTML에서 대상 탐지 결과를 얻는 통합 �
 
 Demo: 합성 HTML에서 공감 control, 댓글 입력란, 서로이웃 진입점을 찾아 상태와 selector를 반환합니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-30): `npm --prefix client run check` → Biome format·lint, tsc, Vitest
+**133 passed**, coverage statements 94% / branches 87.11%(게이트 80%), build 성공(`page.js` 30.4kb).
+`uv run pytest` **511 passed / 7 skipped**, total coverage 88.61%,
+`infrastructure/browser/page_scripts.py` 100%. 실제 Chromium에서 bundle 통합 테스트 5건 통과
+(probe 코드 일치, selector가 live 문서에서 1개로 resolve, navigation 후 자동 재설치, 무관한 문서에서
+fail-closed, iframe 개별 probe). wheel에 `page.js`와 `openapi.yaml`이 포함되고
+`scripts/smoke_installed_wheel.py`가 bundle의 모든 probe 존재를 확인합니다.
+
+Demo 실행 결과: `python -m scripts.browser_smoke --headless --channel "" --probe --url <합성 HTML>` →
+`article=modern`, `like=ready`, `comment=ready`, `neighbor=can_request`.
 
 ### [ ] Task 4 — 본문 추출 파이프라인 (PR 4)
 
@@ -478,6 +487,10 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-30 | `AUTOMATION_BROWSER_CHANNEL`은 비울 수 있음 | `chrome` 채널은 실제 Google Chrome 설치가 필요하고, 없으면 bundled Chromium을 사용 |
 | 2026-07-30 | 세션 상태 전이는 lock 없이 event loop 단일 스레드 전제로 동기 설정 | 진행 중 재요청은 `browser_session_busy`로 즉시 거부해 결정적으로 동작 |
 | 2026-07-30 | 로그인 판별은 공개 페이지의 로그인·로그아웃 링크만 관찰 | cookie·credential을 읽지 않으며 판별 불가 시 `unknown`으로 fail closed |
+| 2026-07-30 | 지원 host 검사를 page script에서 Python 계층으로 이동 | 같은 script로 합성 fixture를 검증할 수 있고 host 정책은 서버가 단독 소유 |
+| 2026-07-30 | page script는 selector만 반환하고 클릭·입력은 하지 않음 | `elementSelector`가 document-unique CSS path를 만들고 Python이 trusted input으로 조작 |
+| 2026-07-30 | `page.js`는 커밋하지 않고 wheel `force-include`로 포함 | 생성물 비커밋 규칙 유지. CI와 wheel smoke가 존재와 probe 목록을 검사 |
+| 2026-07-30 | CI에 `Client quality` job과 extension 참조 금지 검사 추가 | 이후 `git subtree split`이 가능한 경계를 자동으로 유지 |
 
 ## 미해결 검증 항목
 
