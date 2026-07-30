@@ -278,8 +278,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | 1 | 0 | `docs: add webapp automation delivery plan` | 완료 |
 | 2 | 1+2 | `feat(automation): add browser driver port and session control` | 완료 |
 | 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 완료 |
-| 4 | 4 | `feat(automation): extract article content through browser session` | 진행 |
-| 5 | 5 | `feat(client): add local web app workspace shell` | 대기 |
+| 4 | 4 | `feat(automation): extract article content through browser session` | 완료 |
+| 5 | 5 | `feat(client): add local web app workspace shell` | 진행 |
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 대기 |
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 대기 |
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 대기 |
@@ -375,7 +375,7 @@ passed, `pytest` **587 passed / 7 skipped**, total coverage 88.9% 이상.
 구분, 신뢰할 수 없는 숫자 필드 강제 변환), endpoint 테스트 13건(세션 미실행 409, 지원하지 않는 URL 422,
 스키마 위반 422, empty/short/extraction_failed, bundle 누락 503, 응답에 본문 미포함).
 
-### [ ] Task 5 — SPA skeleton과 오늘의 작업 (PR 5)
+### [x] Task 5 — SPA skeleton과 오늘의 작업 (PR 5)
 
 목표: `client/src/app`에 SPA를 만들고 `api/client.ts`를 복사해 상대 경로로 조정합니다. FastAPI가
 `/app`에 정적 파일을 서빙합니다. 넓은 화면 전제로 대기열과 상세를 동시에 표시합니다.
@@ -385,7 +385,13 @@ passed, `pytest` **587 passed / 7 skipped**, total coverage 88.9% 이상.
 
 Demo: `http://127.0.0.1:8765/app`에서 서비스 상태, source별 대기열 수, 대기열 목록을 봅니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `npm --prefix client run check` → **192 passed**, coverage statements
+94.61% / branches 88.32%(게이트 80%), build 성공. `uv run pytest` **595 passed / 7 skipped**,
+`ruff format --check`(114 files)·`ruff check`·`ty check` All checks passed.
+
+Demo 실행 결과: `uv run --env-file <dev env> naver-blog-api` 기동 후 `GET /app/` → 200 text/html에
+`id="workspace"` 포함, `GET /app/app.js` → 200 (19KB), `GET /api/v1/status` → `ready`,
+`GET /api/v1/discovery/queue?source=neighbor|search` → 각각 `{"items":[]}`.
 
 ### [ ] Task 6 — 웹앱 설정을 SQLite로 (PR 6)
 
@@ -499,6 +505,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-30 | CI에 `Client quality` job과 extension 참조 금지 검사 추가 | 이후 `git subtree split`이 가능한 경계를 자동으로 유지 |
 | 2026-07-30 | `truncated`를 파생 속성에서 명시 필드로 변경 | 정규화로 짧아진 것을 truncation으로 보고하던 extension의 오탐을 제거 |
 | 2026-07-30 | `PageScriptRunner`는 bundle을 지연 로딩 | bundle이 없어도 앱이 기동하고 추출 시점에 503 `browser_unavailable`로 실패 |
+| 2026-07-31 | SPA api client는 extension client(1,403줄) 복사 대신 필요한 endpoint만 담은 새 client로 작성 | 응답 검증을 계약 단위로 유지하고 SPA가 쓰지 않는 코드를 들이지 않음 |
+| 2026-07-31 | 대기열은 `source=neighbor`와 `source=search`를 각각 조회해 병합 | 기존 endpoint가 `source`를 필수로 요구하며 동결된 extension도 같은 endpoint를 사용 |
+| 2026-07-31 | `/app` static mount는 build 산출물이 없으면 건너뜀 | client build 없이도 API가 기동하고 로그로 안내 |
 
 ## 미해결 검증 항목
 

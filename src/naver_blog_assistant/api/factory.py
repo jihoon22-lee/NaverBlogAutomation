@@ -70,7 +70,10 @@ from naver_blog_assistant.api.models import (
     ServiceStatusResponse,
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
-from naver_blog_assistant.api.routers import register_automation_session_routes
+from naver_blog_assistant.api.routers import (
+    register_app_mount,
+    register_automation_session_routes,
+)
 from naver_blog_assistant.application import (
     ClearPersonalizationExamples,
     ConcurrentReviewError,
@@ -691,6 +694,8 @@ def create_app(
         problem_metadata=_problem_metadata,
         extractions=article_extractions,
     )
+    if not register_app_mount(app):
+        logger.info("web_app_assets_missing run `npm --prefix client run build`")
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, _: Exception) -> Response:
