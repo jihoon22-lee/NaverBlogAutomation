@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import re
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -69,6 +70,7 @@ from naver_blog_assistant.api.models import (
     ServiceStatusResponse,
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
+from naver_blog_assistant.api.routers import register_automation_session_routes
 from naver_blog_assistant.application import (
     ClearPersonalizationExamples,
     ConcurrentReviewError,
@@ -88,6 +90,7 @@ from naver_blog_assistant.application import (
     ReplayedGenerationFailure,
     ReviewRecommendation,
 )
+from naver_blog_assistant.application.automation import BrowserSessionManager
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
     buddy_list_url,
@@ -113,6 +116,11 @@ from naver_blog_assistant.domain import (
     ReviewTransitionError,
     SavedSearch,
 )
+from naver_blog_assistant.infrastructure.browser import (
+    SUPPORTED_DRIVERS,
+    create_browser_driver,
+    resolve_profile_dir,
+)
 from naver_blog_assistant.infrastructure.database import (
     SqliteDiscoveryRepository,
     SqliteEngagementRepository,
@@ -121,6 +129,7 @@ from naver_blog_assistant.infrastructure.database import (
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedError
+from naver_blog_assistant.ports.browser import BrowserDriver
 
 SUPPORTED_HOSTS: Final = frozenset({"blog.naver.com", "m.blog.naver.com"})
 EXTENSION_ORIGIN_PATTERN: Final = re.compile(r"chrome-extension://[a-p]{32}\Z")
@@ -154,6 +163,15 @@ def _environment_float(name: str, default: str) -> float:
         return float(os.getenv(name, default))
     except ValueError:
         raise ValueError(f"{name} must be a number") from None
+
+
+def _environment_bool(name: str, default: str) -> bool:
+    value = os.getenv(name, default).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean flag")
 
 
 def _problem_metadata(
@@ -234,6 +252,10 @@ class ApiSettings:
     digest_email_to: str = ""
     naver_search_client_id: str = field(default="", repr=False)
     naver_search_client_secret: str = field(default="", repr=False)
+    automation_driver: str = "patchright"
+    automation_headless: bool = False
+    automation_profile_dir: str = ""
+    automation_browser_channel: str = "chrome"
 
     def __post_init__(self) -> None:
         try:
@@ -296,6 +318,14 @@ class ApiSettings:
             )
         if any(len(value) > 200 for value in configured_search_values):
             raise ValueError("Naver Search API credentials must not exceed 200 characters")
+        if self.automation_driver not in SUPPORTED_DRIVERS:
+            raise ValueError("AUTOMATION_DRIVER must be patchright, playwright, or fake")
+        if self.automation_driver == "fake" and self.app_environment == "production":
+            raise ValueError("the fake browser driver is forbidden in production")
+        if len(self.automation_profile_dir) > 1024:
+            raise ValueError("AUTOMATION_PROFILE_DIR must not exceed 1024 characters")
+        if len(self.automation_browser_channel) > 32:
+            raise ValueError("AUTOMATION_BROWSER_CHANNEL must not exceed 32 characters")
 
     @classmethod
     def from_environment(cls) -> ApiSettings:
@@ -346,6 +376,10 @@ class ApiSettings:
             digest_email_to=os.getenv("DIGEST_EMAIL_TO", "").strip(),
             naver_search_client_id=os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip(),
             naver_search_client_secret=os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip(),
+            automation_driver=os.getenv("AUTOMATION_DRIVER", "patchright").strip().lower(),
+            automation_headless=_environment_bool("AUTOMATION_HEADLESS", "false"),
+            automation_profile_dir=os.getenv("AUTOMATION_PROFILE_DIR", "").strip(),
+            automation_browser_channel=os.getenv("AUTOMATION_BROWSER_CHANNEL", "chrome").strip(),
         )
 
 
@@ -353,6 +387,7 @@ def create_app(
     settings: ApiSettings,
     *,
     generator: CommentGenerator | None = None,
+    browser_driver: BrowserDriver | None = None,
     run_migrations: bool = True,
 ) -> FastAPI:
     """Compose transport, use cases, persistence, and an explicit generator adapter."""
@@ -363,6 +398,17 @@ def create_app(
     discovery = SqliteDiscoveryRepository(engine)
     engagements = SqliteEngagementRepository(engine)
     selected_generator = generator or _configured_generator(settings)
+    browser_sessions = BrowserSessionManager(
+        browser_driver or create_browser_driver(settings.automation_driver),
+        profile_dir=resolve_profile_dir(
+            configured=settings.automation_profile_dir,
+            platform=sys.platform,
+            environment=os.environ,
+            home=Path.home(),
+        ),
+        headless=settings.automation_headless,
+        channel=settings.automation_browser_channel or None,
+    )
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
         window_seconds=settings.rate_limit_window_seconds,
@@ -581,6 +627,7 @@ def create_app(
                 await asyncio.gather(scheduler_task, return_exceptions=True)
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
+            await browser_sessions.shutdown()
             close = getattr(selected_generator, "close", None)
             if close is not None:
                 close()
@@ -593,6 +640,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.database_engine = engine
+    app.state.browser_sessions = browser_sessions
     app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
     app.add_middleware(ExactCorsMiddleware, allowed_origin=settings.extension_origin)
     app.add_middleware(RequestContextMiddleware)
@@ -635,6 +683,12 @@ def create_app(
     app.add_exception_handler(ApiError, handle_api_error)
     app.add_exception_handler(RequestValidationError, handle_validation_error)
     app.add_exception_handler(StarletteHTTPException, handle_http_error)
+
+    register_automation_session_routes(
+        app,
+        sessions=browser_sessions,
+        problem_metadata=_problem_metadata,
+    )
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, _: Exception) -> Response:

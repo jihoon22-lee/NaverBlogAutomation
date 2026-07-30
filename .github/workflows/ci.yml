@@ -322,6 +322,82 @@ jobs:
             exit 1
           fi
 
+  automation-browser:
+    name: Automation browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        id: dependencies
+        continue-on-error: true
+        run: uv sync --frozen
+
+      - name: Install the automation browser
+        id: browser
+        if: steps.dependencies.outcome == 'success'
+        continue-on-error: true
+        run: uv run --frozen patchright install --with-deps chromium
+
+      - name: Run browser integration tests
+        id: tests
+        if: steps.browser.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          xvfb-run --auto-servernum uv run --frozen pytest \
+            tests/integration/infrastructure/test_playwright_browser_driver.py \
+            --no-cov -q | tee reports/automation-browser.txt
+
+      - name: Verify the redacted browser smoke report
+        id: smoke
+        if: steps.browser.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          output="$(uv run --frozen python -m scripts.browser_smoke \
+            --headless --channel "" --profile-dir "$RUNNER_TEMP/automation-profile")"
+          printf '%s\n' "$output"
+          grep -q "navigator.webdriver=False" <<<"$output"
+          grep -q "state=ready" <<<"$output"
+
+      - name: Enforce automation browser gate
+        if: always()
+        shell: bash
+        env:
+          DEPENDENCIES_RESULT: ${{ steps.dependencies.outcome }}
+          BROWSER_RESULT: ${{ steps.browser.outcome }}
+          TESTS_RESULT: ${{ steps.tests.outcome }}
+          SMOKE_RESULT: ${{ steps.smoke.outcome }}
+        run: |
+          echo "## Automation browser gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Locked dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| patchright Chromium | $BROWSER_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Browser integration tests | $TESTS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Redacted smoke report | $SMOKE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$DEPENDENCIES_RESULT" != "success" \
+            || "$BROWSER_RESULT" != "success" \
+            || "$TESTS_RESULT" != "success" \
+            || "$SMOKE_RESULT" != "success" ]]; then
+            echo "The automation browser checks did not complete successfully." >&2
+            exit 1
+          fi
+
   windows-launcher:
     name: Windows launcher
     runs-on: windows-latest
@@ -431,6 +507,7 @@ jobs:
       - python-quality
       - typescript-quality
       - system-e2e
+      - automation-browser
       - windows-launcher
       - macos-launcher
       - linux-launcher
@@ -444,6 +521,7 @@ jobs:
           PYTHON_RESULT: ${{ needs.python-quality.result }}
           TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
           E2E_RESULT: ${{ needs.system-e2e.result }}
+          AUTOMATION_RESULT: ${{ needs.automation-browser.result }}
           WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
           MACOS_RESULT: ${{ needs.macos-launcher.result }}
           LINUX_RESULT: ${{ needs.linux-launcher.result }}
@@ -455,6 +533,7 @@ jobs:
           echo "| Python quality | $PYTHON_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Automation browser | $AUTOMATION_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| macOS launcher | $MACOS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Linux launcher | $LINUX_RESULT |" >> "$GITHUB_STEP_SUMMARY"
@@ -463,6 +542,7 @@ jobs:
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
             || "$E2E_RESULT" != "success" \
+            || "$AUTOMATION_RESULT" != "success" \
             || "$WINDOWS_RESULT" != "success" \
             || "$MACOS_RESULT" != "success" \
             || "$LINUX_RESULT" != "success" ]]; then

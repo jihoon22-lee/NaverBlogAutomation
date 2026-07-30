@@ -275,8 +275,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 
 | PR | Task | Conventional Commit | 상태 |
 | --- | --- | --- | --- |
-| 1 | 0 | `docs: add webapp automation delivery plan` | 진행 |
-| 2 | 1+2 | `feat(automation): add browser driver port and session control` | 대기 |
+| 1 | 0 | `docs: add webapp automation delivery plan` | 완료 |
+| 2 | 1+2 | `feat(automation): add browser driver port and session control` | 진행 |
 | 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 대기 |
 | 4 | 4 | `feat(automation): extract article content through browser session` | 대기 |
 | 5 | 5 | `feat(client): add local web app workspace shell` | 대기 |
@@ -306,7 +306,7 @@ Demo: 문서만 읽고 전체 작업 범위와 현재 진행 상태를 파악할
 All checks passed, `ty check` All checks passed, `pytest` 349 passed / 3 skipped, total coverage
 86.90%(게이트 85%).
 
-### [ ] Task 1+2 — driver 추상화와 browser session 관리 (PR 2)
+### [x] Task 1+2 — driver 추상화와 browser session 관리 (PR 2)
 
 목표: `ports/browser.py`에 `BrowserDriver`·`BrowserSession`·`PageHandle` protocol을 정의하고
 `infrastructure/browser/`에 `fake.py`, `playwright_driver.py`(공통 구현, import만 교체),
@@ -324,7 +324,14 @@ close, 플랫폼별 profile 경로 결정, 로그인 판별 3분기(로그인·�
 Demo: 웹 요청으로 전용 profile Chrome을 띄우고 `navigator.webdriver` 값과 로그인 화면 screenshot을
 받습니다. 로그인 후 상태가 `authenticated`로 바뀝니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-30): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`pytest` 495 passed / 7 skipped, total coverage 88.45%. 신규 모듈 커버리지는 `ports/browser.py`
+100%, `domain/automation.py` 100%, `application/automation/session.py` 99%,
+`infrastructure/browser/playwright_driver.py` 100%, `api/routers/automation.py` 100%.
+
+Demo 실행 결과: `uv run python -m scripts.browser_smoke --headless --channel ""` →
+`driver=patchright`, `state=ready`, `navigator.webdriver=False`, `screenshot_bytes=2727`.
+실제 Chromium 통합 테스트 4건 통과(`patchright`), `playwright` 변형 4건은 fallback 미설치로 skip.
 
 ### [ ] Task 3 — page-scripts 패키지와 읽기·판별 전용 이식 (PR 3)
 
@@ -466,16 +473,24 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-30 | extension v0.5.6 동결, DOM 로직은 복사해 이식 | 추출·공유 refactor의 회귀 위험 회피 |
 | 2026-07-30 | 클릭·입력은 trusted input, evaluate는 읽기·판별 전용 | `element.click()`은 `isTrusted=false`이며 일부 handler에서 무시됨 |
 | 2026-07-30 | 웹앱 상태는 SQLite 신규 table, extension storage는 유지 | 무인 스케줄러가 서버에서 설정을 읽어야 함 |
+| 2026-07-30 | `patchright==1.61.2`를 runtime dependency로 pin | Python 3.14에서 설치·실행 확인. wheel만 배포되며 45MB |
+| 2026-07-30 | CI 자동화 job은 headless로 실행 | 사용자 흐름은 headful이지만 CI 안정성을 위해 headless를 사용하고 `xvfb-run`으로 감쌈 |
+| 2026-07-30 | `AUTOMATION_BROWSER_CHANNEL`은 비울 수 있음 | `chrome` 채널은 실제 Google Chrome 설치가 필요하고, 없으면 bundled Chromium을 사용 |
+| 2026-07-30 | 세션 상태 전이는 lock 없이 event loop 단일 스레드 전제로 동기 설정 | 진행 중 재요청은 `browser_session_busy`로 즉시 거부해 결정적으로 동작 |
+| 2026-07-30 | 로그인 판별은 공개 페이지의 로그인·로그아웃 링크만 관찰 | cookie·credential을 읽지 않으며 판별 불가 시 `unknown`으로 fail closed |
 
 ## 미해결 검증 항목
 
+- ~~`patchright`가 sdist 없이 wheel만 배포하므로 uv가 대상 플랫폼 wheel을 해석하는지, Python
+  3.14에서 설치되는지~~ → 해결. `uv add "patchright==1.61.2"`가 Python 3.14.4에서 성공하고
+  `navigator.webdriver`가 `False`로 관측됩니다(Task 1+2).
+- `AUTOMATION_BROWSER_CHANNEL=chrome`은 실제 Google Chrome 설치가 필요합니다. 미설치 환경에서는
+  `BrowserType.launch_persistent_context: Chromium distribution 'chrome' is not found` 오류가
+  발생하므로 값을 비워 bundled Chromium을 사용합니다.
 - `patchright`와 `channel="chrome"` persistent context 조합에서 서로이웃 popup 흐름이 동작하는지
-  (Task 1+2에서 확인).
-- `patchright`가 sdist 없이 wheel만 배포하므로 uv가 대상 플랫폼 wheel을 해석하는지, Python 3.14에서
-  설치되는지. 실패하면 `requires-python`을 `>=3.13,<3.15`로 완화하는 대안을 사용자와 확인합니다.
+  (Task 8에서 확인).
 - trusted input에 대한 네이버 반응 레이어·에디터의 실제 반응. 합성 fixture로 완전 검증이 불가하므로
   live opt-in 확인이 필요합니다.
-- headful 통합 테스트의 CI 안정성(xvfb).
 - CDP `Input.dispatch*` 자체도 탐지 가능한 흔적을 남깁니다. Brotector는 CDP-Patches 병용 시 통과하는
   것으로 보고돼 있습니다. 필요해지면 OS 레벨 입력이 escalation 경로이나 창 focus 요구와 OS 의존성
   때문에 현재는 채택하지 않습니다.

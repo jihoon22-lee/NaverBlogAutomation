@@ -21,6 +21,7 @@ from pydantic import (
 
 from naver_blog_assistant.domain import (
     AutoDiscoverySettings,
+    BrowserSessionStatus,
     CommentLength,
     CommentMood,
     DigestSettings,
@@ -543,6 +544,30 @@ class DiscoverySearchRefreshResponse(StrictModel):
     imported_count: Annotated[int, Field(ge=0, le=50)]
     provider: Literal["naver_open_api"]
     detail: str
+
+
+class BrowserSessionResponse(StrictModel):
+    """Redacted automation session snapshot; never includes cookies or page content."""
+
+    state: Literal["stopped", "launching", "ready", "closing"]
+    login: Literal["unknown", "anonymous", "authenticated"]
+    driver: Annotated[str, StringConstraints(min_length=1, max_length=32)]
+    headless: bool
+    profile_dir: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    open_pages: Annotated[int, Field(ge=0)]
+    detail: str | None = None
+
+    @classmethod
+    def from_domain(cls, status: BrowserSessionStatus) -> Self:
+        return cls(
+            state=status.state.value,
+            login=status.login.value,
+            driver=status.driver,
+            headless=status.headless,
+            profile_dir=status.profile_dir,
+            open_pages=status.open_pages,
+            detail=status.detail,
+        )
 
 
 def _quality_warnings(recommendation: Recommendation) -> list[QualityWarning]:

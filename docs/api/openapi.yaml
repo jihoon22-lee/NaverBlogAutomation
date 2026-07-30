@@ -23,6 +23,10 @@ tags:
     description: Persist one explicitly approved post engagement and its ordered external-action results.
   - name: Discovery
     description: Local, user-reviewed blog discovery queues and digest settings.
+  - name: Automation
+    description: >-
+      Control the single locally owned browser session. The user signs in manually in that window;
+      the service never reads credentials or cookies.
 security: []
 paths:
   /health:
@@ -413,6 +417,89 @@ paths:
       tags: [Discovery]
       responses:
         "200": {description: Public neighbor RSS feeds were refreshed.}
+  /api/v1/automation/session:
+    get:
+      operationId: getBrowserSession
+      tags: [Automation]
+      summary: Report the locally owned browser session without secrets
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: Re-observe the public sign-in state on a live session.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Current automation session snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+  /api/v1/automation/session/launch:
+    post:
+      operationId: launchBrowserSession
+      tags: [Automation]
+      summary: Start the dedicated-profile browser window for manual sign-in
+      responses:
+        "200":
+          description: The session is ready and its sign-in state was observed once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "503": {$ref: "#/components/responses/BrowserUnavailable"}
+  /api/v1/automation/session/close:
+    post:
+      operationId: closeBrowserSession
+      tags: [Automation]
+      summary: Close the browser session and release the profile lock
+      responses:
+        "200":
+          description: The session was closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+  /api/v1/automation/session/focus:
+    post:
+      operationId: focusBrowserSession
+      tags: [Automation]
+      summary: Raise the automation window so the user can act on it
+      responses:
+        "200":
+          description: The window was raised.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserSessionResponse"
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+  /api/v1/automation/session/screenshot:
+    get:
+      operationId: captureBrowserSession
+      tags: [Automation]
+      summary: Return one in-memory capture of the automation tab
+      description: >-
+        The capture can contain article text and the signed-in account view, so it is streamed from
+        memory and never written to disk, logs, or CI artifacts.
+      responses:
+        "200":
+          description: One in-memory PNG capture of the automation tab.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
 components:
   parameters:
     IdempotencyKey:
@@ -789,6 +876,36 @@ components:
             - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
             - {type: "null"}
         updated_at: {type: string, format: date-time}
+    BrowserSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [state, login, driver, headless, profile_dir, open_pages]
+      properties:
+        state:
+          type: string
+          enum: [stopped, launching, ready, closing]
+        login:
+          type: string
+          enum: [unknown, anonymous, authenticated]
+          description: Observed from public sign-in affordances only; never from cookies.
+        driver:
+          type: string
+          minLength: 1
+          maxLength: 32
+        headless:
+          type: boolean
+        profile_dir:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Dedicated persistent profile path, separate from the everyday browser profile.
+        open_pages:
+          type: integer
+          minimum: 0
+        detail:
+          oneOf:
+            - {type: string}
+            - {type: "null"}
     ProblemDetails:
       type: object
       additionalProperties: false
@@ -910,6 +1027,24 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     GenerationTimeout:
       description: Model generation did not finish within the configured timeout.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    BrowserSessionConflict:
+      description: The browser session lifecycle state does not allow this request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    BrowserUnavailable:
+      description: The configured browser driver or browser binary could not start.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    BrowserOperationFailed:
+      description: A live browser navigation, evaluation, or capture failed.
       content:
         application/problem+json:
           schema:
