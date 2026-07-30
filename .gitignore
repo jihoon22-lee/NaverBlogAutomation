@@ -16,4 +16,8 @@ data/*.sqlite*
 extension/coverage/
 extension/dist/
 extension/node_modules/
+client/coverage/
+client/dist/
+client/node_modules/
+src/naver_blog_assistant/infrastructure/browser/bundles/page.js
 node_modules/

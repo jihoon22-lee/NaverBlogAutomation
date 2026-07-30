@@ -52,8 +52,20 @@ jobs:
           python-version: "3.14"
           enable-cache: true
 
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
       - name: Install locked dependencies
         run: uv sync --frozen
+
+      - name: Build the injected page bundle
+        run: |
+          npm ci --prefix client
+          npm --prefix client run build:page
 
       - name: Lint
         id: ruff
@@ -237,6 +249,110 @@ jobs:
             exit 1
           fi
 
+  client-quality:
+    name: Client quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci --prefix client
+
+      - name: Check formatting
+        id: formatting
+        continue-on-error: true
+        run: npm --prefix client run format:check
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm --prefix client run lint
+
+      - name: Type check
+        id: types
+        continue-on-error: true
+        run: npm --prefix client run typecheck
+
+      - name: Test
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          npm --prefix client run test:coverage | tee reports/client-vitest.txt
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm --prefix client run build
+
+      - name: Verify the page bundle boundary
+        id: boundary
+        continue-on-error: true
+        shell: bash
+        run: |
+          # The client must stay independent of the frozen extension so the automation surface can be
+          # split into its own repository later without untangling imports.
+          if grep -rn "extension/" client/src client/tests client/scripts; then
+            echo "client code must not reference the frozen extension" >&2
+            exit 1
+          fi
+          test -s src/naver_blog_assistant/infrastructure/browser/bundles/page.js
+
+      - name: Upload client reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: client-quality-reports
+          path: |
+            reports/client-vitest.txt
+            client/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce client quality gate
+        if: always()
+        shell: bash
+        env:
+          FORMAT_RESULT: ${{ steps.formatting.outcome }}
+          LINT_RESULT: ${{ steps.lint.outcome }}
+          TYPES_RESULT: ${{ steps.types.outcome }}
+          TEST_RESULT: ${{ steps.tests.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          BOUNDARY_RESULT: ${{ steps.boundary.outcome }}
+        run: |
+          echo "## Client quality gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Biome format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Biome lint | $LINT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript | $TYPES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vitest + coverage | $TEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Client build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Page bundle boundary | $BOUNDARY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$FORMAT_RESULT" != "success" \
+            || "$LINT_RESULT" != "success" \
+            || "$TYPES_RESULT" != "success" \
+            || "$TEST_RESULT" != "success" \
+            || "$BUILD_RESULT" != "success" \
+            || "$BOUNDARY_RESULT" != "success" ]]; then
+            echo "One or more client checks failed." >&2
+            exit 1
+          fi
+
   system-e2e:
     name: System E2E
     runs-on: ubuntu-latest
@@ -264,6 +380,14 @@ jobs:
         id: dependencies
         continue-on-error: true
         run: npm ci --prefix extension
+
+      - name: Build the injected page bundle
+        id: page_bundle
+        if: steps.dependencies.outcome == 'success'
+        continue-on-error: true
+        run: |
+          npm ci --prefix client
+          npm --prefix client run build:page
 
       - name: Install bundled Chromium and system dependencies
         id: chromium
@@ -302,6 +426,7 @@ jobs:
         shell: bash
         env:
           DEPENDENCIES_RESULT: ${{ steps.dependencies.outcome }}
+          BUNDLE_RESULT: ${{ steps.page_bundle.outcome }}
           CHROMIUM_RESULT: ${{ steps.chromium.outcome }}
           PACKAGE_RESULT: ${{ steps.package.outcome }}
           E2E_RESULT: ${{ steps.e2e.outcome }}
@@ -310,11 +435,13 @@ jobs:
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Locked extension dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Injected page bundle | $BUNDLE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Playwright bundled Chromium | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Installed Python wheel | $PACKAGE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Synthetic packaged workflow | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$DEPENDENCIES_RESULT" != "success" \
+            || "$BUNDLE_RESULT" != "success" \
             || "$CHROMIUM_RESULT" != "success" \
             || "$PACKAGE_RESULT" != "success" \
             || "$E2E_RESULT" != "success" ]]; then
@@ -338,10 +465,20 @@ jobs:
           python-version: "3.14"
           enable-cache: true
 
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
       - name: Install locked dependencies
         id: dependencies
         continue-on-error: true
-        run: uv sync --frozen
+        run: |
+          uv sync --frozen
+          npm ci --prefix client
+          npm --prefix client run build:page
 
       - name: Install the automation browser
         id: browser
@@ -359,6 +496,7 @@ jobs:
           set -o pipefail
           xvfb-run --auto-servernum uv run --frozen pytest \
             tests/integration/infrastructure/test_playwright_browser_driver.py \
+            tests/integration/infrastructure/test_page_bundle_browser.py \
             --no-cov -q | tee reports/automation-browser.txt
 
       - name: Verify the redacted browser smoke report
@@ -368,10 +506,11 @@ jobs:
         shell: bash
         run: |
           output="$(uv run --frozen python -m scripts.browser_smoke \
-            --headless --channel "" --profile-dir "$RUNNER_TEMP/automation-profile")"
+            --headless --channel "" --probe --profile-dir "$RUNNER_TEMP/automation-profile")"
           printf '%s\n' "$output"
           grep -q "navigator.webdriver=False" <<<"$output"
           grep -q "state=ready" <<<"$output"
+          grep -q "like=not_found" <<<"$output"
 
       - name: Enforce automation browser gate
         if: always()
@@ -506,6 +645,7 @@ jobs:
       - commit-convention
       - python-quality
       - typescript-quality
+      - client-quality
       - system-e2e
       - automation-browser
       - windows-launcher
@@ -520,6 +660,7 @@ jobs:
           COMMIT_RESULT: ${{ needs.commit-convention.result }}
           PYTHON_RESULT: ${{ needs.python-quality.result }}
           TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
+          CLIENT_RESULT: ${{ needs.client-quality.result }}
           E2E_RESULT: ${{ needs.system-e2e.result }}
           AUTOMATION_RESULT: ${{ needs.automation-browser.result }}
           WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
@@ -532,6 +673,7 @@ jobs:
           echo "| Commit convention | $COMMIT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Python quality | $PYTHON_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Client quality | $CLIENT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Automation browser | $AUTOMATION_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
@@ -541,6 +683,7 @@ jobs:
           if [[ "$COMMIT_RESULT" != "success" \
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
+            || "$CLIENT_RESULT" != "success" \
             || "$E2E_RESULT" != "success" \
             || "$AUTOMATION_RESULT" != "success" \
             || "$WINDOWS_RESULT" != "success" \

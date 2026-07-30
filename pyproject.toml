@@ -36,6 +36,7 @@ packages = ["src/naver_blog_assistant"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "docs/api/openapi.yaml" = "naver_blog_assistant/api/openapi.yaml"
+"src/naver_blog_assistant/infrastructure/browser/bundles/page.js" = "naver_blog_assistant/infrastructure/browser/bundles/page.js"
 
 [tool.ruff]
 target-version = "py314"
