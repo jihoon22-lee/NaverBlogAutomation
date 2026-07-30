@@ -303,3 +303,28 @@ engagement_steps = Table(
         name="ck_engagement_steps_result",
     ),
 )
+
+APP_SETTING_KINDS = (
+    "generation_profile",
+    "closing_phrase",
+    "neighbor_message",
+    "automation_consent",
+    "safety_policy",
+    "schedule_policy",
+    "browser_profile",
+)
+
+app_settings = Table(
+    "app_settings",
+    metadata,
+    Column("kind", String(32), primary_key=True),
+    Column("schema_version", Integer, nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint(
+        "kind IN (" + ", ".join(f"'{kind}'" for kind in APP_SETTING_KINDS) + ")",
+        name="ck_app_settings_kind",
+    ),
+    CheckConstraint("schema_version >= 1", name="ck_app_settings_schema_version"),
+    CheckConstraint("length(payload_json) > 0", name="ck_app_settings_payload"),
+)

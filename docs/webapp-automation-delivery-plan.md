@@ -279,8 +279,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | 2 | 1+2 | `feat(automation): add browser driver port and session control` | 완료 |
 | 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 완료 |
 | 4 | 4 | `feat(automation): extract article content through browser session` | 완료 |
-| 5 | 5 | `feat(client): add local web app workspace shell` | 진행 |
-| 6 | 6 | `feat(api): persist web app settings in sqlite` | 대기 |
+| 5 | 5 | `feat(client): add local web app workspace shell` | 완료 |
+| 6 | 6 | `feat(api): persist web app settings in sqlite` | 진행 |
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 대기 |
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 대기 |
 | 9 | 9 | `feat(automation): add session-scoped engagement batches` | 대기 |
@@ -393,7 +393,7 @@ Demo 실행 결과: `uv run --env-file <dev env> naver-blog-api` 기동 후 `GET
 `id="workspace"` 포함, `GET /app/app.js` → 200 (19KB), `GET /api/v1/status` → `ready`,
 `GET /api/v1/discovery/queue?source=neighbor|search` → 각각 `{"items":[]}`.
 
-### [ ] Task 6 — 웹앱 설정을 SQLite로 (PR 6)
+### [x] Task 6 — 웹앱 설정을 SQLite로 (PR 6)
 
 목표: migration 0010 `app_settings`와 `settings/{kind}` endpoint를 추가하고 생성 preference, 마무리
 문구(최대 50 code point), 서로이웃 기본 메시지(최대 500 code point), 자동 실행 동의를 이전합니다.
@@ -404,7 +404,16 @@ Demo 실행 결과: `uv run --env-file <dev env> naver-blog-api` 기동 후 `GET
 Demo: 웹앱에서 설정을 저장하고 API 재시작 후에도 유지됩니다. extension도 자기 설정으로 정상
 동작합니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff check`·`ty check` All checks passed, `uv run pytest`
+**722 passed / 7 skipped**, `npm --prefix extension run check` **368 passed**(회귀 없음),
+wheel smoke 통과(migration head `20260731_0010`, `app_settings` table 확인).
+커버리지: `domain/settings.py` 99%, `api/routers/settings.py` 100%,
+`infrastructure/database/app_settings_repository.py` 100%.
+
+Demo 실행 결과: `GET /api/v1/settings/generation_profile` → 저장 전 default(`updated_at: null`),
+`PUT /api/v1/settings/closing_phrase {"phrase":"  감사합니다  "}` → `{"phrase":"감사합니다"}`와
+timestamp, 재조회 시 동일, 501자 `neighbor_message` → 422 `invalid_setting`
+("message must not exceed 500 code points").
 
 ### [ ] Task 7 — 댓글 생성·검토 화면 (PR 7)
 
@@ -508,6 +517,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-31 | SPA api client는 extension client(1,403줄) 복사 대신 필요한 endpoint만 담은 새 client로 작성 | 응답 검증을 계약 단위로 유지하고 SPA가 쓰지 않는 코드를 들이지 않음 |
 | 2026-07-31 | 대기열은 `source=neighbor`와 `source=search`를 각각 조회해 병합 | 기존 endpoint가 `source`를 필수로 요구하며 동결된 extension도 같은 endpoint를 사용 |
 | 2026-07-31 | `/app` static mount는 build 산출물이 없으면 건너뜀 | client build 없이도 API가 기동하고 로그로 안내 |
+| 2026-07-31 | settings payload 검증은 domain layer가 단독 소유 | 웹앱과 무인 scheduler가 같은 규칙을 쓰도록 보장 |
+| 2026-07-31 | 저장 전 조회는 문서화된 default를 반환(`updated_at: null`) | 화면이 빈 상태를 특별 처리하지 않아도 됨 |
+| 2026-07-31 | `safety_policy`·`schedule_policy`·`browser_profile` kind를 0010에서 미리 정의 | Task 10·11이 migration을 추가하지 않고 값만 채우도록 |
 
 ## 미해결 검증 항목
 
