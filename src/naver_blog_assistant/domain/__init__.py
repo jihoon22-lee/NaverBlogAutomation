@@ -1,5 +1,12 @@
 """Domain models for analyzed posts and generated comments."""
 
+from naver_blog_assistant.domain.automation import (
+    BrowserLoginState,
+    BrowserSessionState,
+    BrowserSessionStatus,
+    TriggerKind,
+    assert_session_transition,
+)
 from naver_blog_assistant.domain.discovery import (
     AutoDiscoverySettings,
     DigestSettings,
@@ -78,4 +85,9 @@ __all__ = [
     "EngagementStepName",
     "EngagementStepState",
     "required_engagement_steps",
+    "BrowserLoginState",
+    "BrowserSessionState",
+    "BrowserSessionStatus",
+    "TriggerKind",
+    "assert_session_transition",
 ]

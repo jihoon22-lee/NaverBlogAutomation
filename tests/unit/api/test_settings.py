@@ -58,6 +58,88 @@ def test_extension_origin_must_be_one_exact_chrome_origin(origin: str) -> None:
         ApiSettings(extension_origin=origin, openai_api_key="test-key")
 
 
+def test_automation_defaults_to_patchright_in_a_visible_window() -> None:
+    settings = ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key")
+
+    assert settings.automation_driver == "patchright"
+    assert settings.automation_headless is False
+    assert settings.automation_browser_channel == "chrome"
+    assert settings.automation_profile_dir == ""
+
+
+@pytest.mark.parametrize("driver", ["", "selenium", "PATCHRIGHT", "patch right"])
+def test_unknown_automation_driver_is_rejected(driver: str) -> None:
+    with pytest.raises(ValueError, match="AUTOMATION_DRIVER"):
+        ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key", automation_driver=driver)
+
+
+def test_fake_browser_driver_is_forbidden_in_production() -> None:
+    with pytest.raises(ValueError, match="fake browser driver"):
+        ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key", automation_driver="fake")
+
+
+def test_fake_browser_driver_is_allowed_outside_production() -> None:
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        generator_mode="fake",
+        app_environment="test",
+        automation_driver="fake",
+    )
+
+    assert settings.automation_driver == "fake"
+
+
+def test_automation_profile_dir_length_is_bounded() -> None:
+    with pytest.raises(ValueError, match="AUTOMATION_PROFILE_DIR"):
+        ApiSettings(
+            extension_origin=ORIGIN,
+            openai_api_key="test-key",
+            automation_profile_dir="/" + "p" * 1024,
+        )
+
+
+def test_automation_browser_channel_length_is_bounded() -> None:
+    with pytest.raises(ValueError, match="AUTOMATION_BROWSER_CHANNEL"):
+        ApiSettings(
+            extension_origin=ORIGIN,
+            openai_api_key="test-key",
+            automation_browser_channel="c" * 33,
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("true", True), ("TRUE", True), ("1", True), ("on", True), ("false", False), ("0", False)],
+)
+def test_automation_headless_reads_boolean_flags(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: bool
+) -> None:
+    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AUTOMATION_HEADLESS", value)
+
+    assert ApiSettings.from_environment().automation_headless is expected
+
+
+def test_invalid_automation_headless_flag_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AUTOMATION_HEADLESS", "maybe")
+
+    with pytest.raises(ValueError, match="AUTOMATION_HEADLESS"):
+        ApiSettings.from_environment()
+
+
+def test_automation_driver_is_normalized_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AUTOMATION_DRIVER", "  PlayWright ")
+
+    assert ApiSettings.from_environment().automation_driver == "playwright"
+
+
 def test_openai_mode_requires_key() -> None:
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         ApiSettings(extension_origin=ORIGIN)
