@@ -23,6 +23,10 @@ tags:
     description: Persist one explicitly approved post engagement and its ordered external-action results.
   - name: Discovery
     description: Local, user-reviewed blog discovery queues and digest settings.
+  - name: Settings
+    description: >-
+      Versioned local web app settings. The frozen extension keeps its own browser storage; these
+      records exist so the unattended scheduler can read the same preferences.
   - name: Automation
     description: >-
       Control the single locally owned browser session. The user signs in manually in that window;
@@ -525,6 +529,53 @@ paths:
         "422": {$ref: "#/components/responses/ValidationError"}
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
         "503": {$ref: "#/components/responses/BrowserUnavailable"}
+  /api/v1/settings/{kind}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+            - generation_profile
+            - closing_phrase
+            - neighbor_message
+            - automation_consent
+            - safety_policy
+            - schedule_policy
+            - browser_profile
+    get:
+      operationId: getAppSetting
+      tags: [Settings]
+      summary: Read one settings record or its documented default
+      responses:
+        "200":
+          description: The effective settings record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettingResponse"
+        "404": {$ref: "#/components/responses/SettingNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    put:
+      operationId: saveAppSetting
+      tags: [Settings]
+      summary: Replace one settings record after service-side validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingRequest"
+      responses:
+        "200":
+          description: The stored settings record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettingResponse"
+        "404": {$ref: "#/components/responses/SettingNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
 components:
   parameters:
     IdempotencyKey:
@@ -901,6 +952,38 @@ components:
             - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
             - {type: "null"}
         updated_at: {type: string, format: date-time}
+    AppSettingRequest:
+      type: object
+      additionalProperties: false
+      required: [payload]
+      properties:
+        payload:
+          type: object
+          description: Kind-specific settings values validated by the service.
+    AppSettingResponse:
+      type: object
+      additionalProperties: false
+      required: [kind, schema_version, payload, updated_at]
+      properties:
+        kind:
+          type: string
+          enum:
+            - generation_profile
+            - closing_phrase
+            - neighbor_message
+            - automation_consent
+            - safety_policy
+            - schedule_policy
+            - browser_profile
+        schema_version:
+          type: integer
+          minimum: 1
+        payload:
+          type: object
+        updated_at:
+          oneOf:
+            - {type: string, format: date-time}
+            - {type: "null"}
     ArticleExtractionRequest:
       type: object
       additionalProperties: false
@@ -1091,6 +1174,12 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     GenerationTimeout:
       description: Model generation did not finish within the configured timeout.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    SettingNotFound:
+      description: The requested settings kind does not exist.
       content:
         application/problem+json:
           schema:

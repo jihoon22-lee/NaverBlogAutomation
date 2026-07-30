@@ -7,7 +7,7 @@ import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 from itertools import combinations
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Any, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import (
@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from naver_blog_assistant.domain import (
+    AppSetting,
     ArticleExtraction,
     AutoDiscoverySettings,
     BrowserSessionStatus,
@@ -545,6 +546,38 @@ class DiscoverySearchRefreshResponse(StrictModel):
     imported_count: Annotated[int, Field(ge=0, le=50)]
     provider: Literal["naver_open_api"]
     detail: str
+
+
+class AppSettingRequest(StrictModel):
+    """One settings payload; the service validates it per kind."""
+
+    payload: dict[str, Any]
+
+
+class AppSettingResponse(StrictModel):
+    """Stored settings record with its schema version."""
+
+    kind: Literal[
+        "generation_profile",
+        "closing_phrase",
+        "neighbor_message",
+        "automation_consent",
+        "safety_policy",
+        "schedule_policy",
+        "browser_profile",
+    ]
+    schema_version: Annotated[int, Field(ge=1)]
+    payload: dict[str, Any]
+    updated_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, setting: AppSetting) -> Self:
+        return cls(
+            kind=setting.kind.value,
+            schema_version=setting.schema_version,
+            payload=setting.payload,
+            updated_at=setting.updated_at,
+        )
 
 
 class ArticleExtractionRequest(StrictModel):

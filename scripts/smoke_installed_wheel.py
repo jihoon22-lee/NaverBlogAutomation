@@ -13,7 +13,7 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.infrastructure.browser import PAGE_PROBES, load_page_bundle
 
 EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_MIGRATION_HEAD = "20260728_0009"
+EXPECTED_MIGRATION_HEAD = "20260731_0010"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
@@ -59,6 +59,7 @@ def main() -> None:
                 "automatic_discovery_runs",
                 "engagement_runs",
                 "engagement_steps",
+                "app_settings",
             } <= tables
             assert migration_head == (EXPECTED_MIGRATION_HEAD,)
         finally:

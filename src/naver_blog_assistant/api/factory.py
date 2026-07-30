@@ -73,6 +73,7 @@ from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.api.routers import (
     register_app_mount,
     register_automation_session_routes,
+    register_settings_routes,
 )
 from naver_blog_assistant.application import (
     ClearPersonalizationExamples,
@@ -105,6 +106,7 @@ from naver_blog_assistant.application.discovery import (
     rss_url_for,
     saved_search_title_matches,
 )
+from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
     CapturedPost,
@@ -128,6 +130,9 @@ from naver_blog_assistant.infrastructure.database import (
     SqliteDiscoveryRepository,
     SqliteEngagementRepository,
     create_sqlite_engine,
+)
+from naver_blog_assistant.infrastructure.database.app_settings_repository import (
+    SqliteAppSettingsRepository,
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
@@ -413,6 +418,9 @@ def create_app(
         channel=settings.automation_browser_channel or None,
     )
     article_extractions = ExtractArticle(browser_sessions)
+    app_settings_repository = SqliteAppSettingsRepository(engine)
+    read_setting = ReadAppSetting(app_settings_repository)
+    save_setting = SaveAppSetting(app_settings_repository)
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
         window_seconds=settings.rate_limit_window_seconds,
@@ -693,6 +701,12 @@ def create_app(
         sessions=browser_sessions,
         problem_metadata=_problem_metadata,
         extractions=article_extractions,
+    )
+    register_settings_routes(
+        app,
+        read_setting=read_setting,
+        save_setting=save_setting,
+        problem_metadata=_problem_metadata,
     )
     if not register_app_mount(app):
         logger.info("web_app_assets_missing run `npm --prefix client run build`")
