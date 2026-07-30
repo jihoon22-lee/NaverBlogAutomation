@@ -72,16 +72,18 @@ class PageScriptRunner:
     """Call read-only probes from the page bundle, installing it on demand."""
 
     def __init__(self, bundle: str | None = None) -> None:
-        self._bundle = bundle if bundle is not None else load_page_bundle()
+        self._bundle = bundle
 
     @property
     def bundle(self) -> str:
-        """Return the bundle source that will be installed."""
+        """Return the bundle source, loading it on first use."""
+        if self._bundle is None:
+            self._bundle = load_page_bundle()
         return self._bundle
 
     async def install(self, target: EvaluationTarget) -> None:
         """Install the bundle in the target's isolated context."""
-        await target.evaluate(self._bundle)
+        await target.evaluate(self.bundle)
 
     async def call(self, target: EvaluationTarget, name: str, *args: Any) -> Any:
         """Call one named probe, installing the bundle first when it is absent."""

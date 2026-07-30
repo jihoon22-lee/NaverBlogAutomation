@@ -13,15 +13,29 @@ from typing import Annotated, Any
 from fastapi import FastAPI, Query, Response
 
 from naver_blog_assistant.api.errors import ApiError
-from naver_blog_assistant.api.models import BrowserSessionResponse
+from naver_blog_assistant.api.models import (
+    ArticleExtractionRequest,
+    ArticleExtractionResponse,
+    BrowserSessionResponse,
+)
 from naver_blog_assistant.application.automation import (
+    ArticleExtractionFailedError,
     BrowserSessionAlreadyRunningError,
     BrowserSessionBusyError,
     BrowserSessionManager,
     BrowserSessionNotRunningError,
     BrowserSessionOperationFailedError,
     BrowserSessionUnavailableError,
+    ExtractArticle,
 )
+from naver_blog_assistant.infrastructure.browser import PageBundleMissingError
+
+EXTRACTION_DETAILS: dict[str, str] = {
+    "unsupported_url": "지원하는 네이버 블로그 글 주소가 아닙니다.",
+    "empty_article": "본문을 찾지 못했습니다. 이미지 전용 글은 지원하지 않습니다.",
+    "short_article": "본문이 너무 짧아 댓글을 생성할 수 없습니다.",
+    "extraction_failed": "본문을 읽는 중 문제가 발생했습니다.",
+}
 
 SESSION_ERROR_MAP: dict[type[Exception], tuple[int, str, str, str]] = {
     BrowserSessionAlreadyRunningError: (
@@ -76,6 +90,7 @@ def register_automation_session_routes(
     *,
     sessions: BrowserSessionManager,
     problem_metadata: Callable[..., dict[str, Any]],
+    extractions: ExtractArticle,
 ) -> None:
     """Add the browser session lifecycle endpoints to ``app``."""
 
@@ -170,3 +185,39 @@ def register_automation_session_routes(
             media_type="image/png",
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.post(
+        "/api/v1/automation/extract",
+        response_model=ArticleExtractionResponse,
+        responses={
+            409: problem_metadata("No live session can open the post."),
+            422: problem_metadata("The URL or the captured article is unusable."),
+            502: problem_metadata("A live browser operation failed."),
+            503: problem_metadata("The injected page bundle is unavailable."),
+        },
+        tags=["Automation"],
+        operation_id="extractArticle",
+    )
+    async def extract_article(request: ArticleExtractionRequest) -> ArticleExtractionResponse:
+        try:
+            extraction = await extractions.execute(request.url)
+        except PageBundleMissingError as error:
+            raise ApiError(
+                status=503,
+                code="browser_unavailable",
+                title="Browser unavailable",
+                detail="page bundle이 없어 본문을 읽을 수 없습니다. client build를 실행하세요.",
+            ) from error
+        except ArticleExtractionFailedError as error:
+            raise ApiError(
+                status=422,
+                code=error.code,
+                title="Article extraction failed",
+                detail=EXTRACTION_DETAILS[error.code],
+            ) from error
+        except (
+            BrowserSessionNotRunningError,
+            BrowserSessionOperationFailedError,
+        ) as error:
+            raise to_api_error(error) from error
+        return ArticleExtractionResponse.from_domain(extraction)

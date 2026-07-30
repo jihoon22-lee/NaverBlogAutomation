@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Final
 
 from naver_blog_assistant.domain.models import DomainValidationError
 
@@ -75,3 +76,48 @@ class BrowserSessionStatus:
             and self.login is not BrowserLoginState.UNKNOWN
         ):
             raise DomainValidationError("login state is observable only while the session is ready")
+
+
+MAX_ARTICLE_BODY_CODE_POINTS: Final = 100_000
+MAX_ARTICLE_TITLE_CODE_POINTS: Final = 300
+MIN_ARTICLE_BODY_CODE_POINTS: Final = 20
+ARTICLE_PREVIEW_CODE_POINTS: Final = 1_200
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleExtraction:
+    """One in-memory article capture bounded to the generation request limits."""
+
+    source_url: str
+    title: str
+    body: str = field(repr=False, compare=False)
+    original_length: int = 0
+    truncated: bool = False
+    selector_kind: str = "modern"
+
+    def __post_init__(self) -> None:
+        if not self.source_url.strip():
+            raise DomainValidationError("extraction requires a source URL")
+        if not self.title.strip():
+            raise DomainValidationError("extraction requires a title")
+        transmitted = self.transmitted_length
+        if transmitted < MIN_ARTICLE_BODY_CODE_POINTS:
+            raise DomainValidationError("extraction body is too short")
+        if transmitted > MAX_ARTICLE_BODY_CODE_POINTS:
+            raise DomainValidationError("extraction body exceeds the request limit")
+        if len(self.title) > MAX_ARTICLE_TITLE_CODE_POINTS:
+            raise DomainValidationError("extraction title exceeds the contract limit")
+        if self.original_length < transmitted:
+            raise DomainValidationError("original length cannot be smaller than the bounded body")
+        if self.truncated and self.original_length == transmitted:
+            raise DomainValidationError("a truncated capture must report a larger original length")
+
+    @property
+    def transmitted_length(self) -> int:
+        """Return the code-point count that would be sent for generation."""
+        return len(self.body)
+
+    @property
+    def preview(self) -> str:
+        """Return a bounded preview for human review."""
+        return self.body[:ARTICLE_PREVIEW_CODE_POINTS]

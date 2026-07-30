@@ -277,8 +277,8 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | --- | --- | --- | --- |
 | 1 | 0 | `docs: add webapp automation delivery plan` | 완료 |
 | 2 | 1+2 | `feat(automation): add browser driver port and session control` | 완료 |
-| 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 진행 |
-| 4 | 4 | `feat(automation): extract article content through browser session` | 대기 |
+| 3 | 3 | `feat(client): add page scripts package for naver dom probing` | 완료 |
+| 4 | 4 | `feat(automation): extract article content through browser session` | 진행 |
 | 5 | 5 | `feat(client): add local web app workspace shell` | 대기 |
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 대기 |
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 대기 |
@@ -357,7 +357,7 @@ fail-closed, iframe 개별 probe). wheel에 `page.js`와 `openapi.yaml`이 포�
 Demo 실행 결과: `python -m scripts.browser_smoke --headless --channel "" --probe --url <합성 HTML>` →
 `article=modern`, `like=ready`, `comment=ready`, `neighbor=can_request`.
 
-### [ ] Task 4 — 본문 추출 파이프라인 (PR 4)
+### [x] Task 4 — 본문 추출 파이프라인 (PR 4)
 
 목표: 탭 열기 → 로드 대기 → frame 순회 → 랭킹 → 정규화 → 100,000 code point 제한을 연결하고
 `POST /automation/extract`를 추가합니다. 비지원 URL, 이미지 전용, 과소 분량은 fail-closed입니다.
@@ -367,7 +367,13 @@ Demo 실행 결과: `python -m scripts.browser_smoke --headless --channel "" --p
 
 Demo: 네이버 글 URL로 title, 글자수, truncation 여부, preview를 반환합니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-30): `ruff format --check` 112 files, `ruff check`·`ty check` All checks
+passed, `pytest` **587 passed / 7 skipped**, total coverage 88.9% 이상.
+`application/automation/extract_article.py` 100%, `domain/automation.py` 100%,
+`infrastructure/browser/page_scripts.py` 100%, `api/routers/automation.py` 98%.
+단위 테스트 51건(URL 허용·거부 17종, 공백·emoji 정규화, frame 랭킹 3종, 경계 길이, page/서버 truncation
+구분, 신뢰할 수 없는 숫자 필드 강제 변환), endpoint 테스트 13건(세션 미실행 409, 지원하지 않는 URL 422,
+스키마 위반 422, empty/short/extraction_failed, bundle 누락 503, 응답에 본문 미포함).
 
 ### [ ] Task 5 — SPA skeleton과 오늘의 작업 (PR 5)
 
@@ -491,6 +497,8 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-30 | page script는 selector만 반환하고 클릭·입력은 하지 않음 | `elementSelector`가 document-unique CSS path를 만들고 Python이 trusted input으로 조작 |
 | 2026-07-30 | `page.js`는 커밋하지 않고 wheel `force-include`로 포함 | 생성물 비커밋 규칙 유지. CI와 wheel smoke가 존재와 probe 목록을 검사 |
 | 2026-07-30 | CI에 `Client quality` job과 extension 참조 금지 검사 추가 | 이후 `git subtree split`이 가능한 경계를 자동으로 유지 |
+| 2026-07-30 | `truncated`를 파생 속성에서 명시 필드로 변경 | 정규화로 짧아진 것을 truncation으로 보고하던 extension의 오탐을 제거 |
+| 2026-07-30 | `PageScriptRunner`는 bundle을 지연 로딩 | bundle이 없어도 앱이 기동하고 추출 시점에 503 `browser_unavailable`로 실패 |
 
 ## 미해결 검증 항목
 
