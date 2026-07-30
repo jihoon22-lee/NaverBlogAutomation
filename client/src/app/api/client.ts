@@ -7,7 +7,14 @@
  */
 
 import type {
+  AppSettingRecord,
   ArticleExtraction,
+  CandidateTone,
+  CommentCandidate,
+  CommentGeneration,
+  GenerationOptions,
+  Recommendation,
+  ReviewStatus,
   BrowserLoginState,
   BrowserSession,
   BrowserSessionState,
@@ -23,6 +30,13 @@ const LOGIN_STATES = new Set<BrowserLoginState>(["unknown", "anonymous", "authen
 const SOURCES = new Set<DiscoverySource>(["neighbor", "search"]);
 const STATES = new Set<DiscoveryState>(["queued", "opened", "completed", "skipped", "unavailable"]);
 const SELECTOR_KINDS = new Set(["modern", "legacy", "semantic"]);
+const TONES = new Set<CandidateTone>(["warm", "curious", "supportive"]);
+const REVIEW_STATUSES = new Set<ReviewStatus>(["drafted", "approved", "completed"]);
+const QUALITY_WARNINGS = new Set([
+  "length_target_missed",
+  "candidate_roles_blurred",
+  "candidates_too_similar",
+]);
 const PROBLEM_CODE = /^[a-z][a-z0-9_]*$/u;
 
 type Fetch = typeof fetch;
@@ -99,6 +113,48 @@ export class LocalApiClient {
   async extractArticle(url: string): Promise<ArticleExtraction> {
     const body = await this.#request("POST", "/api/v1/automation/extract", { url });
     return readArticleExtraction(body);
+  }
+
+  async generateComment(url: string, options: GenerationOptions = {}): Promise<CommentGeneration> {
+    const payload: Record<string, unknown> = { url };
+    if (options.relationshipLevel !== undefined) {
+      payload.relationship_level = options.relationshipLevel;
+    }
+    if (options.speechStyle !== undefined) payload.speech_style = options.speechStyle;
+    if (options.commentLength !== undefined) payload.comment_length = options.commentLength;
+    if (options.commentMood !== undefined) payload.comment_mood = options.commentMood;
+    if (options.personalizationMode !== undefined) {
+      payload.personalization_mode = options.personalizationMode;
+    }
+    if (options.replace === true) payload.replace = true;
+    const body = await this.#request("POST", "/api/v1/automation/comments", payload);
+    return readCommentGeneration(body);
+  }
+
+  async reviewRecommendation(
+    id: string,
+    patch: {
+      editedComment?: string;
+      reviewStatus?: ReviewStatus;
+      selectedCandidateId?: string;
+    },
+  ): Promise<Recommendation> {
+    const payload: Record<string, unknown> = {};
+    if (patch.selectedCandidateId !== undefined) {
+      payload.selected_candidate_id = patch.selectedCandidateId;
+    }
+    if (patch.editedComment !== undefined) payload.edited_comment = patch.editedComment;
+    if (patch.reviewStatus !== undefined) payload.review_status = patch.reviewStatus;
+    const body = await this.#request("PATCH", `/api/v1/recommendations/${id}`, payload);
+    return readRecommendation(body);
+  }
+
+  async appSetting(kind: string): Promise<AppSettingRecord> {
+    return readAppSetting(await this.#request("GET", `/api/v1/settings/${kind}`));
+  }
+
+  async saveAppSetting(kind: string, payload: Record<string, unknown>): Promise<AppSettingRecord> {
+    return readAppSetting(await this.#request("PUT", `/api/v1/settings/${kind}`, { payload }));
   }
 
   async #request(method: string, path: string, payload?: unknown): Promise<unknown> {
@@ -267,5 +323,90 @@ export function readArticleExtraction(body: unknown): ArticleExtraction {
     transmittedLength: readCount(body.transmitted_length, "transmitted_length"),
     truncated: readBoolean(body.truncated, "truncated"),
     preview,
+  };
+}
+
+export function readRecommendation(body: unknown): Recommendation {
+  if (!isRecord(body)) throw contractError("recommendation");
+  const status = body.review_status;
+  if (typeof status !== "string" || !REVIEW_STATUSES.has(status as ReviewStatus)) {
+    throw contractError("review_status");
+  }
+  const candidates = body.candidates;
+  if (!Array.isArray(candidates) || candidates.length !== 3) throw contractError("candidates");
+  const topics = body.topics;
+  if (!Array.isArray(topics)) throw contractError("topics");
+  const warnings = body.quality_warnings;
+  if (!Array.isArray(warnings)) throw contractError("quality_warnings");
+  for (const warning of warnings) {
+    if (typeof warning !== "string" || !QUALITY_WARNINGS.has(warning)) {
+      throw contractError("quality_warnings");
+    }
+  }
+  return {
+    id: readString(body.id, "id"),
+    sourceUrl: readString(body.source_url, "source_url"),
+    title: readString(body.title, "title"),
+    summary: readString(body.summary, "summary"),
+    topics: topics.map((topic) => readString(topic, "topics")),
+    candidates: candidates.map(readCandidate),
+    selectedCandidateId: readNullableString(
+      body.selected_candidate_id ?? null,
+      "selected_candidate_id",
+    ),
+    editedComment:
+      body.edited_comment === undefined || body.edited_comment === null
+        ? null
+        : readString(body.edited_comment, "edited_comment"),
+    reviewStatus: status as ReviewStatus,
+    relationshipLevel: readString(
+      body.relationship_level,
+      "relationship_level",
+    ) as Recommendation["relationshipLevel"],
+    speechStyle: readString(body.speech_style, "speech_style") as Recommendation["speechStyle"],
+    commentLength: readString(
+      body.comment_length,
+      "comment_length",
+    ) as Recommendation["commentLength"],
+    commentMood: readString(body.comment_mood, "comment_mood") as Recommendation["commentMood"],
+    qualityWarnings: warnings as Recommendation["qualityWarnings"],
+    version: readCount(body.version, "version"),
+  };
+}
+
+function readCandidate(value: unknown): CommentCandidate {
+  if (!isRecord(value)) throw contractError("candidate");
+  const tone = value.tone;
+  if (typeof tone !== "string" || !TONES.has(tone as CandidateTone)) throw contractError("tone");
+  return {
+    id: readString(value.id, "candidate id"),
+    tone: tone as CandidateTone,
+    comment: readString(value.comment, "comment"),
+    referencedDetail: readString(value.referenced_detail, "referenced_detail"),
+  };
+}
+
+export function readCommentGeneration(body: unknown): CommentGeneration {
+  if (!isRecord(body)) throw contractError("generation");
+  return {
+    attempt: readCount(body.attempt, "attempt"),
+    extraction: readArticleExtraction(body.extraction),
+    recommendation: readRecommendation(body.recommendation),
+    replayed: readBoolean(body.replayed, "replayed"),
+  };
+}
+
+export function readAppSetting(body: unknown): AppSettingRecord {
+  if (!isRecord(body)) throw contractError("setting");
+  const payload = body.payload;
+  if (!isRecord(payload)) throw contractError("payload");
+  return {
+    kind: readString(body.kind, "kind"),
+    schemaVersion: readCount(body.schema_version, "schema_version"),
+    payload,
+    updatedAt:
+      body.updated_at === null || body.updated_at === undefined
+        ? null
+        : readString(body.updated_at, "updated_at"),
   };
 }

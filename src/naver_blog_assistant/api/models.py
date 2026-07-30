@@ -580,6 +580,27 @@ class AppSettingResponse(StrictModel):
         )
 
 
+class CommentGenerationRequest(StrictModel):
+    """Generate candidates for one supported post using the saved profile."""
+
+    url: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+    relationship_level: Relationship | None = None
+    speech_style: SpeechStyle | None = None
+    comment_length: CommentLength | None = None
+    comment_mood: CommentMood | None = None
+    personalization_mode: PersonalizationMode | None = None
+    replace: bool = False
+
+
+class CommentGenerationResponse(StrictModel):
+    """The stored recommendation plus the capture it was generated from."""
+
+    attempt: Annotated[int, Field(ge=1)]
+    extraction: ArticleExtractionResponse
+    recommendation: RecommendationResponse
+    replayed: bool
+
+
 class ArticleExtractionRequest(StrictModel):
     """One explicitly requested article capture."""
 

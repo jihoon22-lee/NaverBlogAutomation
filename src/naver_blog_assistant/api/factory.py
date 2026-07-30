@@ -73,6 +73,7 @@ from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.api.routers import (
     register_app_mount,
     register_automation_session_routes,
+    register_comment_routes,
     register_settings_routes,
 )
 from naver_blog_assistant.application import (
@@ -94,7 +95,12 @@ from naver_blog_assistant.application import (
     ReplayedGenerationFailure,
     ReviewRecommendation,
 )
-from naver_blog_assistant.application.automation import BrowserSessionManager, ExtractArticle
+from naver_blog_assistant.application.automation import (
+    BrowserSessionManager,
+    ExtractArticle,
+    GenerationKeyRegistry,
+    PlanGeneration,
+)
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
     buddy_list_url,
@@ -421,6 +427,7 @@ def create_app(
     app_settings_repository = SqliteAppSettingsRepository(engine)
     read_setting = ReadAppSetting(app_settings_repository)
     save_setting = SaveAppSetting(app_settings_repository)
+    generation_planner = PlanGeneration(read_setting, GenerationKeyRegistry())
     limiter = LocalRateLimiter(
         requests=settings.rate_limit_requests,
         window_seconds=settings.rate_limit_window_seconds,
@@ -619,6 +626,10 @@ def create_app(
                 logger.exception("discovery_scheduler_failed")
             await asyncio.sleep(60)
 
+    def _track_generation(task: asyncio.Task[GenerationResult]) -> None:
+        pending_generations.add(task)
+        task.add_done_callback(finish_generation_task)
+
     def finish_generation_task(task: asyncio.Task[GenerationResult]) -> None:
         pending_generations.discard(task)
         if not task.cancelled():
@@ -701,6 +712,15 @@ def create_app(
         sessions=browser_sessions,
         problem_metadata=_problem_metadata,
         extractions=article_extractions,
+    )
+    register_comment_routes(
+        app,
+        extractions=article_extractions,
+        generate=generate,
+        planner=generation_planner,
+        problem_metadata=_problem_metadata,
+        timeout_seconds=settings.generation_timeout_seconds,
+        track=_track_generation,
     )
     register_settings_routes(
         app,
