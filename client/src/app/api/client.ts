@@ -18,6 +18,8 @@ import type {
   BrowserLoginState,
   BrowserSession,
   BrowserSessionState,
+  BlogCategory,
+  BodyBlock,
   DiscoveryPost,
   DiscoverySource,
   DiscoveryState,
@@ -26,7 +28,13 @@ import type {
   EngagementStep,
   EngagementStepName,
   EngagementStepState,
+  LlmProviderName,
+  LlmProviderStatus,
+  PostDraft,
   ProblemDetails,
+  PublishRun,
+  PublishStep,
+  PublishStepName,
   ServiceStatus,
 } from "./types";
 
@@ -53,6 +61,41 @@ const STEP_STATES = new Set<EngagementStepState>([
 ]);
 const RUN_STATES = new Set<EngagementRunState>(["running", "succeeded", "failed", "unconfirmed"]);
 const RESULT_CODE = /^[a-z][a-z0-9_]{0,63}$/u;
+const PROVIDERS = new Set<LlmProviderName>(["openai", "gemini", "anthropic"]);
+const DRAFT_STATUSES = new Set([
+  "collecting",
+  "composed",
+  "refining",
+  "tagged",
+  "staging",
+  "staged",
+  "abandoned",
+]);
+const REVISION_KINDS = new Set(["seed", "composed", "refined", "user_edited"]);
+const BLOCK_KINDS = new Set(["heading", "paragraph", "quote", "image"]);
+const TAG_SOURCES = new Set(["generated", "user"]);
+const PUBLISH_STEPS = new Set<PublishStepName>(["title", "body", "images", "tags", "save"]);
+
+export interface DraftGenerationOptions {
+  provider: LlmProviderName;
+  model?: string | null;
+  length?: "short" | "medium" | "long";
+  tone?: "calm" | "warm" | "lively";
+  structure?: "plain" | "sectioned" | "story";
+  referenceLimit?: number;
+  request?: string;
+}
+
+function generationPayload(options: DraftGenerationOptions): Record<string, unknown> {
+  const payload: Record<string, unknown> = { provider: options.provider };
+  if (options.model !== undefined && options.model !== null) payload.model = options.model;
+  if (options.length !== undefined) payload.length = options.length;
+  if (options.tone !== undefined) payload.tone = options.tone;
+  if (options.structure !== undefined) payload.structure = options.structure;
+  if (options.referenceLimit !== undefined) payload.reference_limit = options.referenceLimit;
+  if (options.request !== undefined) payload.request = options.request;
+  return payload;
+}
 const PROBLEM_CODE = /^[a-z][a-z0-9_]*$/u;
 
 type Fetch = typeof fetch;
@@ -203,6 +246,139 @@ export class LocalApiClient {
       completed_steps: completedSteps,
     });
     return readEngagementRun(body);
+  }
+
+  async llmProviders(): Promise<LlmProviderStatus[]> {
+    const body = await this.#request("GET", "/api/v1/llm/providers");
+    return readItems(body, readLlmProvider);
+  }
+
+  async blogCategories(): Promise<BlogCategory[]> {
+    const body = await this.#request("GET", "/api/v1/blog/categories");
+    return readItems(body, readBlogCategory);
+  }
+
+  async syncBlogCategories(): Promise<BlogCategory[]> {
+    const body = await this.#request("POST", "/api/v1/blog/categories/sync");
+    return readItems(body, readBlogCategory);
+  }
+
+  async createDraft(payload: {
+    title: string;
+    seedText: string;
+    categoryNo?: number | null;
+    useImageVision?: boolean;
+  }): Promise<PostDraft> {
+    const body = await this.#request("POST", "/api/v1/drafts", {
+      title: payload.title,
+      seed_text: payload.seedText,
+      ...(payload.categoryNo === undefined ? {} : { category_no: payload.categoryNo }),
+      ...(payload.useImageVision === undefined ? {} : { use_image_vision: payload.useImageVision }),
+    });
+    return readPostDraft(body);
+  }
+
+  async drafts(limit = 20): Promise<PostDraft[]> {
+    const body = await this.#request("GET", `/api/v1/drafts?limit=${limit}`);
+    return readItems(body, readPostDraft);
+  }
+
+  async draft(id: string): Promise<PostDraft> {
+    return readPostDraft(await this.#request("GET", `/api/v1/drafts/${id}`));
+  }
+
+  async patchDraft(
+    id: string,
+    patch: { title?: string; categoryNo?: number; activeRevisionId?: string },
+  ): Promise<PostDraft> {
+    const payload: Record<string, unknown> = {};
+    if (patch.title !== undefined) payload.title = patch.title;
+    if (patch.categoryNo !== undefined) payload.category_no = patch.categoryNo;
+    if (patch.activeRevisionId !== undefined) {
+      payload.active_revision_id = patch.activeRevisionId;
+    }
+    return readPostDraft(await this.#request("PATCH", `/api/v1/drafts/${id}`, payload));
+  }
+
+  async uploadDraftImage(id: string, file: File, altText = ""): Promise<PostDraft> {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("alt_text", altText);
+    return readPostDraft(await this.#upload(`/api/v1/drafts/${id}/images`, form));
+  }
+
+  async deleteDraftImage(id: string, imageId: string): Promise<PostDraft> {
+    return readPostDraft(await this.#request("DELETE", `/api/v1/drafts/${id}/images/${imageId}`));
+  }
+
+  async saveDraftBody(
+    id: string,
+    payload: { title: string; blocks: BodyBlock[]; summary?: string },
+  ): Promise<PostDraft> {
+    return readPostDraft(
+      await this.#request("PUT", `/api/v1/drafts/${id}/body`, {
+        title: payload.title,
+        blocks: payload.blocks,
+        ...(payload.summary === undefined ? {} : { summary: payload.summary }),
+      }),
+    );
+  }
+
+  async composeDraft(id: string, payload: DraftGenerationOptions): Promise<PostDraft> {
+    return readPostDraft(
+      await this.#request("POST", `/api/v1/drafts/${id}/compose`, generationPayload(payload)),
+    );
+  }
+
+  async refineDraft(id: string, payload: DraftGenerationOptions): Promise<PostDraft> {
+    return readPostDraft(
+      await this.#request("POST", `/api/v1/drafts/${id}/refine`, generationPayload(payload)),
+    );
+  }
+
+  async generateDraftTags(id: string, payload: DraftGenerationOptions): Promise<PostDraft> {
+    return readPostDraft(
+      await this.#request("POST", `/api/v1/drafts/${id}/tags`, generationPayload(payload)),
+    );
+  }
+
+  async patchDraftTags(
+    id: string,
+    patch: { selected?: string[]; added?: string[] },
+  ): Promise<PostDraft> {
+    const payload: Record<string, unknown> = {};
+    if (patch.selected !== undefined) payload.selected = patch.selected;
+    if (patch.added !== undefined) payload.added = patch.added;
+    return readPostDraft(await this.#request("PATCH", `/api/v1/drafts/${id}/tags`, payload));
+  }
+
+  async stageDraft(id: string): Promise<PublishRun> {
+    return readPublishRun(await this.#request("POST", `/api/v1/drafts/${id}/stage`));
+  }
+
+  /** Return the URL of one staging run's progress stream. */
+  stagingEventsUrl(id: string): string {
+    return `${this.#base}/api/v1/drafts/${id}/stage/events`;
+  }
+
+  async #upload(path: string, form: FormData): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await this.#fetch(`${this.#base}${path}`, { method: "POST", body: form });
+    } catch {
+      throw new ApiError("로컬 서비스에 연결할 수 없습니다.", { status: null });
+    }
+    if (!response.ok) {
+      throw new ApiError("로컬 서비스가 요청을 거부했습니다.", {
+        problem: await readProblem(response),
+        status: response.status,
+      });
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw new ApiError("응답을 해석할 수 없습니다.", { status: response.status });
+    }
   }
 
   async #request(method: string, path: string, payload?: unknown): Promise<unknown> {
@@ -496,5 +672,133 @@ function readEngagementStep(value: unknown): EngagementStep {
     state: state as EngagementStepState,
     resultCode,
     updatedAt: readString(value.updated_at, "updated_at"),
+  };
+}
+
+function readItems<T>(body: unknown, read: (value: unknown) => T): T[] {
+  if (!isRecord(body) || !Array.isArray(body.items)) throw contractError("items");
+  return body.items.map(read);
+}
+
+export function readLlmProvider(value: unknown): LlmProviderStatus {
+  if (!isRecord(value)) throw contractError("provider");
+  const provider = value.provider;
+  if (!PROVIDERS.has(provider as LlmProviderName)) throw contractError("provider");
+  return {
+    provider: provider as LlmProviderName,
+    configured: readBoolean(value.configured, "configured"),
+    model: readString(value.model, "model"),
+  };
+}
+
+export function readBlogCategory(value: unknown): BlogCategory {
+  if (!isRecord(value)) throw contractError("category");
+  return {
+    categoryNo: readCount(value.category_no, "category_no"),
+    name: readString(value.name, "name"),
+    postCount: value.post_count === null ? null : readCount(value.post_count, "post_count"),
+    syncedAt: value.synced_at === null ? null : readString(value.synced_at, "synced_at"),
+  };
+}
+
+function readBlock(value: unknown): BodyBlock {
+  if (!isRecord(value)) throw contractError("block");
+  const kind = value.type;
+  if (!BLOCK_KINDS.has(kind as string)) throw contractError("block type");
+  const block: BodyBlock = { type: kind as BodyBlock["type"] };
+  if (typeof value.text === "string") block.text = value.text;
+  if (typeof value.image_id === "string") block.image_id = value.image_id;
+  if (typeof value.caption === "string") block.caption = value.caption;
+  return block;
+}
+
+export function readPostDraft(body: unknown): PostDraft {
+  if (!isRecord(body)) throw contractError("draft");
+  const status = body.status;
+  if (!DRAFT_STATUSES.has(status as string)) throw contractError("status");
+  if (!Array.isArray(body.revisions) || !Array.isArray(body.images) || !Array.isArray(body.tags)) {
+    throw contractError("draft collections");
+  }
+  return {
+    id: readString(body.id, "id"),
+    title: readString(body.title, "title"),
+    categoryNo: body.category_no === null ? null : readCount(body.category_no, "category_no"),
+    status: status as PostDraft["status"],
+    useImageVision: readBoolean(body.use_image_vision, "use_image_vision"),
+    seedText: typeof body.seed_text === "string" ? body.seed_text : "",
+    revisions: body.revisions.map((value) => {
+      if (!isRecord(value)) throw contractError("revision");
+      const kind = value.kind;
+      if (!REVISION_KINDS.has(kind as string)) throw contractError("revision kind");
+      if (!Array.isArray(value.blocks)) throw contractError("blocks");
+      return {
+        id: readString(value.id, "id"),
+        roundNo: readCount(value.round_no, "round_no"),
+        kind: kind as PostDraft["revisions"][number]["kind"],
+        provider: value.provider === null ? null : readString(value.provider, "provider"),
+        model: value.model === null ? null : readString(value.model, "model"),
+        title: readString(value.title, "title"),
+        summary: typeof value.summary === "string" ? value.summary : "",
+        isActive: readBoolean(value.is_active, "is_active"),
+        blocks: value.blocks.map(readBlock),
+        createdAt: value.created_at === null ? null : readString(value.created_at, "created_at"),
+      };
+    }),
+    images: body.images.map((value) => {
+      if (!isRecord(value)) throw contractError("image");
+      return {
+        id: readString(value.id, "id"),
+        ordinal: readCount(value.ordinal, "ordinal"),
+        originalFilename: readString(value.original_filename, "original_filename"),
+        byteSize: readCount(value.byte_size, "byte_size"),
+        mime: readString(value.mime, "mime"),
+        altText: typeof value.alt_text === "string" ? value.alt_text : "",
+      };
+    }),
+    tags: body.tags.map((value) => {
+      if (!isRecord(value)) throw contractError("tag");
+      const source = value.source;
+      if (!TAG_SOURCES.has(source as string)) throw contractError("tag source");
+      return {
+        tag: readString(value.tag, "tag"),
+        ordinal: readCount(value.ordinal, "ordinal"),
+        source: source as PostDraft["tags"][number]["source"],
+        selected: readBoolean(value.selected, "selected"),
+      };
+    }),
+    createdAt: body.created_at === null ? null : readString(body.created_at, "created_at"),
+    updatedAt: body.updated_at === null ? null : readString(body.updated_at, "updated_at"),
+  };
+}
+
+export function readPublishRun(body: unknown): PublishRun {
+  if (!isRecord(body)) throw contractError("run");
+  const state = body.state;
+  if (!RUN_STATES.has(state as EngagementRunState)) throw contractError("state");
+  if (!Array.isArray(body.steps) || body.steps.length !== 5) throw contractError("steps");
+  return {
+    id: readString(body.id, "id"),
+    draftId: readString(body.draft_id, "draft_id"),
+    revisionId: readString(body.revision_id, "revision_id"),
+    state: state as EngagementRunState,
+    resultCode: body.result_code === null ? null : readString(body.result_code, "result_code"),
+    steps: body.steps.map(readPublishStep),
+    createdAt: body.created_at === null ? null : readString(body.created_at, "created_at"),
+    updatedAt: body.updated_at === null ? null : readString(body.updated_at, "updated_at"),
+  };
+}
+
+function readPublishStep(value: unknown): PublishStep {
+  if (!isRecord(value)) throw contractError("step");
+  const name = value.name;
+  const state = value.state;
+  if (!PUBLISH_STEPS.has(name as PublishStepName)) throw contractError("step name");
+  if (!STEP_STATES.has(state as EngagementStepState)) throw contractError("step state");
+  return {
+    name: name as PublishStepName,
+    position: readCount(value.position, "position"),
+    state: state as EngagementStepState,
+    resultCode: value.result_code === null ? null : readString(value.result_code, "result_code"),
+    updatedAt: value.updated_at === null ? null : readString(value.updated_at, "updated_at"),
   };
 }

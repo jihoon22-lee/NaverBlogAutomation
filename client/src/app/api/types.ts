@@ -163,3 +163,102 @@ export interface RunStreamEvent {
   event: string;
   payload: Record<string, unknown>;
 }
+
+export type DraftStatus =
+  | "collecting"
+  | "composed"
+  | "refining"
+  | "tagged"
+  | "staging"
+  | "staged"
+  | "abandoned";
+
+export type RevisionKind = "seed" | "composed" | "refined" | "user_edited";
+
+export type BlockKind = "heading" | "paragraph" | "quote" | "image";
+
+export type LlmProviderName = "openai" | "gemini" | "anthropic";
+
+export interface BodyBlock {
+  type: BlockKind;
+  text?: string;
+  image_id?: string;
+  caption?: string;
+}
+
+export interface DraftImage {
+  id: string;
+  ordinal: number;
+  originalFilename: string;
+  byteSize: number;
+  mime: string;
+  altText: string;
+}
+
+export interface DraftRevision {
+  id: string;
+  roundNo: number;
+  kind: RevisionKind;
+  provider: string | null;
+  model: string | null;
+  title: string;
+  summary: string;
+  isActive: boolean;
+  blocks: BodyBlock[];
+  createdAt: string | null;
+}
+
+export interface DraftTag {
+  tag: string;
+  ordinal: number;
+  source: "generated" | "user";
+  selected: boolean;
+}
+
+export interface PostDraft {
+  id: string;
+  title: string;
+  categoryNo: number | null;
+  status: DraftStatus;
+  useImageVision: boolean;
+  seedText: string;
+  revisions: DraftRevision[];
+  images: DraftImage[];
+  tags: DraftTag[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type PublishStepName = "title" | "body" | "images" | "tags" | "save";
+
+export interface PublishStep {
+  name: PublishStepName;
+  position: number;
+  state: EngagementStepState;
+  resultCode: string | null;
+  updatedAt: string | null;
+}
+
+export interface PublishRun {
+  id: string;
+  draftId: string;
+  revisionId: string;
+  state: EngagementRunState;
+  resultCode: string | null;
+  steps: PublishStep[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface BlogCategory {
+  categoryNo: number;
+  name: string;
+  postCount: number | null;
+  syncedAt: string | null;
+}
+
+export interface LlmProviderStatus {
+  provider: LlmProviderName;
+  configured: boolean;
+  model: string;
+}
