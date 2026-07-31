@@ -645,7 +645,7 @@ stateDiagram-v2
 | 10 | 10 | `feat(llm): add multi provider structured completion port` | 완료 |
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 완료 |
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 완료 |
-| 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 대기 |
+| 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 완료 |
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 대기 |
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 대기 |
 | 16 | 16 | `feat(client): add post writing workspace` | 대기 |
@@ -992,19 +992,37 @@ passed, `uv run pytest` **1045 passed / 7 skipped**, total coverage 91.07%,
 URL 기준 upsert, 정렬, 상한, 빈 요청, 초기화), `test_blog_catalog_api.py` 10건(동기화 전 빈 목록,
 동기화 캐시, 소유자 미저장 거부, 다른 블로그 거부, 참고 글 조회, 파라미터 검증).
 
-### [ ] Task 13 — 초안·이미지 저장과 본문 생성 (PR 13)
+### [x] Task 13 — 초안·이미지 저장과 본문 생성 (PR 13)
 
-목표: migration 0014와 함께 초안 등록, 이미지 업로드, 참고 글을 근거로 한 본문 생성(fan-out 지원)을
-구현합니다.
+목표: migration 0014와 함께 초안 등록, 이미지 업로드, 참고 글을 근거로 한 본문 생성을 구현합니다.
 
 테스트 요건: MIME allowlist 위반, 크기·개수 상한, 파일명 정규화와 traversal 시도, 이미지 순서 변경·
 삭제, block 배열 스키마 검증, 참고 글 0건, 참고 글 truncation 경계, vision 옵션 on/off, provider별
 변형 저장과 active 선택, 요청 전 참고 글 목록 노출, prompt injection 방어(참고 글·초안은 신뢰할 수
 없는 데이터로 취급).
 
-Demo: 초안 text와 이미지 3장을 올려 provider별 본문 변형을 받고 하나를 고릅니다.
+Demo: 초안 text와 이미지 3장을 올려 본문을 생성하고 revision을 고릅니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 182 files, `ruff check`·`ty check` All checks
+passed, `uv run pytest` **1182 passed / 7 skipped**, total coverage 91.16%, wheel smoke 통과
+(migration head `20260731_0014`).
+
+신규 모듈: `domain/writing.py`(block 배열 본문, 태그 정규화, 이미지 제약),
+`infrastructure/database/post_draft_repository.py`, migration 0014,
+`infrastructure/storage/draft_images.py`, `infrastructure/generators/writing_prompt.py`,
+`application/writing/compose_post.py`, `api/draft_models.py`, `api/routers/drafts.py`.
+이미지 업로드를 위해 `python-multipart`를 dependency로 추가했습니다.
+
+신규 테스트 137건: `test_writing.py` 57건(block 검증, 태그 정규화 경계, 초안 불변식),
+`test_draft_image_store.py` 26건(허용 MIME 4종, magic bytes 불일치, 크기 경계, path traversal 4종,
+파일명 정규화), `test_post_draft_repository.py` 14건(revision round-trip, active 전환, 소유권 검사,
+ordinal, 태그 교체, 삭제 시 경로 보고), `test_compose_post.py` 16건(생성·다듬기·태그, 알 수 없는·중복
+이미지 참조 거부, 참고 글 truncation, 선택 상태 보존), `test_draft_api.py` 24건(업로드 응답에 bytes
+미포함, 잘못된 MIME·불일치 content 거부, 태그 추가·해제, provider 미구성 503, 요청 검증 5종).
+
+Demo 실행 결과: 초안 생성 → 201과 `status=collecting`, PNG 업로드 → 201과 `byte_size`·`mime`만 노출
+(경로·bytes 미포함), 태그 추가 → `#전시`가 `전시`로 정규화되고 `source=user`, 초안 삭제 → 204와 저장된
+이미지 파일까지 제거.
 
 ### [ ] Task 14 — 반복 다듬기와 태그 생성 (PR 14)
 
@@ -1170,6 +1188,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 유사 카테고리는 토큰 겹침 2 : 문자 bigram 1 가중으로 계산 | 같은 이름 쌍이 항상 같은 점수를 내고 사용자가 최종 선택 |
 | 2026-07-31 | 참고 글은 metadata만 저장하고 본문은 생성 시점에 다시 읽음 | 내 글 본문을 disk에 남기지 않음 |
 | 2026-07-31 | page bundle version을 2로 올리고 Python 상수를 함께 맞춤 | 구버전 bundle이 남아 있으면 재설치되도록 |
+| 2026-07-31 | 업로드 이미지는 생성한 이름으로만 저장하고 magic bytes를 검사 | 악의적 파일명이 디렉터리를 벗어나거나 다른 형식이 위장하지 못하게 함 |
+| 2026-07-31 | 생성된 image 블록은 업로드된 이미지만 참조 가능하고 중복 금지 | 존재하지 않는 이미지를 참조한 본문이 저장되지 않음 |
+| 2026-07-31 | 태그 재생성은 이전 선택 상태와 사용자가 입력한 태그를 보존 | 반복 생성이 사용자의 판단을 지우지 않음 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
