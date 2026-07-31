@@ -1195,7 +1195,7 @@ Demo: 테스트 시각 설정 후 사람 개입 없이 세션이 생성·실행�
 launch 예외가 loop를 죽이지 않음, 알림 실패가 판정을 바꾸지 않음, 승인 단계·source 확인,
 background 시작), `test_sessions_api.py` 8건(endpoint의 gate별 사유 4건, `created_on` 4건).
 
-### [ ] Task 20 — UI/UX 개선 검토와 적용 (PR 20)
+### [x] Task 20 — UI/UX 개선 검토와 적용 (PR 20)
 
 목표: 전체 기능이 붙은 뒤 실제 사용 흐름을 근거로 개선안을 정리하고 우선순위가 높은 항목을
 구현합니다.
