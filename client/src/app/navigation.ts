@@ -9,9 +9,9 @@
 export const NAV_ID = "workspace-nav";
 
 /** The sections a user can reach directly from the nav. */
-export type NavSection = "today" | "writing";
+export type NavSection = "today" | "session" | "writing";
 
-const SECTIONS: readonly NavSection[] = ["today", "writing"];
+const SECTIONS: readonly NavSection[] = ["today", "session", "writing"];
 
 export interface NavigationHandlers {
   onSelect(section: NavSection): void;

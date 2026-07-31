@@ -1,0 +1,383 @@
+/** Session batch screen: scope selection, progress, cancelling, and abort reasons. */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { RunStreamFactory, RunStreamHandlers } from "../../src/app/api/run-stream";
+import type { AutomationSession, ScheduleStatus } from "../../src/app/api/types";
+import { SessionController } from "../../src/app/controllers/session";
+
+const SESSION: AutomationSession = {
+  id: "11111111-1111-4111-8111-111111111111",
+  trigger: "session",
+  state: "running",
+  approvedSteps: ["like", "comment"],
+  sources: ["neighbor"],
+  maxPosts: 3,
+  processedCount: 0,
+  abortReason: null,
+  createdAt: "2026-08-01T00:00:00Z",
+  startedAt: "2026-08-01T00:00:01Z",
+  finishedAt: null,
+};
+
+const SCHEDULE: ScheduleStatus = {
+  mode: "manual",
+  hour: 9,
+  minute: 30,
+  maxPosts: 3,
+  enabled: false,
+  blockingReason: "not_scheduled",
+};
+
+interface Harness {
+  root: Element;
+  controller: SessionController;
+  api: {
+    approveSession: ReturnType<typeof vi.fn>;
+    sessions: ReturnType<typeof vi.fn>;
+    session: ReturnType<typeof vi.fn>;
+    cancelSession: ReturnType<typeof vi.fn>;
+    sessionEventsUrl: ReturnType<typeof vi.fn>;
+    schedule: ReturnType<typeof vi.fn>;
+  };
+  emit(event: string, payload: Record<string, unknown>): void;
+  fail(): void;
+  closed(): number;
+}
+
+function harness(overrides: Partial<Harness["api"]> = {}): Harness {
+  document.body.innerHTML = '<main id="workspace"></main>';
+  const root = document.getElementById("workspace");
+  if (root === null) throw new Error("missing root");
+  const api = {
+    approveSession: vi.fn(async () => SESSION),
+    sessions: vi.fn(async () => [] as AutomationSession[]),
+    session: vi.fn(async () => SESSION),
+    cancelSession: vi.fn(async () => ({ ...SESSION, state: "cancelled" as const })),
+    sessionEventsUrl: vi.fn(() => "/api/v1/automation/sessions/x/events"),
+    schedule: vi.fn(async () => SCHEDULE),
+    ...overrides,
+  };
+  let handlers: RunStreamHandlers | null = null;
+  let closes = 0;
+  const stream: RunStreamFactory = (_url, streamHandlers) => {
+    handlers = streamHandlers;
+    return {
+      close: () => {
+        closes += 1;
+      },
+    };
+  };
+  const controller = new SessionController(root, {
+    api: api as never,
+    stream,
+    onChange: () => controller.render(),
+  });
+  return {
+    root,
+    controller,
+    api,
+    emit: (event, payload) => handlers?.onEvent({ event, payload }),
+    fail: () => handlers?.onError(),
+    closed: () => closes,
+  };
+}
+
+function text(root: Element): string {
+  return root.textContent ?? "";
+}
+
+function click(root: Element, selector: string): void {
+  const button = root.querySelector<HTMLButtonElement>(selector);
+  if (button === null) throw new Error(`missing button: ${selector}`);
+  button.click();
+}
+
+beforeEach(() => {
+  document.body.innerHTML = "";
+});
+
+describe("session scope", () => {
+  it("shows like and comment as the default scope", () => {
+    const { root, controller } = harness();
+
+    controller.render();
+
+    const pressed = Array.from(root.querySelectorAll('[aria-pressed="true"]')).map(
+      (node) => (node as HTMLElement).dataset.step,
+    );
+    expect(pressed).toEqual(["like", "comment"]);
+  });
+
+  it("adds a step when its choice is pressed", () => {
+    const { root, controller } = harness();
+    controller.render();
+
+    click(root, '[data-step="mutual_neighbor"]');
+
+    expect(controller.state.approvedSteps).toEqual(["like", "comment", "mutual_neighbor"]);
+  });
+
+  it("keeps at least one step selected", () => {
+    const { root, controller } = harness();
+    controller.render();
+
+    click(root, '[data-step="like"]');
+    click(root, '[data-step="comment"]');
+
+    expect(controller.state.approvedSteps).toEqual(["comment"]);
+  });
+
+  it("keeps the step order stable regardless of click order", () => {
+    const { controller } = harness();
+    controller.toggleStep("mutual_neighbor");
+    controller.toggleStep("like");
+    controller.toggleStep("like");
+
+    expect(controller.state.approvedSteps).toEqual(["like", "comment", "mutual_neighbor"]);
+  });
+
+  it("rejects a max post count below one", () => {
+    const { controller } = harness();
+
+    controller.setMaxPosts(0);
+
+    expect(controller.state.maxPosts).toBe(3);
+  });
+
+  it("explains that cancelling takes effect after the current post", () => {
+    const { root, controller } = harness();
+
+    controller.render();
+
+    expect(text(root)).toContain("취소는 지금 처리 중인 글이 끝난 뒤에 반영됩니다");
+  });
+});
+
+describe("starting a batch", () => {
+  it("approves the chosen scope", async () => {
+    const { controller, api } = harness();
+    controller.setMaxPosts(5);
+
+    await controller.start();
+
+    expect(api.approveSession).toHaveBeenCalledWith({
+      approvedSteps: ["like", "comment"],
+      maxPosts: 5,
+      sources: ["neighbor"],
+    });
+  });
+
+  it("subscribes to the batch stream", async () => {
+    const { controller, api } = harness();
+
+    await controller.start();
+
+    expect(api.sessionEventsUrl).toHaveBeenCalledWith(SESSION.id);
+  });
+
+  it("does not start a second batch while one is running", async () => {
+    const { controller, api } = harness();
+    await controller.start();
+
+    await controller.start();
+
+    expect(api.approveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a refusal in words the user can act on", async () => {
+    const { ApiError } = await import("../../src/app/api/client");
+    const { root, controller } = harness({
+      approveSession: vi.fn(async () => {
+        throw new ApiError("conflict", {
+          problem: { code: "session_already_running" } as never,
+          status: 409,
+        });
+      }),
+    });
+
+    await controller.start();
+
+    expect(text(root)).toContain("이미 진행 중인 배치가 있습니다");
+  });
+});
+
+describe("progress", () => {
+  it("counts each completed post", async () => {
+    const { root, controller, emit } = harness();
+    await controller.start();
+
+    emit("post_completed", { post_id: "a", state: "succeeded", result_codes: ["liked"] });
+    emit("post_completed", { post_id: "b", state: "failed", result_codes: [] });
+
+    expect(controller.state.completedPosts).toHaveLength(2);
+    expect(text(root)).toContain("성공");
+    expect(text(root)).toContain("실패");
+  });
+
+  it("ignores a post event without an id", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("post_completed", { state: "succeeded" });
+
+    expect(controller.state.completedPosts).toEqual([]);
+  });
+
+  it("closes the stream on a terminal event", async () => {
+    const { controller, emit, closed } = harness();
+    await controller.start();
+
+    emit("session_completed", { ...snapshot(), state: "completed" });
+
+    expect(closed()).toBeGreaterThan(0);
+    expect(controller.state.phase).toBe("finished");
+  });
+
+  it("explains why a batch was aborted", async () => {
+    const { root, controller, emit } = harness();
+    await controller.start();
+
+    emit("session_aborted", {
+      ...snapshot(),
+      state: "aborted",
+      abort_reason: "daily_cap_reached",
+      processed_count: 2,
+    });
+
+    expect(text(root)).toContain("오늘 상한에 도달해 중단했습니다");
+  });
+
+  it("tells the user to log in when the batch stopped for it", async () => {
+    const { root, controller, emit } = harness();
+    await controller.start();
+
+    emit("session_aborted", { ...snapshot(), state: "aborted", abort_reason: "login_required" });
+
+    expect(text(root)).toContain("브라우저에서 로그인하세요");
+  });
+
+  it("falls back to one direct read after too many drops", async () => {
+    const { controller, api, fail } = harness();
+    await controller.start();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) fail();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(api.session).toHaveBeenCalledWith(SESSION.id);
+  });
+});
+
+describe("cancelling", () => {
+  it("reports the request instead of pretending the batch stopped", async () => {
+    const { root, controller } = harness();
+    await controller.start();
+
+    click(root, "#cancel-session-button");
+
+    expect(controller.state.cancelRequested).toBe(true);
+  });
+
+  it("asks the service once", async () => {
+    const { controller, api } = harness();
+    await controller.start();
+
+    await controller.cancel();
+    await controller.cancel();
+
+    expect(api.cancelSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing without a batch", async () => {
+    const { controller, api } = harness();
+
+    await controller.cancel();
+
+    expect(api.cancelSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("loading", () => {
+  it("shows why unattended mode is off", async () => {
+    const { root, controller } = harness();
+
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("무인 실행이 꺼져 있습니다");
+  });
+
+  it("shows the unattended schedule when it is on", async () => {
+    const { root, controller } = harness({
+      schedule: vi.fn(async () => ({ ...SCHEDULE, mode: "schedule" as const, enabled: true })),
+    });
+
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("매일 09:30");
+  });
+
+  it("follows a batch that was already running", async () => {
+    const { controller, api } = harness({
+      sessions: vi.fn(async () => [SESSION]),
+    });
+
+    await controller.load();
+
+    expect(controller.state.phase).toBe("running");
+    expect(api.sessionEventsUrl).toHaveBeenCalledWith(SESSION.id);
+  });
+
+  it("reports an empty history", async () => {
+    const { root, controller } = harness();
+
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("아직 실행한 배치가 없습니다");
+  });
+
+  it("lists the abort reason of a past batch", async () => {
+    const { root, controller } = harness({
+      sessions: vi.fn(async () => [
+        { ...SESSION, state: "aborted" as const, abortReason: "consecutive_failures" },
+      ]),
+    });
+
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("연속으로 실패해 중단했습니다");
+  });
+
+  it("shows a service failure without leaving the screen blank", async () => {
+    const { root, controller } = harness({
+      sessions: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("로컬 서비스가 실행 중인지 확인하세요");
+  });
+});
+
+function snapshot(): Record<string, unknown> {
+  return {
+    id: SESSION.id,
+    trigger: "session",
+    state: "running",
+    approved_steps: ["like", "comment"],
+    sources: ["neighbor"],
+    max_posts: 3,
+    processed_count: 1,
+    abort_reason: null,
+    created_at: SESSION.createdAt,
+    started_at: SESSION.startedAt,
+    finished_at: null,
+  };
+}

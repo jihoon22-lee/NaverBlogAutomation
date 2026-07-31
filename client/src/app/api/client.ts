@@ -24,9 +24,13 @@ import type {
   DiscoverySource,
   DiscoveryState,
   EngagementRun,
+  AutomationSession,
   EngagementRunState,
   EngagementStep,
   EngagementStepName,
+  ScheduleStatus,
+  SessionState,
+  SessionTrigger,
   EngagementStepState,
   LlmProviderName,
   LlmProviderStatus,
@@ -60,6 +64,14 @@ const STEP_STATES = new Set<EngagementStepState>([
   "unconfirmed",
 ]);
 const RUN_STATES = new Set<EngagementRunState>(["running", "succeeded", "failed", "unconfirmed"]);
+const SESSION_TRIGGERS = new Set<SessionTrigger>(["manual", "session", "schedule"]);
+const BATCH_STATES = new Set<SessionState>([
+  "pending",
+  "running",
+  "completed",
+  "aborted",
+  "cancelled",
+]);
 const RESULT_CODE = /^[a-z][a-z0-9_]{0,63}$/u;
 const PROVIDERS = new Set<LlmProviderName>(["openai", "gemini", "anthropic"]);
 const DRAFT_STATUSES = new Set([
@@ -235,6 +247,46 @@ export class LocalApiClient {
   /** Return the URL of one run's progress stream. */
   engagementRunEventsUrl(id: string): string {
     return `${this.#base}/api/v1/automation/engagement-runs/${id}/events`;
+  }
+
+  /** Approve one batch of queued posts. The service answers before the batch finishes. */
+  async approveSession(request: {
+    approvedSteps: EngagementStepName[];
+    maxPosts: number;
+    sources: DiscoverySource[];
+  }): Promise<AutomationSession> {
+    const body = await this.#request("POST", "/api/v1/automation/sessions", {
+      approved_steps: request.approvedSteps,
+      max_posts: request.maxPosts,
+      sources: request.sources,
+    });
+    return readAutomationSession(body);
+  }
+
+  async sessions(limit?: number): Promise<AutomationSession[]> {
+    const query = limit === undefined ? "" : `?limit=${limit}`;
+    const body = await this.#request("GET", `/api/v1/automation/sessions${query}`);
+    return readItems(body, readAutomationSession);
+  }
+
+  async session(id: string): Promise<AutomationSession> {
+    return readAutomationSession(await this.#request("GET", `/api/v1/automation/sessions/${id}`));
+  }
+
+  /** Ask the batch to stop. The post already running finishes first. */
+  async cancelSession(id: string): Promise<AutomationSession> {
+    return readAutomationSession(
+      await this.#request("POST", `/api/v1/automation/sessions/${id}/cancel`),
+    );
+  }
+
+  /** Return the URL of one batch's progress stream. */
+  sessionEventsUrl(id: string): string {
+    return `${this.#base}/api/v1/automation/sessions/${id}/events`;
+  }
+
+  async schedule(): Promise<ScheduleStatus> {
+    return readScheduleStatus(await this.#request("GET", "/api/v1/automation/schedule"));
   }
 
   /** Record only the steps a user confirms were completed by hand. */
@@ -653,6 +705,62 @@ export function readEngagementRun(body: unknown): EngagementRun {
     steps: steps.map(readEngagementStep),
     createdAt: readString(body.created_at, "created_at"),
     updatedAt: readString(body.updated_at, "updated_at"),
+  };
+}
+
+export function readAutomationSession(body: unknown): AutomationSession {
+  if (!isRecord(body)) throw contractError("session");
+  const trigger = body.trigger;
+  const state = body.state;
+  if (!SESSION_TRIGGERS.has(trigger as SessionTrigger)) throw contractError("trigger");
+  if (!BATCH_STATES.has(state as SessionState)) throw contractError("session state");
+  const steps = body.approved_steps;
+  const sources = body.sources;
+  if (!Array.isArray(steps) || steps.length === 0) throw contractError("approved_steps");
+  if (!Array.isArray(sources) || sources.length === 0) throw contractError("sources");
+  return {
+    id: readString(body.id, "id"),
+    trigger: trigger as SessionTrigger,
+    state: state as SessionState,
+    approvedSteps: steps.map(readStepName),
+    sources: sources.map(readSourceName),
+    maxPosts: readCount(body.max_posts, "max_posts"),
+    processedCount: readCount(body.processed_count, "processed_count"),
+    abortReason: readNullableString(body.abort_reason ?? null, "abort_reason"),
+    createdAt: readString(body.created_at, "created_at"),
+    startedAt: readNullableString(body.started_at ?? null, "started_at"),
+    finishedAt: readNullableString(body.finished_at ?? null, "finished_at"),
+  };
+}
+
+function readStepName(value: unknown): EngagementStepName {
+  if (typeof value !== "string" || !STEP_NAMES.has(value as EngagementStepName)) {
+    throw contractError("step name");
+  }
+  return value as EngagementStepName;
+}
+
+function readSourceName(value: unknown): DiscoverySource {
+  if (typeof value !== "string" || !SOURCES.has(value as DiscoverySource)) {
+    throw contractError("source");
+  }
+  return value as DiscoverySource;
+}
+
+export function readScheduleStatus(body: unknown): ScheduleStatus {
+  if (!isRecord(body)) throw contractError("schedule");
+  const mode = body.mode;
+  if (!SESSION_TRIGGERS.has(mode as SessionTrigger)) throw contractError("mode");
+  const hour = readCount(body.hour, "hour");
+  const minute = readCount(body.minute, "minute");
+  if (hour > 23 || minute > 59) throw contractError("schedule time");
+  return {
+    mode: mode as ScheduleStatus["mode"],
+    hour,
+    minute,
+    maxPosts: readCount(body.max_posts, "max_posts"),
+    enabled: readBoolean(body.enabled, "enabled"),
+    blockingReason: readNullableString(body.blocking_reason ?? null, "blocking_reason"),
   };
 }
 

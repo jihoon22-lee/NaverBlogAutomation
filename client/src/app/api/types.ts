@@ -262,3 +262,34 @@ export interface LlmProviderStatus {
   configured: boolean;
   model: string;
 }
+
+/** How one session batch was started. */
+export type SessionTrigger = "manual" | "session" | "schedule";
+
+/** Where one session batch stands. */
+export type SessionState = "pending" | "running" | "completed" | "aborted" | "cancelled";
+
+/** One approved batch of queued posts. */
+export interface AutomationSession {
+  id: string;
+  trigger: SessionTrigger;
+  state: SessionState;
+  approvedSteps: EngagementStepName[];
+  sources: DiscoverySource[];
+  maxPosts: number;
+  processedCount: number;
+  abortReason: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** Whether unattended mode can run, and what blocks it. */
+export interface ScheduleStatus {
+  mode: "manual" | "session" | "schedule";
+  hour: number;
+  minute: number;
+  maxPosts: number;
+  enabled: boolean;
+  blockingReason: string | null;
+}
