@@ -62,6 +62,10 @@ from naver_blog_assistant.application.automation.run_staging import (
     StagePostService,
     StagingApproval,
 )
+from naver_blog_assistant.application.automation.schedule_sessions import (
+    ScheduleDecision,
+    ScheduleSessions,
+)
 from naver_blog_assistant.application.automation.session import (
     LOGIN_PROBE_URL,
     LOGIN_STATE_EXPRESSION,
@@ -122,6 +126,8 @@ __all__ = [
     "GovernorRefusedError",
     "RunSession",
     "SafetyGovernor",
+    "ScheduleDecision",
+    "ScheduleSessions",
     "SafetyPolicy",
     "SessionPostRunner",
     "SessionOutcome",

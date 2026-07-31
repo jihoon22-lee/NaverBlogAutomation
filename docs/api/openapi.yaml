@@ -851,6 +851,17 @@ paths:
               schema: {$ref: "#/components/schemas/DraftResponse"}
         "404": {$ref: "#/components/responses/DraftNotFound"}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/schedule:
+    get:
+      operationId: getAutomationSchedule
+      tags: [Automation]
+      summary: Report whether unattended mode can run and what blocks it
+      responses:
+        "200":
+          description: The schedule policy and its readiness.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScheduleStatusResponse"}
   /api/v1/automation/sessions:
     post:
       operationId: approveAutomationSession
@@ -1504,6 +1515,17 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    ScheduleStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [mode, hour, minute, max_posts, enabled, blocking_reason]
+      properties:
+        mode: {type: string, enum: [manual, session, schedule]}
+        hour: {type: integer, minimum: 0, maximum: 23}
+        minute: {type: integer, minimum: 0, maximum: 59}
+        max_posts: {type: integer, minimum: 1}
+        enabled: {type: boolean}
+        blocking_reason: {type: string, nullable: true}
     SessionApprovalRequest:
       type: object
       additionalProperties: false
