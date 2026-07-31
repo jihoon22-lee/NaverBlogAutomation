@@ -48,6 +48,11 @@ from naver_blog_assistant.application.automation.run_engagement import (
     RunChannel,
     RunEvent,
 )
+from naver_blog_assistant.application.automation.run_session import (
+    RunSession,
+    SessionOutcome,
+    session_snapshot,
+)
 from naver_blog_assistant.application.automation.run_staging import (
     StagePostService,
     StagingApproval,
@@ -56,6 +61,10 @@ from naver_blog_assistant.application.automation.session import (
     LOGIN_PROBE_URL,
     LOGIN_STATE_EXPRESSION,
     BrowserSessionManager,
+)
+from naver_blog_assistant.application.automation.session_post_runner import (
+    PostAttempt,
+    SessionPostRunner,
 )
 from naver_blog_assistant.application.automation.stage_post import (
     StagePost,
@@ -104,6 +113,11 @@ __all__ = [
     "BlogCatalogFailedError",
     "CatalogSync",
     "CollectReferencePosts",
+    "PostAttempt",
+    "RunSession",
+    "SessionPostRunner",
+    "SessionOutcome",
+    "session_snapshot",
     "StagePost",
     "StagePostService",
     "StagingApproval",

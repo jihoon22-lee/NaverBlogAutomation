@@ -264,9 +264,12 @@ engagement_runs = Table(
     ),
     Column("source", String(16), nullable=False),
     Column("state", String(16), nullable=False),
+    Column("session_id", String(36), nullable=True),
+    Column("trigger", String(16), nullable=False, server_default="manual"),
     Column("created_at", String(32), nullable=False),
     Column("updated_at", String(32), nullable=False),
     CheckConstraint("source IN ('neighbor', 'search')", name="ck_engagement_runs_source"),
+    Index("ix_engagement_runs_session", "session_id"),
     CheckConstraint(
         "state IN ('running', 'succeeded', 'failed', 'unconfirmed')",
         name="ck_engagement_runs_state",
@@ -528,4 +531,27 @@ publish_run_steps = Table(
     CheckConstraint(_allowed("state", PUBLISH_STEP_STATES), name="ck_publish_run_steps_state"),
     CheckConstraint("position >= 0 AND position <= 4", name="ck_publish_run_steps_position"),
     UniqueConstraint("run_id", "position", name="uq_publish_run_steps_position"),
+)
+
+SESSION_TRIGGERS = ("manual", "session", "schedule")
+SESSION_STATES = ("pending", "running", "completed", "aborted", "cancelled")
+
+automation_sessions = Table(
+    "automation_sessions",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("trigger", String(16), nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("approved_steps_json", Text, nullable=False),
+    Column("max_posts", Integer, nullable=False),
+    Column("source_filter_json", Text, nullable=False),
+    Column("processed_count", Integer, nullable=False),
+    Column("created_at", String(32), nullable=False),
+    Column("started_at", String(32), nullable=True),
+    Column("finished_at", String(32), nullable=True),
+    Column("abort_reason", String(64), nullable=True),
+    CheckConstraint(_allowed("trigger", SESSION_TRIGGERS), name="ck_automation_sessions_trigger"),
+    CheckConstraint(_allowed("state", SESSION_STATES), name="ck_automation_sessions_state"),
+    CheckConstraint("max_posts >= 1", name="ck_automation_sessions_max_posts"),
+    CheckConstraint("processed_count >= 0", name="ck_automation_sessions_processed"),
 )

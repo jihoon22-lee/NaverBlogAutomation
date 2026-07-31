@@ -78,6 +78,7 @@ from naver_blog_assistant.api.routers import (
     register_draft_routes,
     register_engagement_routes,
     register_llm_routes,
+    register_session_routes,
     register_settings_routes,
     register_staging_routes,
 )
@@ -108,6 +109,8 @@ from naver_blog_assistant.application.automation import (
     ExtractArticle,
     GenerationKeyRegistry,
     PlanGeneration,
+    RunSession,
+    SessionPostRunner,
     StagePost,
     StagePostService,
 )
@@ -167,6 +170,9 @@ from naver_blog_assistant.infrastructure.database.publish_run_repository import 
     SqlitePublishRunRepository,
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
+from naver_blog_assistant.infrastructure.database.session_repository import (
+    SqliteSessionRepository,
+)
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.infrastructure.generators.provider_comment import (
     ProviderCommentGenerator,
@@ -702,6 +708,7 @@ def create_app(
                 await asyncio.gather(*pending_generations, return_exceptions=True)
             await engagement_runs_service.shutdown()
             await staging_service.shutdown()
+            await session_batches.shutdown()
             provider_registry.close()
             await browser_sessions.shutdown()
             close = getattr(selected_generator, "close", None)
@@ -788,6 +795,7 @@ def create_app(
 
     draft_repository = SqlitePostDraftRepository(engine)
     publish_run_repository = SqlitePublishRunRepository(engine)
+    session_repository = SqliteSessionRepository(engine)
     draft_image_store = DraftImageStore(_media_root(settings))
     compose_post = ComposePost(draft_repository)
     staging_service = StagePostService(
@@ -836,6 +844,25 @@ def create_app(
         app,
         catalog=blog_catalog,
         owner_blog_id=_owner_blog_id,
+        problem_metadata=_problem_metadata,
+    )
+    session_batches = RunSession(
+        sessions=session_repository,
+        queue=_SessionQueue(discovery),
+        runner=SessionPostRunner(
+            extract=article_extractions,
+            planner=generation_planner,
+            generate=generate,
+            review=review,
+            runs=engagement_runs_service,
+            read_setting=read_setting,
+        ),
+    )
+
+    register_session_routes(
+        app,
+        sessions=session_batches,
+        store=session_repository,
         problem_metadata=_problem_metadata,
     )
     register_staging_routes(
@@ -1634,6 +1661,21 @@ def upgrade_database(database_url: str) -> None:
         config.set_main_option("script_location", str(migration_path))
         config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
         command.upgrade(config, "head")
+
+
+class _SessionQueue:
+    """Read the queued posts one session may process."""
+
+    def __init__(self, discovery: Any) -> None:
+        self._discovery = discovery
+
+    def list_queue(self, source: DiscoverySource) -> list[Any]:
+        """Return the queued posts for one source, newest first."""
+        return [
+            post
+            for post in self._discovery.list_posts(source)
+            if post.state is DiscoveryState.QUEUED
+        ]
 
 
 def _media_root(settings: ApiSettings) -> Path:
