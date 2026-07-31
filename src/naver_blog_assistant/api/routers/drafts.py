@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, File, Form, Query, UploadFile
 
 from naver_blog_assistant.api.draft_models import (
+    DraftBodyRequest,
     DraftCreateRequest,
     DraftGenerationRequest,
     DraftListResponse,
@@ -32,9 +33,11 @@ from naver_blog_assistant.domain.writing import (
     MAX_IMAGES,
     DraftImage,
     DraftStatus,
+    RevisionKind,
     TagSource,
     normalize_tag,
     normalize_tags,
+    parse_body,
 )
 from naver_blog_assistant.infrastructure.database.post_draft_repository import DraftNotFoundError
 from naver_blog_assistant.infrastructure.storage import DraftImageStore
@@ -243,6 +246,49 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
         if path is not None:
             images.delete(path)
         return DraftResponse.from_domain(updated)
+
+    @app.put(
+        "/api/v1/drafts/{draft_id}/body",
+        response_model=DraftResponse,
+        responses={
+            404: problem_metadata("The draft does not exist."),
+            422: problem_metadata("The edited body is unusable."),
+        },
+        tags=["Writing"],
+        operation_id="savePostDraftBody",
+    )
+    async def save_body(draft_id: UUID, payload: DraftBodyRequest) -> DraftResponse:
+        draft = _draft(draft_id)
+        try:
+            blocks = parse_body(payload.blocks)
+        except DomainValidationError as error:
+            raise ApiError(
+                status=422,
+                code="invalid_body",
+                title="Invalid body",
+                detail=str(error),
+            ) from error
+        known = {image.id for image in draft.images}
+        for block in blocks:
+            if block.image_id is not None and block.image_id not in known:
+                raise ApiError(
+                    status=422,
+                    code="unknown_image_reference",
+                    title="Unknown image",
+                    detail=WRITING_DETAILS["unknown_image_reference"],
+                )
+        return DraftResponse.from_domain(
+            drafts.add_revision(
+                draft_id=draft_id,
+                revision_id=uuid4(),
+                round_no=draft.next_round,
+                kind=RevisionKind.USER_EDITED,
+                title=payload.title.strip(),
+                blocks=blocks,
+                summary=payload.summary.strip(),
+                activate=True,
+            )
+        )
 
     @app.post(
         "/api/v1/drafts/{draft_id}/compose",

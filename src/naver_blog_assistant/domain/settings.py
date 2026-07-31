@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
 
+from naver_blog_assistant.domain.blog import DEFAULT_REFERENCE_POST_COUNT
 from naver_blog_assistant.domain.llm import DEFAULT_MODELS, LlmProvider, ModelSelection
 from naver_blog_assistant.domain.models import (
     CommentLength,
@@ -21,6 +22,7 @@ from naver_blog_assistant.domain.models import (
     Relationship,
     SpeechStyle,
 )
+from naver_blog_assistant.domain.writing import DEFAULT_BODY_TAG_CAP
 
 MAX_CLOSING_PHRASE_CODE_POINTS: Final = 50
 MAX_NEIGHBOR_MESSAGE_CODE_POINTS: Final = 500
@@ -39,6 +41,7 @@ class AppSettingKind(StrEnum):
     BROWSER_PROFILE = "browser_profile"
     LLM_PROVIDERS = "llm_providers"
     LLM_BUDGET = "llm_budget"
+    WRITING_PROFILE = "writing_profile"
 
 
 SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
@@ -51,6 +54,7 @@ SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
     AppSettingKind.BROWSER_PROFILE: 1,
     AppSettingKind.LLM_PROVIDERS: 1,
     AppSettingKind.LLM_BUDGET: 1,
+    AppSettingKind.WRITING_PROFILE: 1,
 }
 
 
@@ -268,6 +272,45 @@ def _llm_budget(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _writing_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    _require_exact_keys(
+        payload,
+        frozenset(
+            {
+                "target_length",
+                "tone",
+                "structure",
+                "reference_post_count",
+                "body_tag_cap",
+                "use_image_vision",
+            }
+        ),
+    )
+    length = payload["target_length"]
+    tone = payload["tone"]
+    structure = payload["structure"]
+    if length not in {"short", "medium", "long"}:
+        raise DomainValidationError("target_length must be short, medium, or long")
+    if tone not in {"calm", "warm", "lively"}:
+        raise DomainValidationError("tone must be calm, warm, or lively")
+    if structure not in {"plain", "sectioned", "story"}:
+        raise DomainValidationError("structure must be plain, sectioned, or story")
+    vision = payload["use_image_vision"]
+    if not isinstance(vision, bool):
+        raise DomainValidationError("use_image_vision must be a boolean")
+    references = payload["reference_post_count"]
+    if not isinstance(references, int) or isinstance(references, bool) or not 0 <= references <= 10:
+        raise DomainValidationError("reference_post_count must be between 0 and 10")
+    return {
+        "target_length": length,
+        "tone": tone,
+        "structure": structure,
+        "reference_post_count": references,
+        "body_tag_cap": _positive_int(payload["body_tag_cap"], field="body_tag_cap", maximum=50),
+        "use_image_vision": vision,
+    }
+
+
 def _model_name(value: Any) -> str:
     if not isinstance(value, str):
         raise DomainValidationError("model must be a string")
@@ -298,6 +341,7 @@ _VALIDATORS: Final[dict[AppSettingKind, Any]] = {
     AppSettingKind.BROWSER_PROFILE: _browser_profile,
     AppSettingKind.LLM_PROVIDERS: _llm_providers,
     AppSettingKind.LLM_BUDGET: _llm_budget,
+    AppSettingKind.WRITING_PROFILE: _writing_profile,
 }
 
 DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
@@ -327,6 +371,14 @@ DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
         "models": {provider.value: model for provider, model in DEFAULT_MODELS.items()},
     },
     AppSettingKind.LLM_BUDGET: {"daily_call_cap": 60, "per_request_provider_cap": 3},
+    AppSettingKind.WRITING_PROFILE: {
+        "target_length": "medium",
+        "tone": "warm",
+        "structure": "sectioned",
+        "reference_post_count": DEFAULT_REFERENCE_POST_COUNT,
+        "body_tag_cap": DEFAULT_BODY_TAG_CAP,
+        "use_image_vision": False,
+    },
 }
 
 

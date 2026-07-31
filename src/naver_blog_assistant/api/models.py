@@ -571,6 +571,7 @@ class AppSettingResponse(StrictModel):
         "browser_profile",
         "llm_providers",
         "llm_budget",
+        "writing_profile",
     ]
     schema_version: Annotated[int, Field(ge=1)]
     payload: dict[str, Any]
