@@ -75,6 +75,7 @@ from naver_blog_assistant.api.routers import (
     register_automation_session_routes,
     register_blog_routes,
     register_comment_routes,
+    register_draft_routes,
     register_engagement_routes,
     register_llm_routes,
     register_settings_routes,
@@ -120,6 +121,7 @@ from naver_blog_assistant.application.discovery import (
 )
 from naver_blog_assistant.application.llm import CallBudget, FanOutGeneration
 from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
+from naver_blog_assistant.application.writing import ComposePost, ReferenceBody
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
     CapturedPost,
@@ -154,12 +156,16 @@ from naver_blog_assistant.infrastructure.database.blog_catalog_repository import
 from naver_blog_assistant.infrastructure.database.llm_attempt_repository import (
     SqliteLlmAttemptRepository,
 )
+from naver_blog_assistant.infrastructure.database.post_draft_repository import (
+    SqlitePostDraftRepository,
+)
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
 from naver_blog_assistant.infrastructure.generators.provider_comment import (
     ProviderCommentGenerator,
 )
 from naver_blog_assistant.infrastructure.llm import ProviderRegistry
+from naver_blog_assistant.infrastructure.storage import DraftImageStore
 from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedError
 from naver_blog_assistant.ports.browser import BrowserDriver
 
@@ -292,6 +298,7 @@ class ApiSettings:
     automation_headless: bool = False
     automation_profile_dir: str = ""
     automation_browser_channel: str = "chrome"
+    draft_media_dir: str = ""
 
     def __post_init__(self) -> None:
         try:
@@ -420,6 +427,7 @@ class ApiSettings:
             automation_headless=_environment_bool("AUTOMATION_HEADLESS", "false"),
             automation_profile_dir=os.getenv("AUTOMATION_PROFILE_DIR", "").strip(),
             automation_browser_channel=os.getenv("AUTOMATION_BROWSER_CHANNEL", "chrome").strip(),
+            draft_media_dir=os.getenv("DRAFT_MEDIA_DIR", "").strip(),
         )
 
 
@@ -752,10 +760,22 @@ def create_app(
     )
     blog_catalog = CollectReferencePosts(browser_sessions, SqliteBlogCatalogRepository(engine))
 
+    def _reference_bodies(category_no: int | None, limit: int) -> tuple[ReferenceBody, ...]:
+        """Return cached reference titles for one category; bodies are read at request time."""
+        if category_no is None or limit < 1:
+            return ()
+        return tuple(
+            ReferenceBody(title=post.title, body="")
+            for post in blog_catalog.references(category_no, limit=limit)
+        )
+
     def _owner_blog_id() -> str:
         """Return the configured own blog id, or an empty string before it is saved."""
         return discovery.get_automatic_settings().own_blog_id.strip()
 
+    draft_repository = SqlitePostDraftRepository(engine)
+    draft_image_store = DraftImageStore(_media_root(settings))
+    compose_post = ComposePost(draft_repository)
     attempt_repository = SqliteLlmAttemptRepository(engine)
     call_budget = CallBudget(read_setting=read_setting, attempts=attempt_repository)
     fanout_generation = _configured_fanout(
@@ -794,6 +814,15 @@ def create_app(
         app,
         catalog=blog_catalog,
         owner_blog_id=_owner_blog_id,
+        problem_metadata=_problem_metadata,
+    )
+    register_draft_routes(
+        app,
+        drafts=draft_repository,
+        compose=compose_post,
+        images=draft_image_store,
+        references=_reference_bodies,
+        client_for=provider_registry.client,
         problem_metadata=_problem_metadata,
     )
     register_settings_routes(
@@ -1578,6 +1607,15 @@ def upgrade_database(database_url: str) -> None:
         config.set_main_option("script_location", str(migration_path))
         config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
         command.upgrade(config, "head")
+
+
+def _media_root(settings: ApiSettings) -> Path:
+    """Return the directory that holds uploaded draft images."""
+    if settings.draft_media_dir.strip():
+        return Path(settings.draft_media_dir).expanduser()
+    database = make_url(settings.database_url).database
+    base = Path(database).expanduser().parent if database else Path("data")
+    return base / "media"
 
 
 def _configured_generator(settings: ApiSettings) -> CommentGenerator:

@@ -383,3 +383,103 @@ blog_reference_posts = Table(
     CheckConstraint("length(title) > 0", name="ck_blog_reference_title"),
     Index("ix_blog_reference_category", "category_no", "published_at"),
 )
+
+DRAFT_STATUSES = (
+    "collecting",
+    "composed",
+    "refining",
+    "tagged",
+    "staging",
+    "staged",
+    "abandoned",
+)
+DRAFT_REVISION_KINDS = ("seed", "composed", "refined", "user_edited")
+DRAFT_TAG_SOURCES = ("generated", "user")
+
+
+def _allowed(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN (" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+post_drafts = Table(
+    "post_drafts",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("title", String(300), nullable=False),
+    Column("category_no", Integer, nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("use_image_vision", Boolean, nullable=False),
+    Column("seed_text", Text, nullable=False),
+    Column("created_at", String(32), nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint(_allowed("status", DRAFT_STATUSES), name="ck_post_drafts_status"),
+    CheckConstraint("length(title) > 0", name="ck_post_drafts_title"),
+    CheckConstraint("category_no IS NULL OR category_no >= 0", name="ck_post_drafts_category_no"),
+)
+
+post_draft_revisions = Table(
+    "post_draft_revisions",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column(
+        "draft_id",
+        String(36),
+        ForeignKey("post_drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("round_no", Integer, nullable=False),
+    Column("kind", String(16), nullable=False),
+    Column("provider", String(32), nullable=True),
+    Column("model", String(100), nullable=True),
+    Column("title", String(300), nullable=False),
+    Column("body_blocks_json", Text, nullable=False),
+    Column("summary", String(800), nullable=False),
+    Column("is_active", Boolean, nullable=False),
+    Column("created_at", String(32), nullable=False),
+    CheckConstraint("round_no >= 0", name="ck_post_draft_revisions_round"),
+    CheckConstraint(_allowed("kind", DRAFT_REVISION_KINDS), name="ck_post_draft_revisions_kind"),
+    CheckConstraint("length(body_blocks_json) > 0", name="ck_post_draft_revisions_body"),
+    UniqueConstraint(
+        "draft_id", "round_no", "provider", "model", name="uq_post_draft_revision_round"
+    ),
+    Index("ix_post_draft_revisions_draft", "draft_id", "round_no"),
+)
+
+post_draft_images = Table(
+    "post_draft_images",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column(
+        "draft_id",
+        String(36),
+        ForeignKey("post_drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("ordinal", Integer, nullable=False),
+    Column("stored_path", String(1024), nullable=False),
+    Column("original_filename", String(255), nullable=False),
+    Column("byte_size", Integer, nullable=False),
+    Column("mime", String(64), nullable=False),
+    Column("alt_text", String(300), nullable=False),
+    CheckConstraint("ordinal >= 0", name="ck_post_draft_images_ordinal"),
+    CheckConstraint("byte_size > 0", name="ck_post_draft_images_size"),
+    UniqueConstraint("draft_id", "ordinal", name="uq_post_draft_images_ordinal"),
+)
+
+post_draft_tags = Table(
+    "post_draft_tags",
+    metadata,
+    Column(
+        "draft_id",
+        String(36),
+        ForeignKey("post_drafts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("tag", String(30), primary_key=True),
+    Column("ordinal", Integer, nullable=False),
+    Column("source", String(16), nullable=False),
+    Column("selected", Boolean, nullable=False),
+    CheckConstraint("ordinal >= 0", name="ck_post_draft_tags_ordinal"),
+    CheckConstraint("length(tag) > 0", name="ck_post_draft_tags_tag"),
+    CheckConstraint(_allowed("source", DRAFT_TAG_SOURCES), name="ck_post_draft_tags_source"),
+)
