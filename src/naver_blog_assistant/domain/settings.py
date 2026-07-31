@@ -38,6 +38,7 @@ class AppSettingKind(StrEnum):
     SCHEDULE_POLICY = "schedule_policy"
     BROWSER_PROFILE = "browser_profile"
     LLM_PROVIDERS = "llm_providers"
+    LLM_BUDGET = "llm_budget"
 
 
 SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
@@ -49,6 +50,7 @@ SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
     AppSettingKind.SCHEDULE_POLICY: 1,
     AppSettingKind.BROWSER_PROFILE: 1,
     AppSettingKind.LLM_PROVIDERS: 1,
+    AppSettingKind.LLM_BUDGET: 1,
 }
 
 
@@ -254,6 +256,18 @@ def _llm_providers(payload: dict[str, Any]) -> dict[str, Any]:
     return {"default_provider": default.value, "models": dict(sorted(normalized.items()))}
 
 
+def _llm_budget(payload: dict[str, Any]) -> dict[str, Any]:
+    _require_exact_keys(payload, frozenset({"daily_call_cap", "per_request_provider_cap"}))
+    return {
+        "daily_call_cap": _positive_int(
+            payload["daily_call_cap"], field="daily_call_cap", maximum=1_000
+        ),
+        "per_request_provider_cap": _positive_int(
+            payload["per_request_provider_cap"], field="per_request_provider_cap", maximum=3
+        ),
+    }
+
+
 def _model_name(value: Any) -> str:
     if not isinstance(value, str):
         raise DomainValidationError("model must be a string")
@@ -283,6 +297,7 @@ _VALIDATORS: Final[dict[AppSettingKind, Any]] = {
     AppSettingKind.SCHEDULE_POLICY: _schedule_policy,
     AppSettingKind.BROWSER_PROFILE: _browser_profile,
     AppSettingKind.LLM_PROVIDERS: _llm_providers,
+    AppSettingKind.LLM_BUDGET: _llm_budget,
 }
 
 DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
@@ -311,6 +326,7 @@ DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
         "default_provider": LlmProvider.OPENAI.value,
         "models": {provider.value: model for provider, model in DEFAULT_MODELS.items()},
     },
+    AppSettingKind.LLM_BUDGET: {"daily_call_cap": 60, "per_request_provider_cap": 3},
 }
 
 

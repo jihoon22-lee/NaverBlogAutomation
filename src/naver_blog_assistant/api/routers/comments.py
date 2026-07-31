@@ -19,8 +19,11 @@ from fastapi import FastAPI, Response
 from naver_blog_assistant.api.errors import ApiError
 from naver_blog_assistant.api.models import (
     ArticleExtractionResponse,
+    CommentFanoutRequest,
+    CommentFanoutResponse,
     CommentGenerationRequest,
     CommentGenerationResponse,
+    ProviderOutcomeResponse,
     RecommendationResponse,
 )
 from naver_blog_assistant.api.routers.automation import EXTRACTION_DETAILS, to_api_error
@@ -44,6 +47,8 @@ from naver_blog_assistant.application.automation import (
     GenerationOptions,
     PlanGeneration,
 )
+from naver_blog_assistant.application.llm import BudgetExceededError, FanOutGeneration
+from naver_blog_assistant.domain import DomainValidationError, ModelSelection
 from naver_blog_assistant.infrastructure.browser import PageBundleMissingError
 
 logger = logging.getLogger("naver_blog_assistant.api")
@@ -58,6 +63,8 @@ def register_comment_routes(
     problem_metadata: Callable[..., dict[str, Any]],
     timeout_seconds: float,
     track: Callable[[asyncio.Task[GenerationResult]], None],
+    fanout: FanOutGeneration | None = None,
+    selection_for: Callable[[str, str | None], ModelSelection] | None = None,
 ) -> None:
     """Add the web app comment generation endpoint to ``app``."""
 
@@ -90,18 +97,7 @@ def register_comment_routes(
         payload: CommentGenerationRequest, response: Response
     ) -> CommentGenerationResponse:
         extraction = await _extract(payload.url)
-        options = GenerationOptions(
-            relationship_level=None
-            if payload.relationship_level is None
-            else payload.relationship_level.value,
-            speech_style=None if payload.speech_style is None else payload.speech_style.value,
-            comment_length=None if payload.comment_length is None else payload.comment_length.value,
-            comment_mood=None if payload.comment_mood is None else payload.comment_mood.value,
-            personalization_mode=(
-                None if payload.personalization_mode is None else payload.personalization_mode.value
-            ),
-            replace=payload.replace,
-        )
+        options = _options(payload)
         try:
             plan = planner.execute(extraction, options)
         except ValueError as error:
@@ -141,6 +137,108 @@ def register_comment_routes(
             ) from error
         except (BrowserSessionNotRunningError, BrowserSessionOperationFailedError) as error:
             raise to_api_error(error) from error
+
+    @app.post(
+        "/api/v1/automation/comments/fanout",
+        response_model=CommentFanoutResponse,
+        responses={
+            200: {"description": "Every provider outcome for this request."},
+            402: problem_metadata("A configured call budget would be exceeded."),
+            422: problem_metadata("The URL, the article, or a provider selection is unusable."),
+            502: problem_metadata("Every provider failed."),
+            503: problem_metadata("A generation dependency is unavailable."),
+        },
+        tags=["Automation"],
+        operation_id="generateCommentFanout",
+    )
+    async def generate_comment_fanout(payload: CommentFanoutRequest) -> CommentFanoutResponse:
+        extraction = await _extract(payload.url)
+        if fanout is None or selection_for is None:
+            raise ApiError(
+                status=503,
+                code="generation_unavailable",
+                title="Generation unavailable",
+                detail="호출할 수 있는 provider가 구성되지 않았습니다.",
+            )
+        generation, resolve = fanout, selection_for
+        options = _options(payload)
+        try:
+            plan = planner.execute(extraction, options)
+        except ValueError as error:
+            raise ApiError(
+                status=422,
+                code="invalid_generation_options",
+                title="Invalid generation options",
+                detail="생성 옵션이 유효하지 않습니다.",
+            ) from error
+        attempt, _ = planner.key_for(plan, options)
+        try:
+            selections = [resolve(item.provider, item.model) for item in payload.providers]
+        except (DomainValidationError, ValueError) as error:
+            raise ApiError(
+                status=422,
+                code="invalid_provider_selection",
+                title="Invalid provider selection",
+                detail="provider 또는 model 값이 유효하지 않습니다.",
+            ) from error
+        try:
+            result = await generation.execute(
+                post=plan.post,
+                request_hash=plan.request_hash,
+                attempt=attempt,
+                selections=selections,
+                preferences=plan.preferences,
+                personalization_mode=plan.personalization_mode,
+            )
+        except BudgetExceededError as error:
+            raise ApiError(
+                status=402,
+                code=error.code,
+                title="Call budget exceeded",
+                detail=(
+                    f"설정한 상한 {error.limit}을 넘습니다. 현재 {error.observed}건 사용했습니다."
+                ),
+            ) from error
+        if not result.succeeded:
+            raise ApiError(
+                status=502,
+                code="fanout_all_failed",
+                title="Every provider failed",
+                detail="선택한 provider 모두 후보를 만들지 못했습니다.",
+            )
+        return CommentFanoutResponse(
+            attempt=result.attempt,
+            extraction=ArticleExtractionResponse.from_domain(extraction),
+            items=[
+                ProviderOutcomeResponse(
+                    provider=outcome.selection.provider.value,
+                    model=outcome.selection.model,
+                    status=outcome.status.value,
+                    result_code=outcome.result_code,
+                    replayed=outcome.replayed,
+                    retry_after=outcome.retry_after,
+                    recommendation=None
+                    if outcome.recommendation is None
+                    else RecommendationResponse.from_domain(outcome.recommendation),
+                )
+                for outcome in result.outcomes
+            ],
+        )
+
+
+def _options(payload: CommentGenerationRequest) -> GenerationOptions:
+    return GenerationOptions(
+        relationship_level=None
+        if payload.relationship_level is None
+        else payload.relationship_level.value,
+        speech_style=None if payload.speech_style is None else payload.speech_style.value,
+        comment_length=None if payload.comment_length is None else payload.comment_length.value,
+        comment_mood=None if payload.comment_mood is None else payload.comment_mood.value,
+        personalization_mode=(
+            None if payload.personalization_mode is None else payload.personalization_mode.value
+        ),
+        replace=payload.replace,
+    )
 
 
 async def _generate(  # noqa: C901 - one branch per documented generation failure

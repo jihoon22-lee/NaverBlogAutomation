@@ -643,7 +643,7 @@ stateDiagram-v2
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 완료 |
 | 9 | 9 | `feat(client): add single post engagement run workspace` | 완료 |
 | 10 | 10 | `feat(llm): add multi provider structured completion port` | 완료 |
-| 11 | 11 | `feat(llm): add provider fan-out and call budget` | 대기 |
+| 11 | 11 | `feat(llm): add provider fan-out and call budget` | 완료 |
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 대기 |
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 대기 |
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 대기 |
@@ -925,10 +925,14 @@ Demo 실행 결과: `GET /api/v1/llm/providers` → `openai`·`gemini`·`anthrop
 `configured` 값, 응답 본문에 key 문자열이 없음. `PUT /api/v1/settings/llm_providers`로 default
 provider와 model을 저장하고 재조회에서 동일한 값을 확인.
 
-### [ ] Task 11 — 다중 provider 동시 호출과 예산 (PR 11)
+### [x] Task 11 — 다중 provider 동시 호출과 예산 (PR 11)
 
 목표: migration 0012 `llm_generation_attempts`와 `llm_budget` 설정을 추가하고 댓글 생성을 여러
 provider에 병렬 요청해 provider별 결과를 함께 보여줍니다.
+
+구현 지침: provider별 key는 `uuid5(고정 namespace, "request_hash:attempt:provider:model")`로
+파생합니다. 예산 확인은 첫 호출 전에 수행하고, 일일 상한은 attempt ledger의 `created_at`으로 세어
+별도 table을 두지 않습니다.
 
 테스트 요건: 부분 실패, 전부 실패, provider별 idempotency key 파생과 replay, 같은 요청 반복, 예산
 초과 거부, provider 수 상한, 전체·provider별 timeout, 동일 provider 중복 지정 거부, 응답에 key·본문
@@ -936,7 +940,25 @@ provider에 병렬 요청해 provider별 결과를 함께 보여줍니다.
 
 Demo: 글 하나에 OpenAI·Gemini·Claude 댓글이 나란히 표시되고 하나를 선택해 승인합니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 160 files, `ruff check`·`ty check` All checks
+passed, `uv run pytest` **1001 passed / 7 skipped**, total coverage 90.83%, wheel smoke 통과
+(migration head `20260731_0012`).
+
+신규 모듈: `application/llm/budget.py`(요청당 provider 상한과 일일 호출 상한),
+`application/llm/fanout.py`(병렬 호출, provider별 key 파생, 부분 실패 집계),
+`infrastructure/database/llm_attempt_repository.py`, migration 0012,
+`POST /api/v1/automation/comments/fanout`.
+
+신규 테스트 35건: `test_llm_fanout.py` 22건(key 안정성과 provider·model·attempt별 구분, provider별
+1회 호출, 부분 실패, 전부 실패, replay 보고, 미구성 provider, 실패 코드 4종 매핑, `Retry-After`
+보존, provider timeout, 예산이 호출 전에 차단, 자정 기준 집계, 상한 경계),
+`test_llm_attempt_repository.py` 6건(selection별 기록, 같은 selection 재기록, 교체 attempt 분리,
+시점 기준 집계, `Retry-After` 보존, 빈 요청), `test_comment_fanout_api.py` 7건(provider 미구성 503,
+중복·빈·초과 provider 목록 422, 알 수 없는 provider, 알 수 없는 필드, 지원하지 않는 URL).
+
+Demo 실행 결과: fake 모드에서는 호출할 provider가 없으므로 `503 generation_unavailable`을 반환하고,
+provider가 구성된 환경에서는 provider별 outcome 배열을 반환합니다. 응답 본문에 key 문자열이 없고
+본문도 포함되지 않습니다.
 
 ### [ ] Task 12 — 내 블로그 카테고리·참고 글 수집 (PR 12)
 
@@ -1123,6 +1145,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | Gemini·Anthropic 오류는 예외 타입명과 status로 매핑 | SDK가 예외 계층을 바꿔도 의미가 유지되고, 분류 불가는 indeterminate로 fail closed |
 | 2026-07-31 | Anthropic structured output은 강제 tool call로 받음 | 같은 Pydantic schema로 검증해 provider 간 출력 계약을 하나로 유지 |
 | 2026-07-31 | provider client는 registry가 selection별로 캐시 | key는 registry만 보유하고 호출부는 provider·model만 다룸 |
+| 2026-07-31 | 일일 호출 상한은 attempt ledger의 `created_at`으로 집계 | 별도 date ledger table을 만들지 않고 같은 사실을 한 곳에서 읽음 |
+| 2026-07-31 | fan-out은 URL 검증을 provider 구성 확인보다 먼저 수행 | 잘못된 요청이 구성 문제로 잘못 보고되지 않게 함 |
+| 2026-07-31 | fan-out 응답은 provider별 outcome 배열이며 부분 실패를 허용 | 한 provider의 거부가 다른 provider의 결과를 버리지 않음 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |

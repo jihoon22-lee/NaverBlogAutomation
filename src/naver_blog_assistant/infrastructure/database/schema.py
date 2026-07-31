@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     MetaData,
     String,
@@ -313,6 +314,7 @@ APP_SETTING_KINDS = (
     "schedule_policy",
     "browser_profile",
     "llm_providers",
+    "llm_budget",
 )
 
 app_settings = Table(
@@ -328,4 +330,31 @@ app_settings = Table(
     ),
     CheckConstraint("schema_version >= 1", name="ck_app_settings_schema_version"),
     CheckConstraint("length(payload_json) > 0", name="ck_app_settings_payload"),
+)
+
+LLM_ATTEMPT_STATUSES = ("succeeded", "failed", "indeterminate")
+
+llm_generation_attempts = Table(
+    "llm_generation_attempts",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("request_hash", String(64), nullable=False),
+    Column("attempt", Integer, nullable=False),
+    Column("provider", String(32), nullable=False),
+    Column("model", String(100), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("result_code", String(64), nullable=True),
+    Column("recommendation_id", String(36), nullable=True),
+    Column("retry_after", Integer, nullable=True),
+    Column("created_at", String(32), nullable=False),
+    CheckConstraint("attempt >= 1", name="ck_llm_attempts_attempt"),
+    CheckConstraint(
+        "status IN (" + ", ".join(f"'{status}'" for status in LLM_ATTEMPT_STATUSES) + ")",
+        name="ck_llm_attempts_status",
+    ),
+    CheckConstraint("length(request_hash) = 64", name="ck_llm_attempts_request_hash"),
+    UniqueConstraint(
+        "request_hash", "attempt", "provider", "model", name="uq_llm_attempts_selection"
+    ),
+    Index("ix_llm_attempts_created_at", "created_at"),
 )

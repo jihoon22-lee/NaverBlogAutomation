@@ -116,6 +116,7 @@ from naver_blog_assistant.application.discovery import (
     rss_url_for,
     saved_search_title_matches,
 )
+from naver_blog_assistant.application.llm import CallBudget, FanOutGeneration
 from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
 from naver_blog_assistant.domain import (
     CandidateSelectionError,
@@ -145,8 +146,14 @@ from naver_blog_assistant.infrastructure.database import (
 from naver_blog_assistant.infrastructure.database.app_settings_repository import (
     SqliteAppSettingsRepository,
 )
+from naver_blog_assistant.infrastructure.database.llm_attempt_repository import (
+    SqliteLlmAttemptRepository,
+)
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
+from naver_blog_assistant.infrastructure.generators.provider_comment import (
+    ProviderCommentGenerator,
+)
 from naver_blog_assistant.infrastructure.llm import ProviderRegistry
 from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedError
 from naver_blog_assistant.ports.browser import BrowserDriver
@@ -738,6 +745,17 @@ def create_app(
         problem_metadata=_problem_metadata,
         extractions=article_extractions,
     )
+    attempt_repository = SqliteLlmAttemptRepository(engine)
+    call_budget = CallBudget(read_setting=read_setting, attempts=attempt_repository)
+    fanout_generation = _configured_fanout(
+        settings=settings,
+        registry=provider_registry,
+        repository=repository,
+        personalization=repository,
+        attempts=attempt_repository,
+        budget=call_budget,
+    )
+
     register_comment_routes(
         app,
         extractions=article_extractions,
@@ -746,6 +764,10 @@ def create_app(
         problem_metadata=_problem_metadata,
         timeout_seconds=settings.generation_timeout_seconds,
         track=_track_generation,
+        fanout=fanout_generation,
+        selection_for=lambda provider, model: provider_registry.selection(
+            LlmProvider(provider), model
+        ),
     )
     register_engagement_routes(
         app,
@@ -1568,6 +1590,40 @@ def _configured_registry(settings: ApiSettings) -> ProviderRegistry:
             LlmProvider.GEMINI: settings.gemini_model,
             LlmProvider.ANTHROPIC: settings.anthropic_model,
         },
+    )
+
+
+def _configured_fanout(
+    *,
+    settings: ApiSettings,
+    registry: ProviderRegistry,
+    repository: Any,
+    personalization: Any,
+    attempts: SqliteLlmAttemptRepository,
+    budget: CallBudget,
+) -> FanOutGeneration | None:
+    """Build one generator per configured provider, or nothing in fake mode."""
+    if settings.generator_mode == "fake":
+        return None
+    generators: dict[str, GenerateRecommendation] = {}
+    for provider in registry.configured():
+        selection = registry.selection(provider)
+        generators[provider.value] = GenerateRecommendation(
+            generator=ProviderCommentGenerator(
+                registry.client(selection),
+                timeout_seconds=settings.openai_timeout_seconds,
+                max_output_tokens=settings.openai_max_output_tokens,
+            ),
+            idempotency=repository,
+            personalization=personalization,
+        )
+    if not generators:
+        return None
+    return FanOutGeneration(
+        generators=generators,
+        attempts=attempts,
+        budget=budget,
+        timeout_seconds=settings.generation_timeout_seconds,
     )
 
 
