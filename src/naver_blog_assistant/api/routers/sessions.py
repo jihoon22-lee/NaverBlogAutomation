@@ -21,7 +21,7 @@ from naver_blog_assistant.api.session_models import (
     SessionListResponse,
     SessionResponse,
 )
-from naver_blog_assistant.application.automation import RunSession
+from naver_blog_assistant.application.automation import EngagementNotAllowedError, RunSession
 from naver_blog_assistant.domain import DiscoverySource, DomainValidationError, SessionTrigger
 from naver_blog_assistant.domain.engagement import EngagementStepName
 from naver_blog_assistant.infrastructure.database.session_repository import (
@@ -46,6 +46,7 @@ def register_session_routes(
         response_model=SessionResponse,
         status_code=202,
         responses={
+            403: problem_metadata("The automation consent is missing."),
             409: problem_metadata("Another session is still active."),
             422: problem_metadata("The approval is not usable."),
         },
@@ -60,6 +61,13 @@ def register_session_routes(
                 max_posts=payload.max_posts,
                 sources=[DiscoverySource(source) for source in payload.sources],
             )
+        except EngagementNotAllowedError as error:
+            raise ApiError(
+                status=403,
+                code=error.code,
+                title="Not allowed",
+                detail="설정에서 자동 실행 동의가 필요합니다.",
+            ) from error
         except SessionAlreadyRunningError as error:
             raise ApiError(
                 status=409,

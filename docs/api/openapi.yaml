@@ -879,6 +879,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/SessionResponse"}
+        "403":
+          description: The automation consent is missing.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
         "409": {$ref: "#/components/responses/SessionAlreadyRunning"}
         "422": {$ref: "#/components/responses/ValidationError"}
     get:
@@ -1041,6 +1046,8 @@ paths:
             - schedule_policy
             - browser_profile
             - llm_providers
+            - llm_budget
+            - writing_profile
     get:
       operationId: getAppSetting
       tags: [Settings]
@@ -1865,6 +1872,8 @@ components:
             - schedule_policy
             - browser_profile
             - llm_providers
+            - llm_budget
+            - writing_profile
         schema_version:
           type: integer
           minimum: 1

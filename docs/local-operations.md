@@ -32,6 +32,45 @@ SQLite `data/naver_blog_assistant.db`에는 source URL, title, bounded excerpt, 
 candidate, edited comment, review state와 idempotency/failure metadata가 명시적 cleanup 전까지
 남습니다. Full article body, OpenAI key, cookie와 provider body는 저장하지 않습니다.
 
+Database에 포함된 주요 table 목록:
+
+| table | 내용 |
+| --- | --- |
+| `recommendations` | 댓글 추천 기록 |
+| `comment_candidates` | 댓글 후보 |
+| `idempotency_records` | 생성 요청 멱등성 추적 |
+| `neighbor_blogs` | 저장된 이웃 블로그 |
+| `saved_searches` | 저장된 검색어 |
+| `discovered_posts` | RSS·검색으로 수집한 대기열 글 |
+| `engagement_runs` / `engagement_steps` | 글별 공감·댓글·서로이웃 실행 기록 |
+| `app_settings` | 사용자 설정(동의, 안전 정책, LLM 예산, 스케줄, 글쓰기 프로필 등) |
+| `llm_generation_attempts` | 다중 provider 호출 시도 기록 |
+| `blog_categories` / `blog_reference_posts` | 내 블로그 카테고리·참조 글 캐시 |
+| `post_drafts` / `post_draft_revisions` / `post_draft_images` / `post_draft_tags` | 글쓰기 초안·리비전·이미지·태그 |
+| `publish_runs` / `publish_run_steps` | 임시저장 실행 기록 |
+| `automation_sessions` | 세션 배치(승인·진행·완료·중단 내역) |
+| `automation_activity_ledger` | 일별 외부 action 횟수(safety governor 일일 cap 산정) |
+| `digest_settings` / `digest_runs` | 이메일 요약 설정·발송 기록 |
+| `automatic_discovery_settings` / `automatic_discovery_runs` | 자동 탐색 설정·실행 기록 |
+
+현재 migration head는 `20260801_0018_activity_ledger`입니다.
+
+### 초안 이미지 보관 (DRAFT_MEDIA_DIR)
+
+글쓰기 워크플로에서 업로드한 이미지는 filesystem에 별도 보관됩니다.
+
+- **경로:** 환경변수 `DRAFT_MEDIA_DIR`이 설정되어 있으면 해당 경로, 없으면 database 디렉터리
+  아래 `media/`(기본값 `data/media/`)를 사용합니다.
+- **구조:** `<media_root>/drafts/<draft_id>/<uuid>.<ext>` 형태로 초안별 디렉터리에 저장됩니다.
+- **내용:** JPEG, PNG, WebP, GIF 이미지만 허용하며 파일당 10 MiB 이하입니다.
+- **삭제:** 초안을 삭제하면 해당 draft의 모든 이미지 파일과 디렉터리가 제거됩니다.
+  전체를 수동으로 삭제하려면 API를 종료한 뒤 `<media_root>/drafts/` 디렉터리를 삭제합니다.
+
+```bash
+# 예: 기본 경로의 모든 초안 이미지 삭제
+rm -rf data/media/drafts/
+```
+
 글 탐색 대기열의 RSS·검색 후보, 일일 요약, SMTP 설정과 별도 보관 정책은
 [글 탐색 대기열](discovery.md)을 참고하세요.
 
@@ -71,6 +110,8 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 
 ## Troubleshooting
 
+### 기본 연결·설정
+
 - **Setup check가 extension origin을 거부함:** `chrome://extensions`의 현재 unpacked ID를 공백이나
   trailing slash 없이 입력합니다. ID가 바뀌면 API를 재시작합니다.
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
@@ -79,22 +120,31 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **최근 작업 > 새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
+
+### 본문·댓글 생성
+
 - **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
   확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
   않습니다.
 - **대기열 글을 연 뒤 preview가 갱신되지 않음:** **댓글 작성**을 열고 페이지가 완료될 때까지
   기다린 뒤 다시 시도합니다. **새 탭에서 처리**도 같은 흐름으로 동작하며, 네이버 접근 권한이
   없으면 **설정 > 네이버 페이지 접근 허용**에서 한 번 허용합니다.
+- **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로
+  만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
+  가능성을 이해한 경우에만 승인합니다.
+
+### 탐색·이웃
+
 - **자동 탐색 결과가 비어 있음:** 내 블로그 ID와 저장한 검색어를 확인한 뒤 **지금 동기화**를 누릅니다.
   신규 이웃 검색은 `NAVER_SEARCH_CLIENT_ID`와 `NAVER_SEARCH_CLIENT_SECRET`가 모두 필요합니다.
   공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
   마지막 동기화 상태에 이유를 표시합니다. 여러 저장 검색어의 신규 후보 수는 합계이므로 50개를 넘을 수
   있으며, 이는 정상 동기화 결과입니다.
-- **Extension 변경이 보이지 않음:** `npm --prefix extension run build` 후 extension card의 Reload를
-  누릅니다. Reload 후 ID와 env origin이 여전히 일치하는지 확인합니다.
-- **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로
-  만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
-  가능성을 이해한 경우에만 승인합니다.
+- **저장한 신규 이웃 검색어를 지우고 싶음:** **설정 > 신규 이웃 검색어**의 삭제 버튼을 사용합니다.
+  삭제해도 기존에 수집된 후보 글은 유지됩니다.
+
+### 공감·댓글·서로이웃 실행
+
 - **자동 실행 동의가 없어 진행되지 않음:** **설정 > 사용자 승인형 자동 실행**으로 자동 이동합니다.
   범위와 약관을 확인해 동의하거나, 댓글 작성으로 돌아가 댓글을 복사해 직접 붙여넣습니다.
 - **수동 댓글 등록:** 후보를 선택해 다듬은 뒤 승인된 댓글을 복사하고 네이버 입력란에 직접 붙여넣습니다.
@@ -120,8 +170,67 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   해당 `BuddyAdd` 탭을 찾아 같은 탭에서 두 단계를 이어가며, 이미 선택된 이웃 그룹은 바꾸지 않습니다.
   신청 완료 뒤에는 **닫기** text뿐 아니라 Naver의 close class·title·aria-label control도 눌러 popup을
   닫습니다.
-- **저장한 신규 이웃 검색어를 지우고 싶음:** **설정 > 신규 이웃 검색어**의 삭제 버튼을 사용합니다.
-  삭제해도 기존에 수집된 후보 글은 유지됩니다.
+
+### 세션 배치 (여러 글 처리)
+
+- **배치가 `daily_cap_reached`로 중단됨:** safety_policy에 설정한 일일 상한(공감·댓글·서로이웃 중
+  하나)에 도달했습니다. 오늘은 더 이상 처리하지 않으며 내일 자동으로 초기화됩니다. 상한을
+  높이려면 **설정 > safety_policy**에서 값을 변경하고 저장합니다.
+- **배치가 `outside_allowed_hours`로 시작도 안 되거나 중간에 멈춤:** 현재 시각(Asia/Seoul)이
+  safety_policy의 `allowed_hours` 목록에 포함되지 않습니다. 허용 시간대를 확인하고, 필요하면
+  현재 시간을 목록에 추가한 뒤 저장합니다.
+- **배치가 `consecutive_failures`로 중단됨:** 연속 실패 횟수가 safety_policy의
+  `max_consecutive_failures` 설정에 도달했습니다. 직전 실패 원인(네이버 로그인 만료, 네트워크
+  문제 등)을 해결한 뒤 새 배치를 시작하면 실패 카운터가 초기화됩니다.
+- **배치가 `captcha_required`로 중단됨:** 네이버가 Captcha를 요구했습니다. 자동으로 우회하지
+  않으며 브라우저에서 직접 Captcha를 풀거나 잠시 대기한 뒤 새 배치를 시작합니다.
+- **배치가 `login_required`로 중단됨:** 네이버 로그인 세션이 만료되었습니다.
+  automation browser의 Chrome 프로필에서 네이버에 다시 로그인한 뒤 새 배치를 시작합니다.
+- **배치가 `browser_unavailable`로 중단됨:** automation browser를 시작하지 못했거나 연결이
+  끊어졌습니다. Chrome이 설치되어 있고 `AUTOMATION_BROWSER_CHANNEL` 설정과 일치하는지 확인합니다.
+- **배치가 `internal_error`로 중단됨:** 예상하지 못한 내부 오류입니다. API 로그에서 traceback을
+  확인하고 문제를 보고해 주세요.
+- **취소를 눌렀는데 즉시 멈추지 않음:** 취소는 현재 처리 중인 글이 완전히 끝난 뒤에 반영됩니다.
+  한 글의 공감·댓글·서로이웃 단계를 중간에 끊으면 불완전한 상태가 남으므로, 안전하게 현재 글을
+  마무리한 뒤 session 상태가 `cancelled`로 전환됩니다. 급하게 모든 작업을 즉시 멈추려면 API를
+  종료하세요.
+
+### 무인 스케줄
+
+무인 스케줄이 실행되지 않을 때 아래 `reason`을 API 로그에서 확인합니다.
+
+| reason | 원인 | 해결 |
+| --- | --- | --- |
+| `not_scheduled` | schedule_policy의 `mode`가 `schedule`이 아닙니다. | **설정 > schedule_policy**에서 `mode`를 `schedule`로 변경합니다. |
+| `not_due` | 설정한 시각이 아직 아닙니다(5분 이내 window). | 정상 동작입니다. 설정 시각까지 대기하세요. |
+| `consent_missing` | automation_consent에서 자동 실행에 동의하지 않았습니다. | **설정 > 사용자 승인형 자동 실행**에서 동의합니다. |
+| `safety_policy_missing` | safety_policy를 한 번도 저장하지 않았습니다. | **설정 > safety_policy**에서 일일 상한과 허용 시간대를 설정하고 저장합니다. |
+| `already_ran_today` | 오늘 이미 스케줄 세션을 실행했습니다. | 정상 동작입니다. 하루에 한 번만 실행됩니다. |
+| `session_active` | 다른 세션(수동 배치 포함)이 아직 진행 중입니다. | 진행 중인 세션이 끝나면 다음 분 체크에서 시작합니다. |
+| `browser_unavailable` | automation browser를 시작하지 못했습니다. | Chrome 설치, 프로필 디렉터리, headless 설정을 확인합니다. |
+
+세 조건(automation_consent 동의, safety_policy 저장, schedule_policy `mode: schedule`)을 모두
+충족해야 무인 실행이 활성화됩니다. 하나라도 빠지면 동작하지 않습니다.
+
+### LLM 예산 (llm_budget) 초과
+
+- **`provider_cap_exceeded` 오류:** 한 번의 요청에 포함된 provider 수가 `per_request_provider_cap`
+  설정을 초과했습니다. 동시에 호출할 provider 수를 줄이거나 **설정 > llm_budget**에서
+  `per_request_provider_cap` 값을 높입니다.
+- **`daily_cap_exceeded` 오류:** 오늘 LLM provider 호출 총 횟수가 `daily_call_cap`에
+  도달했습니다. 내일까지 대기하거나, 호출 상한이 너무 낮으면 **설정 > llm_budget**에서
+  `daily_call_cap` 값을 올립니다.
+
+### 글쓰기 워크플로
+
+- **임시저장은 됐는데 발행이 안 됨:** 정상 동작입니다. 글쓰기 워크플로는 네이버 에디터에
+  임시저장까지만 수행하며, 발행은 사용자가 에디터에서 직접 확인하고 클릭합니다.
+  자동 발행은 의도적으로 지원하지 않습니다.
+
+### Extension·기타
+
+- **Extension 변경이 보이지 않음:** `npm --prefix extension run build` 후 extension card의 Reload를
+  누릅니다. Reload 후 ID와 env origin이 여전히 일치하는지 확인합니다.
 - **Clipboard 실패:** 편집 영역에 선택된 text를 OS copy command로 직접 복사합니다. 자동 게시로
   전환되지 않습니다.
 
