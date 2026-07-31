@@ -8,6 +8,7 @@
 import type { ArticleExtraction } from "./api/types";
 import { CommentController } from "./controllers/comment";
 import { SessionController } from "./controllers/session";
+import { SettingsController } from "./controllers/settings";
 import { TodayController } from "./controllers/today";
 import { WritingController } from "./controllers/writing";
 import { createNavigation, focusWorkspace, type NavSection } from "./navigation";
@@ -18,7 +19,9 @@ export interface Workspace {
   comment: CommentController;
   openComment(extraction: ArticleExtraction, discoveryPostId: string): void;
   session: SessionController;
+  settings: SettingsController;
   showSession(): void;
+  showSettings(): void;
   showToday(): void;
   showWriting(): void;
   today: TodayController;
@@ -33,6 +36,7 @@ export function createWorkspace(root: Element): Workspace {
     onSelect: (section: NavSection) => {
       if (section === "writing") workspace.showWriting?.();
       else if (section === "session") workspace.showSession?.();
+      else if (section === "settings") workspace.showSettings?.();
       else workspace.showToday?.();
     },
   });
@@ -51,10 +55,23 @@ export function createWorkspace(root: Element): Workspace {
   session.observe(() => {
     if (activeSection === "session") session.render();
   });
+  const appSettings = new SettingsController(root);
+  appSettings.observe(() => {
+    if (activeSection === "settings") appSettings.render();
+  });
+  workspace.settings = appSettings;
   workspace.session = session;
   workspace.comment = comment;
   workspace.today = today;
   workspace.writing = writing;
+  workspace.showSettings = () => {
+    activeSection = "settings";
+    session.close();
+    navigation?.mark("settings");
+    appSettings.render();
+    focusWorkspace(root);
+    void appSettings.load();
+  };
   workspace.showSession = () => {
     activeSection = "session";
     navigation?.mark("session");

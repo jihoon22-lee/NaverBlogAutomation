@@ -10,6 +10,7 @@ function shell(): Document {
       <nav id="${NAV_ID}" aria-label="작업 화면">
         <button type="button" data-section="today" aria-current="page">오늘의 작업</button>
         <button type="button" data-section="writing">글 작성</button>
+        <button type="button" data-section="settings">설정</button>
       </nav>
     </header>
     <main id="workspace"><p id="workspace-status">준비됐습니다.</p></main>

@@ -293,3 +293,35 @@ export interface ScheduleStatus {
   enabled: boolean;
   blockingReason: string | null;
 }
+
+/** When the service should collect public metadata on its own. */
+export interface AutoDiscoverySettings {
+  ownBlogId: string;
+  enabled: boolean;
+  timezone: string;
+  hour: number;
+  minute: number;
+  lastSyncedAt: string | null;
+  lastStatus: "never" | "success" | "partial" | "failed";
+  lastDetail: string;
+}
+
+/** What one synchronization added. */
+export interface DiscoverySyncResult {
+  neighborsAdded: number;
+  neighborPostsAdded: number;
+  searchPostsAdded: number;
+  searchProvider: "naver_open_api" | "none";
+  status: "success" | "partial" | "failed";
+  detail: string;
+}
+
+/** One saved search that produces new neighbour candidates. */
+export interface SavedSearch {
+  id: string;
+  query: string;
+  excludedTerms: string[];
+  freshnessDays: number;
+  enabled: boolean;
+  createdAt: string;
+}

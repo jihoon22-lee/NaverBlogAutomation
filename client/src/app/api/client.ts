@@ -24,10 +24,13 @@ import type {
   DiscoverySource,
   DiscoveryState,
   EngagementRun,
+  AutoDiscoverySettings,
   AutomationSession,
   EngagementRunState,
   EngagementStep,
   EngagementStepName,
+  DiscoverySyncResult,
+  SavedSearch,
   ScheduleStatus,
   SessionState,
   SessionTrigger,
@@ -65,6 +68,8 @@ const STEP_STATES = new Set<EngagementStepState>([
 ]);
 const RUN_STATES = new Set<EngagementRunState>(["running", "succeeded", "failed", "unconfirmed"]);
 const SESSION_TRIGGERS = new Set<SessionTrigger>(["manual", "session", "schedule"]);
+const SYNC_HISTORY = new Set(["never", "success", "partial", "failed"]);
+const SYNC_STATES = new Set(["success", "partial", "failed"]);
 const BATCH_STATES = new Set<SessionState>([
   "pending",
   "running",
@@ -218,6 +223,58 @@ export class LocalApiClient {
     if (patch.reviewStatus !== undefined) payload.review_status = patch.reviewStatus;
     const body = await this.#request("PATCH", `/api/v1/recommendations/${id}`, payload);
     return readRecommendation(body);
+  }
+
+  async autoDiscoverySettings(): Promise<AutoDiscoverySettings> {
+    return readAutoDiscoverySettings(
+      await this.#request("GET", "/api/v1/discovery/automation-settings"),
+    );
+  }
+
+  async saveAutoDiscoverySettings(settings: {
+    ownBlogId: string;
+    enabled: boolean;
+    hour: number;
+    minute: number;
+    timezone?: string;
+  }): Promise<AutoDiscoverySettings> {
+    const body = await this.#request("PUT", "/api/v1/discovery/automation-settings", {
+      own_blog_id: settings.ownBlogId,
+      enabled: settings.enabled,
+      hour: settings.hour,
+      minute: settings.minute,
+      timezone: settings.timezone ?? "Asia/Seoul",
+    });
+    return readAutoDiscoverySettings(body);
+  }
+
+  /** Collect public metadata now instead of waiting for the daily run. */
+  async syncDiscovery(): Promise<DiscoverySyncResult> {
+    return readDiscoverySyncResult(await this.#request("POST", "/api/v1/discovery/sync"));
+  }
+
+  async savedSearches(): Promise<SavedSearch[]> {
+    const body = await this.#request("GET", "/api/v1/discovery/searches");
+    return readItems(body, readSavedSearch);
+  }
+
+  async saveSearch(search: {
+    query: string;
+    excludedTerms?: string[];
+    freshnessDays?: number;
+    enabled?: boolean;
+  }): Promise<SavedSearch> {
+    const body = await this.#request("POST", "/api/v1/discovery/searches", {
+      query: search.query,
+      excluded_terms: search.excludedTerms ?? [],
+      freshness_days: search.freshnessDays ?? 14,
+      enabled: search.enabled ?? true,
+    });
+    return readSavedSearch(body);
+  }
+
+  async deleteSearch(id: string): Promise<void> {
+    await this.#request("DELETE", `/api/v1/discovery/searches/${id}`);
   }
 
   async appSetting(kind: string): Promise<AppSettingRecord> {
@@ -499,6 +556,12 @@ function readString(value: unknown, field: string): string {
   return value;
 }
 
+/** Read a string that the service may legitimately leave empty, such as an unset blog id. */
+function readText(value: unknown, field: string): string {
+  if (typeof value !== "string") throw contractError(field);
+  return value;
+}
+
 function readNullableString(value: unknown, field: string): string | null {
   if (value === null) return null;
   return readString(value, field);
@@ -745,6 +808,61 @@ function readSourceName(value: unknown): DiscoverySource {
     throw contractError("source");
   }
   return value as DiscoverySource;
+}
+
+export function readAutoDiscoverySettings(body: unknown): AutoDiscoverySettings {
+  if (!isRecord(body)) throw contractError("discovery settings");
+  const status = body.last_status;
+  if (!SYNC_HISTORY.has(status as AutoDiscoverySettings["lastStatus"])) {
+    throw contractError("last_status");
+  }
+  const hour = readCount(body.hour, "hour");
+  const minute = readCount(body.minute, "minute");
+  if (hour > 23 || minute > 59) throw contractError("discovery time");
+  return {
+    ownBlogId: readText(body.own_blog_id, "own_blog_id"),
+    enabled: readBoolean(body.enabled, "enabled"),
+    timezone: readString(body.timezone, "timezone"),
+    hour,
+    minute,
+    lastSyncedAt: readNullableString(body.last_synced_at ?? null, "last_synced_at"),
+    lastStatus: status as AutoDiscoverySettings["lastStatus"],
+    lastDetail: readText(body.last_detail, "last_detail"),
+  };
+}
+
+export function readDiscoverySyncResult(body: unknown): DiscoverySyncResult {
+  if (!isRecord(body)) throw contractError("sync result");
+  const status = body.status;
+  if (!SYNC_STATES.has(status as DiscoverySyncResult["status"])) throw contractError("status");
+  const provider = body.search_provider;
+  if (provider !== "naver_open_api" && provider !== "none") {
+    throw contractError("search_provider");
+  }
+  return {
+    neighborsAdded: readCount(body.neighbors_added, "neighbors_added"),
+    neighborPostsAdded: readCount(body.neighbor_posts_added, "neighbor_posts_added"),
+    searchPostsAdded: readCount(body.search_posts_added, "search_posts_added"),
+    searchProvider: provider,
+    status: status as DiscoverySyncResult["status"],
+    detail: readText(body.detail, "detail"),
+  };
+}
+
+export function readSavedSearch(value: unknown): SavedSearch {
+  if (!isRecord(value)) throw contractError("search");
+  const terms = value.excluded_terms;
+  if (!Array.isArray(terms)) throw contractError("excluded_terms");
+  const freshness = readCount(value.freshness_days, "freshness_days");
+  if (freshness < 1 || freshness > 90) throw contractError("freshness_days");
+  return {
+    id: readString(value.id, "id"),
+    query: readString(value.query, "query"),
+    excludedTerms: terms.map((term) => readString(term, "excluded term")),
+    freshnessDays: freshness,
+    enabled: readBoolean(value.enabled, "enabled"),
+    createdAt: readString(value.created_at, "created_at"),
+  };
 }
 
 export function readScheduleStatus(body: unknown): ScheduleStatus {
