@@ -653,7 +653,7 @@ stateDiagram-v2
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 완료 |
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 완료 |
 | 20 | 20a | `feat(client): make every workspace section reachable` | 완료 |
-| 20 | 20b | `feat(client): add session batch screen` | 대기 |
+| 20 | 20b | `feat(client): add the session batch screen` | 완료 |
 | 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
 
 Task 번호 대응표입니다. 2026-07-31 통합에서 글쓰기·provider Task를 중간에 넣으면서 뒤쪽 Task를
@@ -1208,7 +1208,7 @@ background 시작), `test_sessions_api.py` 8건(endpoint의 gate별 사유 4건,
 
 Demo: 개선 전후의 조작 수와 키보드 완주 가능 여부를 비교해 보여줍니다.
 
-상태: 진행 중(1/2 PR 머지). 감사 결과와 도출한 개선안은 아래 표에 정리했습니다.
+상태: 완료(2/2 PR 머지). 감사 결과와 도출한 개선안은 아래 표에 정리했습니다.
 
 #### 통합 감사 결과 (2026-08-01)
 
@@ -1233,7 +1233,21 @@ Demo: 개선 전후의 조작 수와 키보드 완주 가능 여부를 비교해
 | PR | 범위 | 상태 |
 | --- | --- | --- |
 | 20a | shell `<nav>`, 화면 전환, 전환 시 focus 이동, 버튼 상태 피드백 (#1·2·4·6) | 완료 |
-| 20b | 세션 배치 화면(승인·진행 SSE·취소)과 스케줄 상태 표시 (#3·5) | 대기 |
+| 20b | 세션 배치 화면(승인·진행 SSE·취소)과 스케줄 상태 표시 (#3·5) | 완료 |
+
+#### 20b 검증(2026-08-01)
+
+`npm --prefix client run check` **451 passed**, statements 90.37% / branches 82.52%.
+신규 모듈: `api/session-stream.ts`, `controllers/session.ts`, `views/session.ts`.
+`api/client.ts`에 `approveSession`·`sessions`·`session`·`cancelSession`·`sessionEventsUrl`·
+`schedule` 추가. nav에 `여러 글 처리` 탭 추가.
+
+신규 테스트 52건: `session.test.ts` 25건(기본 범위, 단계 추가·최소 하나 유지·순서 안정,
+글 수 하한, 취소 시점 안내 문구, 승인 요청 형태, 스트림 구독, 중복 시작 차단, 거부 문구,
+글별 결과 누적, id 없는 이벤트 무시, 종료 시 스트림 닫기, 중단 사유 문구 2종, 재연결 소진 후 직접 조회,
+취소 요청 표시·1회 호출·배치 없을 때 무동작, 무인 실행 상태 2종, 진행 중 배치 이어받기, 빈 이력,
+과거 중단 사유, 서비스 실패 문구), `session-api.test.ts` 20건(응답 매핑·거부 8건, 스케줄 5건,
+요청 형태 7건), `session-stream.test.ts` 7건(payload 해석 4건, 이벤트 목록, 종료 판정 2건).
 
 #### 20a 검증(2026-08-01)
 
@@ -1330,6 +1344,8 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-08-01 | safety-policy·schedule 설정은 기존 `/settings/{kind}`를 그대로 사용 | 같은 일을 하는 endpoint를 둘로 만들지 않음. 조회 전용 `/automation/schedule`만 추가 |
 | 2026-08-01 | navigation은 `#workspace` 밖 shell에 배치 | 모든 view가 render 시 root를 비우므로 안에 두면 사라짐 |
 | 2026-08-01 | focus 이동은 화면 전환에서만 수행 | 매 render마다 옮기면 사용자가 입력하는 중에 focus를 빼앗음 |
+| 2026-08-01 | 취소 버튼은 `취소 요청함`으로 표시 | 취소는 처리 중인 글이 끝난 뒤 반영되므로 즉시 멈춘 것처럼 보이면 거짓 |
+| 2026-08-01 | 중단 사유는 코드가 아니라 다음 행동으로 표시 | `login_required`가 아니라 `브라우저에서 로그인하세요`로 안내 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
