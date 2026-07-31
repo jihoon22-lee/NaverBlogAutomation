@@ -8,6 +8,15 @@ from naver_blog_assistant.application.automation.errors import (
     BrowserSessionNotRunningError,
     BrowserSessionOperationFailedError,
     BrowserSessionUnavailableError,
+    EngagementBlockedError,
+    EngagementNotAllowedError,
+)
+from naver_blog_assistant.application.automation.execute_engagement import (
+    CONFIRMATION_ATTEMPTS,
+    EngagementProgress,
+    EngagementRequest,
+    ExecuteEngagement,
+    StepOutcome,
 )
 from naver_blog_assistant.application.automation.extract_article import (
     SUPPORTED_HOSTS,
@@ -28,6 +37,11 @@ from naver_blog_assistant.application.automation.generation_keys import (
     GenerationAttempt,
     GenerationKeyRegistry,
     derive_generation_key,
+)
+from naver_blog_assistant.application.automation.run_engagement import (
+    EngagementRunService,
+    RunChannel,
+    RunEvent,
 )
 from naver_blog_assistant.application.automation.session import (
     LOGIN_PROBE_URL,
@@ -60,4 +74,14 @@ __all__ = [
     "apply_closing_phrase",
     "closing_phrase",
     "derive_generation_key",
+    "CONFIRMATION_ATTEMPTS",
+    "EngagementBlockedError",
+    "EngagementProgress",
+    "EngagementRequest",
+    "ExecuteEngagement",
+    "StepOutcome",
+    "EngagementNotAllowedError",
+    "EngagementRunService",
+    "RunChannel",
+    "RunEvent",
 ]

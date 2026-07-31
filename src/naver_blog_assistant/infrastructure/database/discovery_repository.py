@@ -250,6 +250,18 @@ class SqliteDiscoveryRepository:
             ).mappings()
             return tuple(_post(row) for row in rows)
 
+    def get_post(self, post_id: UUID) -> DiscoveredPost | None:
+        """Return one queued post by id, or None when it was removed."""
+        with self._engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(discovered_posts).where(discovered_posts.c.id == str(post_id))
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return None if row is None else _post(row)
+
     def update_post_state(self, post_id: UUID, state: DiscoveryState) -> DiscoveredPost | None:
         now = self._clock()
         with self._immediate_transaction() as connection:

@@ -37,3 +37,34 @@ class ArticleExtractionFailedError(AutomationError):
             raise ValueError(f"{code} is not a known extraction failure code")
         super().__init__(code)
         self.code = code
+
+
+class EngagementBlockedError(AutomationError):
+    """Raised with a stable code when a run cannot start at all."""
+
+    CODES = frozenset({"unsupported_url", "comment_missing", "navigation_failed"})
+
+    def __init__(self, code: str) -> None:
+        if code not in self.CODES:
+            raise ValueError(f"{code} is not a known engagement block code")
+        super().__init__(code)
+        self.code = code
+
+
+class EngagementNotAllowedError(AutomationError):
+    """Raised with a stable code when an approval does not permit a run."""
+
+    CODES = frozenset(
+        {
+            "post_not_found",
+            "recommendation_not_approved",
+            "comment_missing",
+            "consent_missing",
+        }
+    )
+
+    def __init__(self, code: str) -> None:
+        if code not in self.CODES:
+            raise ValueError(f"{code} is not a known engagement refusal code")
+        super().__init__(code)
+        self.code = code

@@ -74,6 +74,7 @@ from naver_blog_assistant.api.routers import (
     register_app_mount,
     register_automation_session_routes,
     register_comment_routes,
+    register_engagement_routes,
     register_settings_routes,
 )
 from naver_blog_assistant.application import (
@@ -97,6 +98,8 @@ from naver_blog_assistant.application import (
 )
 from naver_blog_assistant.application.automation import (
     BrowserSessionManager,
+    EngagementRunService,
+    ExecuteEngagement,
     ExtractArticle,
     GenerationKeyRegistry,
     PlanGeneration,
@@ -442,6 +445,14 @@ def create_app(
     list_recommendations = ListRecommendations(repository)
     delete_recommendation = DeleteRecommendation(repository)
     review = ReviewRecommendation(repository)
+    engagement_runs_service = EngagementRunService(
+        engagements=engagements,
+        discovery=discovery,
+        recommendations=get,
+        execute=ExecuteEngagement(browser_sessions),
+        read_setting=read_setting.execute,
+    )
+
     clear_personalization_examples = ClearPersonalizationExamples(repository)
     pending_generations: set[asyncio.Task[GenerationResult]] = set()
 
@@ -650,6 +661,7 @@ def create_app(
                 await asyncio.gather(scheduler_task, return_exceptions=True)
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
+            await engagement_runs_service.shutdown()
             await browser_sessions.shutdown()
             close = getattr(selected_generator, "close", None)
             if close is not None:
@@ -721,6 +733,11 @@ def create_app(
         problem_metadata=_problem_metadata,
         timeout_seconds=settings.generation_timeout_seconds,
         track=_track_generation,
+    )
+    register_engagement_routes(
+        app,
+        runs=engagement_runs_service,
+        problem_metadata=_problem_metadata,
     )
     register_settings_routes(
         app,
