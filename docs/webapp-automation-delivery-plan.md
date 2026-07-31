@@ -1,11 +1,18 @@
 # 로컬 웹앱 + 브라우저 자동화 전환 Delivery Plan
 
-Status: 진행 중, 2026-07-30 확정
+Status: 진행 중, 2026-07-30 확정 · 2026-07-31 글쓰기 확장과 다중 provider 범위 통합
 
 Chrome extension Side Panel을 로컬 웹앱으로 옮기고, DOM 조작을 backend가 소유한 Playwright 계열
 browser session으로 대체하는 전환 계획입니다. 기존 Side Panel 아키텍처는
 [`architecture.md`](architecture.md)에, 이전 배포 경계는 [`delivery-plan.md`](delivery-plan.md)와
 [`v0.5.1-engagement-delivery-plan.md`](v0.5.1-engagement-delivery-plan.md)에 남아 있습니다.
+
+2026-07-31에 범위를 통합했습니다. 이 문서는 위 전환 계획에 더해 두 가지를 함께 관리합니다. 첫째,
+도구의 작업 범위를 "남의 글에 반응하기"에서 "내 글 쓰기"까지 확대하는 글 작성·다듬기·태그 생성·
+임시저장 자동화입니다. 둘째, 생성 provider를 OpenAI 하나에서 OpenAI·Gemini·Anthropic Claude로
+넓히고 여러 provider를 동시에 호출해 결과를 비교하는 fan-out입니다. 두 확장은 기존 automation
+자산(browser session, page script probe, 단계 상태 기계, 서버 소유 idempotency)을 그대로 재사용하며,
+동결된 extension v0.5.6의 계약을 건드리지 않습니다.
 
 ## 문제 정의
 
@@ -27,6 +34,14 @@ origin 결합, unpacked 설치 절차가 그 목록입니다. 이를 FastAPI가 
 | extension | v0.5.6 동결. 리팩터링하지 않음. 기존 table·endpoint 불변, 추가만 |
 | 상태 저장 | 웹앱 상태는 SQLite 신규 table. extension의 `chrome.storage.local`은 그대로 유지 |
 | 승인 모델 | `manual`(글 단위) → `session`(1차 목표) → `schedule`(최종, opt-in) |
+| 참고 글 수집 | browser session으로 내 블로그 카테고리·글 목록을 읽어 캐시. 내부 XHR endpoint 호출 금지 |
+| 발행 경계 | 임시저장까지만 자동. 발행은 사용자가 에디터에서 직접 클릭 |
+| LLM provider | OpenAI + Gemini + Anthropic Claude. `StructuredCompletion` port 뒤에 둠 |
+| 동시 호출 | 댓글·본문 생성은 provider fan-out 지원. 부분 실패 허용 |
+| 태그 | 50개 생성·저장, 본문 삽입은 설정 가능한 상한까지 |
+| 본문 표현 | HTML이 아닌 block 배열(`paragraph`/`heading`/`image`/`quote`) |
+| Task 8 분할 | backend(PR 8)와 SPA(PR 9)를 분리 |
+| 이미지 vision 전송 | draft 옵션, 기본값 off |
 
 ### 결정 근거
 
@@ -47,6 +62,26 @@ API 비활성과 isolated 기본값 제약을 거의 받지 않습니다. extens
 소유여야 하며(두 저장소가 각자 migration chain으로 한 file을 건드리면 데이터가 깨집니다), 두 UI가
 하나의 API process를 공유해야 병행 운영이 가능하고, CI·release·hook이 이미 구축돼 있습니다. 분리
 가능성은 `client/`와 automation 코드가 `extension/`을 참조하지 않는 규칙으로 유지합니다.
+
+**Task 8을 backend와 SPA로 분리.** 저장소 관례가 이미 계층별 분리(PR 3 client → 4 automation →
+5 client → 6 api → 7 client)이고, backend 몫이 1,553줄이라 SPA를 합치면 리뷰 단위가 2,500줄을
+넘습니다. SSE 수명주기 결함처럼 backend 단독 리뷰가 필요한 문제가 화면 코드와 섞이면 놓칩니다.
+backend를 먼저 병합하면 이미 작성된 코드의 유실 위험도 사라집니다.
+
+**provider 추상화를 글쓰기 기능보다 먼저.** 본문 생성·다듬기·태그가 모두 fan-out 대상이라 추상화를
+먼저 세우지 않으면 OpenAI 전용 코드를 두 번 작성하게 됩니다.
+
+**글쓰기를 세션 배치·governor보다 먼저.** 임시저장 경계의 글쓰기는 남의 계정에 작용하지 않아
+governor 없이도 안전하고, 사용자 우선순위가 글쓰기에 있습니다.
+
+**태그는 본문 태그 입력 기능으로 삽입.** 네이버 도움말 확인 결과 태그 입력 위치가 발행 영역과 본문
+두 곳입니다. 임시저장 경계에서는 발행 레이어를 열지 않으므로, 문서 영역에서 `#태그명`을 입력하면
+자동 추가되는 본문 태그 입력을 사용해 임시저장에도 태그가 보존되게 합니다. 카테고리도 발행 레이어
+항목이므로 임시저장 단계에서는 설정하지 않고, 선택한 카테고리는 참고 글 수집과 화면 표시에만
+사용합니다.
+
+**이미지 vision 전송 기본 off.** 비용·프라이버시 예측 가능성을 우선하고, 사용자가 캡션을 주면 배치
+품질이 충분합니다. draft 옵션으로 켤 수 있고 vision 지원 provider에만 보냅니다.
 
 ## 조사된 코드베이스 사실
 
@@ -137,7 +172,7 @@ src/naver_blog_assistant/
 │   └── database/
 │       ├── app_settings_repository.py
 │       ├── automation_session_repository.py
-│       └── migrations/versions/{0010,0011,0012}_*.py
+│       └── migrations/versions/{0010..0016}_*.py
 client/                               # 신규 npm 프로젝트
 ├── package.json, biome.json, tsconfig.json, vitest.config.ts
 ├── scripts/build.mjs                 # app·page 두 entrypoint
@@ -155,6 +190,43 @@ extension/                            # 동결. FROZEN 표기만 추가
 `npm --prefix client run build:page`가 선행돼야 하므로 CI와 `scripts/smoke_installed_wheel.py`에 존재
 검사를 추가합니다.
 
+2026-07-31 통합 범위로 아래가 더해집니다. 기존 경로는 바뀌지 않습니다.
+
+```
+src/naver_blog_assistant/
+├── api/routers/
+│   ├── engagement.py                 # 단건 실행과 SSE
+│   ├── llm.py                        # provider 구성 조회
+│   ├── blog.py                       # 내 블로그 카테고리·참고 글
+│   └── drafts.py                     # 초안, 이미지, 생성·다듬기·태그, 임시저장
+├── domain/
+│   ├── writing.py                    # 신규: PostDraft, BodyBlock, DraftTag, PublishStep
+│   └── llm.py                        # 신규: LlmProvider, ModelSelection, CallOutcome
+├── ports/
+│   └── llm.py                        # 신규: StructuredCompletion protocol
+├── application/
+│   ├── automation/
+│   │   ├── run_engagement.py         # 단건 실행 orchestrator와 SSE 채널
+│   │   ├── collect_reference_posts.py
+│   │   └── stage_post.py             # 에디터 자동 입력과 임시저장
+│   ├── writing/                      # 신규
+│   │   ├── compose_post.py
+│   │   ├── refine_post.py
+│   │   ├── generate_tags.py
+│   │   └── errors.py
+│   └── llm/                          # 신규
+│       ├── fanout.py                 # 병렬 호출과 부분 실패 집계
+│       └── budget.py                 # 호출 상한 판정
+└── infrastructure/
+    ├── llm/                          # 신규: provider adapter와 registry
+    ├── generators/                   # comment_prompt.py, provider_comment.py 추가
+    ├── browser/naver/                # my_blog.py, editor.py 추가
+    └── database/                     # writing·llm repository 추가
+client/src/
+├── app/views/                        # run.ts, writing.ts 추가
+└── page/                             # my-blog.ts, editor.ts 추가
+```
+
 ## 데이터 모델
 
 기존 table(`recommendations`, `comment_candidates`, `idempotency_records`, `discovery_*`,
@@ -169,16 +241,66 @@ extension/                            # 동결. FROZEN 표기만 추가
 | `payload_json` | 검증된 값만 |
 | `updated_at` | ISO-8601 UTC |
 
-**migration 0011 `automation_sessions`와 `engagement_runs` 확장**
+**migration 0011 `llm_generation_attempts`**
+
+| 컬럼 | 설명 |
+| --- | --- |
+| `request_hash`, `attempt`, `provider`, `model` | 복합 unique. provider별 fan-out 결과를 식별 |
+| `status` | `succeeded`, `failed`, `indeterminate` |
+| `result_code` | 실패·불명확 사유의 안정적 코드 |
+| `recommendation_id` | nullable. 성공한 경우 저장된 recommendation |
+| `retry_after` | nullable. 429 응답의 `Retry-After` 초 |
+| `created_at` | ISO-8601 UTC |
+
+**migration 0012 내 블로그 카테고리와 참고 글**
+
+`blog_categories`: `category_no`(PK), `name`, `post_count`, `synced_at`.
+`blog_reference_posts`: `category_no`, `source_url`, `title`, `published_at`, `excerpt_hash`,
+`synced_at`. 본문은 저장하지 않고 요청 시점에만 추출해 메모리에 둡니다.
+
+**migration 0013 글 초안**
+
+`post_drafts`: `id`, `title`, `category_no`, `status`(`collecting`/`composed`/`refining`/`tagged`/
+`staging`/`staged`/`abandoned`), `use_image_vision`, `created_at`, `updated_at`.
+
+`post_draft_revisions`: `id`, `draft_id`, `round_no`, `kind`(`seed`/`composed`/`refined`/
+`user_edited`), `provider`, `model`, `title`, `body_blocks_json`, `summary`, `is_active`,
+`created_at`. fan-out은 같은 `round_no`에 provider별 변형을 만들고 사용자가 하나를 active로
+선택합니다.
+
+`post_draft_images`: `id`, `draft_id`, `ordinal`, `stored_path`, `original_filename`, `byte_size`,
+`mime`, `alt_text`, `placement_hint`. 파일 자체는 runtime 디렉터리에 두고 DB에는 경로만 남깁니다.
+
+`post_draft_tags`: `draft_id`, `tag`, `ordinal`, `source`(`generated`/`user`), `selected`. 정규화(공백
+제거, 중복 제거, 길이 제한)는 domain layer가 단독 소유합니다.
+
+**migration 0014 `publish_runs`**
+
+`engagement_runs`와 같은 단계 상태 패턴을 씁니다. `id`, `draft_id`, `revision_id`, `state`,
+단계별 상태(`title`, `body`, `images`, `tags`, `save`), `result_code`, `created_at`, `finished_at`.
+forward-only 전이와 `BEGIN IMMEDIATE`, unique 제약을 그대로 따릅니다.
+
+**migration 0015 `automation_sessions`와 `engagement_runs` 확장**
 
 `automation_sessions`: `id`, `trigger`(`manual`/`session`/`schedule`),
 `state`(`pending`/`running`/`completed`/`aborted`/`cancelled`), `approved_steps_json`, `max_posts`,
 `source_filter_json`, `processed_count`, `created_at`, `started_at`, `finished_at`, `abort_reason`.
 `engagement_runs`에 nullable `session_id`와 `trigger` 추가하고 기존 행은 `manual`로 backfill합니다.
 
-**migration 0012 `automation_activity_ledger`**
+**migration 0016 `automation_activity_ledger`**
 
 `(date, action)` 복합 PK와 `count`. discovery의 date idempotency ledger와 같은 패턴입니다.
+
+**신규 설정 kind (migration 불필요)**
+
+`app_settings`가 kind 기반이므로 table 변경 없이 `AppSettingKind` enum,
+`SETTING_SCHEMA_VERSIONS`, `_VALIDATORS`, `DEFAULT_SETTING_PAYLOADS`에만 추가합니다.
+
+| kind | payload |
+| --- | --- |
+| `llm_providers` | `default_provider`, `models`(provider별 model 이름), `fanout_providers` |
+| `llm_budget` | `daily_call_cap`, `per_request_provider_cap` |
+| `writing_profile` | `target_length`, `tone`, `structure`, `reference_post_count`, `body_tag_cap`, `use_image_vision` |
 
 ## 신규 API 표면
 
@@ -200,6 +322,29 @@ GET|PUT /api/v1/automation/safety-policy
 GET|PUT /api/v1/automation/schedule
 ```
 
+2026-07-31 통합 범위로 아래를 더합니다. `{kind}`에 `llm_providers`·`llm_budget`·`writing_profile`이
+추가되며 명시적으로도 적어 둡니다.
+
+```
+GET       /api/v1/llm/providers
+GET|PUT   /api/v1/settings/llm_providers | llm_budget | writing_profile
+POST      /api/v1/automation/comments/fanout
+GET       /api/v1/blog/categories
+POST      /api/v1/blog/categories/sync
+GET       /api/v1/blog/reference-posts
+POST      /api/v1/drafts
+GET       /api/v1/drafts | /api/v1/drafts/{id}
+PATCH     /api/v1/drafts/{id}
+POST      /api/v1/drafts/{id}/images            (multipart)
+DELETE    /api/v1/drafts/{id}/images/{image_id}
+POST      /api/v1/drafts/{id}/compose
+POST      /api/v1/drafts/{id}/refine
+POST      /api/v1/drafts/{id}/tags
+PATCH     /api/v1/drafts/{id}/tags
+POST      /api/v1/drafts/{id}/stage
+GET       /api/v1/drafts/{id}/stage/events      (SSE)
+```
+
 ## 실행 모델
 
 ```mermaid
@@ -218,6 +363,186 @@ stateDiagram-v2
 governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_seconds`, `jitter_ratio`,
 `dwell_per_1000_chars`, `allowed_hours`, `max_consecutive_failures`, `skip_probability`.
 
+## SSE 스트림 수명주기
+
+2026-07-31에 `uv run pytest`가 무한 정지하는 문제를 진단했습니다. 원인은 두 가지가 겹친 것입니다.
+`EngagementRunService.channel()`이 어떤 `run_id`에도 채널을 새로 만들어 주고 `events()`가 종료 조건
+없이 `await queue.get()`을 반복하므로, 존재하지 않는 run을 구독하면 아무도 `close()`를 호출하지 않아
+generator가 끝나지 않습니다. 여기에 starlette `TestClient`가 `portal.call(self.app, ...)`으로 ASGI
+app을 완료까지 호출하고 body를 `io.BytesIO`에 모으는 구조라, `client.stream()`의 context 진입조차
+반환되지 않습니다. `addopts`에 timeout이 없어 실패가 아니라 무한 정지로 나타났습니다.
+
+```mermaid
+flowchart TD
+    S[SSE 구독 요청] --> E{run이 저장소에 있나}
+    E -- 없음 --> C1[스트림 즉시 종료]
+    E -- 있음 --> L{살아 있는 채널이 있나}
+    L -- 없음 --> C2[현재 상태 snapshot 후 종료]
+    L -- 있음 --> SUB[history 재생 + 이후 이벤트]
+    SUB --> H{유휴}
+    H -- keepalive 주기 --> P[comment frame]
+    H -- 전체 상한 --> C3[stream_deadline 후 종료]
+    SUB --> F[run_finished/run_failed] --> C4[close + 채널 회수]
+```
+
+규칙 네 가지를 고정합니다.
+
+- `events()`는 채널을 만들지 않습니다. `EngagementRepository.get()`으로 run 존재를 먼저 확인하고,
+  없으면 즉시 스트림을 닫습니다.
+- 이미 종료된 run은 현재 상태 snapshot 한 건을 보낸 뒤 닫습니다.
+- 종료된 채널은 회수합니다. 재연결 유예 시간과 보관 개수 상한을 둡니다.
+- keepalive comment frame과 전체 스트림 상한을 둡니다. 서버 coroutine이 영구히 남지 않습니다.
+
+열린 SSE 스트림은 `TestClient`로 소비하지 않습니다. `asyncio.run` + `httpx.ASGITransport`로 증분
+소비하거나 서비스 레벨 `events()`를 `asyncio.timeout`으로 검증합니다. 기존 테스트가 모두
+`asyncio.run` 직접 호출 방식(pytest-asyncio 미사용)이라 이 방식이 일관됩니다. 같은 규칙을 Task 15의
+임시저장 SSE와 Task 17의 세션 SSE에도 적용합니다.
+
+## LLM provider 추상화
+
+기존 `CommentGenerator` port는 메서드 하나로 좁고, prompt·schema·오류 매핑이
+`infrastructure/generators/openai.py` 한 파일에 묶여 있습니다. 아래로 나눕니다.
+
+```
+ports/llm.py                     신규
+  LlmProvider(StrEnum)           openai | gemini | anthropic
+  StructuredCompletion(Protocol) instructions, input_text, schema, timeout, max_output_tokens → BaseModel
+  LlmCallOutcome                 provider, model, status, result_code, retry_after
+
+infrastructure/llm/              신규
+  openai_client.py               responses.parse
+  gemini_client.py               google-genai, response_format + JSON schema
+  anthropic_client.py            structured output
+  fake_client.py                 결정적 테스트용
+  registry.py                    설정·env key로 사용 가능 provider 해석
+  errors.py                      SDK 예외 → 기존 application error 매핑
+
+infrastructure/generators/
+  comment_prompt.py              신규: openai.py에서 추출한 instructions·schema
+  provider_comment.py            신규: StructuredCompletion 기반 CommentGenerator 구현
+  openai.py                      추출 후 얇은 adapter로 축소
+```
+
+provider마다 오류를 같은 의미로 맞추는 것이 이 설계의 핵심입니다.
+
+| 상황 | 매핑 | 재시도 안전성 |
+| --- | --- | --- |
+| timeout, connection 실패, 5xx, 408, 409 | `GenerationIndeterminateError` | 같은 key로만 replay |
+| 429 | `GenerationRateLimitedError` + `Retry-After` | 같은 key 재시도 안전 |
+| 생성 전 4xx 거부 | `GenerationUnavailableError` + `GenerationNotStartedError` | 같은 key 재시도 안전 |
+| content filter, refusal | `GenerationRefusedError` | 재시도 금지 |
+| schema 위반, 불완전 출력 | `GenerationInvalidError` | 재시도 금지 |
+
+```mermaid
+sequenceDiagram
+    participant SPA
+    participant API
+    participant Reg as provider registry
+    participant P1 as OpenAI
+    participant P2 as Gemini
+    participant P3 as Claude
+    SPA->>API: POST .../fanout {providers:[...]}
+    API->>Reg: 구성·예산 검증
+    par OpenAI
+        API->>P1: structured 1회
+    and Gemini
+        API->>P2: structured 1회
+    and Claude
+        API->>P3: structured 1회
+    end
+    API->>API: provider별 결과·오류코드 저장
+    API-->>SPA: 성공 결과 + 실패 provider 코드
+```
+
+fan-out 규칙입니다.
+
+- provider별 idempotency key는 `uuid5(request_hash, attempt, provider, model)`로 서버가 파생합니다.
+  기존 `uuid5(digest, attempt)` 규칙의 확장입니다.
+- 부분 실패를 허용합니다. 하나라도 성공하면 200, 실패 provider는 코드로 보고하고, 전부 실패면
+  502입니다.
+- `llm_budget` 설정(일일 호출 상한, 요청당 provider 상한)으로 호출 전에 거부합니다.
+- 병렬 호출은 동기 SDK를 `asyncio.to_thread`로 감쌉니다. provider별 timeout과 전체 timeout을 둡니다.
+- SDK 자동 재시도는 0으로 강제합니다. 한 호출에서 provider 요청은 정확히 한 번입니다.
+- API key는 Python process 환경에만 존재합니다. `GET /api/v1/llm/providers`는 값이 아니라
+  `configured: true|false`만 반환하고 오류 메시지에 key 조각을 넣지 않습니다.
+
+동결된 extension은 `/api/v1/recommendations` 응답을 자체 검증합니다. 기존 응답 스키마에 필드를
+추가하지 않습니다. fan-out은 신규 경로·신규 table만 사용하고, provider별 결과는 provider마다 별도
+`Recommendation` 레코드로 저장한 뒤 `llm_generation_attempts`가
+`(request_hash, attempt, provider, model)`로 연결합니다. 기존 20개 operation은 계속 불변입니다.
+
+## 글쓰기 파이프라인
+
+```mermaid
+flowchart LR
+    A[초안 text + 이미지 업로드] --> B[카테고리 선택]
+    B --> C[참고 글 수집: 동일·유사 카테고리]
+    C --> D[본문 생성 fan-out]
+    D --> E[변형 선택]
+    E --> F[사용자 편집]
+    F --> G[다듬기 요청]
+    G --> F
+    F --> H[태그 50개 생성]
+    H --> H2[태그 재생성·선택]
+    H2 --> I[임시저장 실행 승인]
+    I --> J[에디터 자동 입력 + 임시저장]
+    J --> K[사용자가 에디터에서 확인 후 발행]
+```
+
+**참고 글 수집.** Task 3에서 확립한 방식(page script는 읽기·판별만, selector와 상태만 반환)을 그대로
+따릅니다. `probeMyBlogCategories()`가 카테고리 번호·이름·글 수를 반환하고
+`probeCategoryPostList()`가 목록 페이지에서 글 URL·제목·날짜를 반환합니다. 본문은 기존
+`extract_article`을 재사용합니다. 유사 카테고리 판정은 LLM 없이 카테고리명 토큰 겹침과 문자 n-gram
+유사도로 순위를 내고 사용자가 최종 선택합니다. 판정 불가면 동일 카테고리만 사용합니다. 참고 글은
+기본 최근 5건, 건당 4,000 code point로 제한합니다. 이유는 두 가지입니다. 입력 토큰 비용이 참고 글
+수에 선형으로 늘어나고, 내 글 본문이 provider로 나가는 만큼 노출 범위를 좁게 유지해야 합니다.
+
+**본문 표현.** 생성 결과를 HTML이 아닌 block 배열로 저장합니다.
+
+```json
+[{"type":"heading","text":"..."},
+ {"type":"paragraph","text":"..."},
+ {"type":"image","image_id":"...","caption":"..."},
+ {"type":"quote","text":"..."}]
+```
+
+에디터 입력이 block 단위 순차 조작이라 그대로 대응되고, 다듬기 반복에서 diff를 보여주기 쉽고, 다른
+에디터로 옮길 때도 표현이 유지됩니다.
+
+**이미지 처리.** multipart로 받아 runtime 디렉터리(`drafts/{draft_id}/`)에 저장하고 DB에는 경로·크기·
+MIME·순서만 둡니다. MIME allowlist(jpeg, png, webp, gif), 파일당 크기 상한, 글당 개수 상한, 파일명
+정규화와 path traversal 차단을 검증합니다. 이미지 파일은 log·screenshot·CI artifact에 남기지
+않습니다. provider에 이미지 자체를 보낼지는 draft 옵션이며 기본값은 off이고, on으로 켜면 vision을
+지원하는 provider에만 보냅니다.
+
+**태그 상한 대응.** 생성은 50개, 저장은 50개 전부, 본문 삽입은 `writing_profile.body_tag_cap`까지만
+합니다. 기본값은 보수적으로 두고 live 확인 후 설정으로 조정합니다. 초과분은 사용자가 순서를 바꿔
+선택할 수 있게 남깁니다. 이렇게 하면 네이버의 실제 상한이 무엇으로 밝혀지든 코드 변경 없이 설정으로
+맞출 수 있습니다.
+
+**에디터 자동화 상태 기계.**
+
+```mermaid
+stateDiagram-v2
+    [*] --> opening: 임시저장 승인
+    opening --> restore_prompt: 작성 중 글 복구 popup
+    restore_prompt --> composing: 새 글로 시작
+    restore_prompt --> aborted: 판별 불가
+    opening --> composing: popup 없음
+    composing --> title_filled
+    title_filled --> body_filled: block 순차 입력
+    body_filled --> images_uploaded: file input set_input_files
+    images_uploaded --> tags_appended: 본문 태그 입력
+    tags_appended --> saving: 임시저장 클릭
+    saving --> staged: 저장 확인
+    saving --> unconfirmed: 저장 확인 실패, 자동 재시도 금지
+    composing --> aborted: captcha / login_required / 대상 모호
+```
+
+기존 단계 상태 기계 규칙을 그대로 씁니다. forward-only 전이, 성공 단계 반복 금지, `unconfirmed`
+자동 재시도 금지, 대상이 없거나 둘 이상이면 추측 없이 중단입니다. 내 블로그 여부는 URL의 blogId와
+저장된 내 블로그 ID가 일치할 때만 진행합니다. `PageHandle`에 `set_input_files`를 추가합니다.
+
 ## 보안·안전 경계
 
 - 전용 profile 경로에서 headful Chrome을 실행합니다. 로그인은 사용자가 그 창에서 직접 수행하며
@@ -230,6 +555,17 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 - 무인 모드는 opt-in이며 UI에 계정 제한 위험을 명시합니다. governor 설정 없이는 활성화할 수 없습니다.
 - UA, 언어, 시간대, 화면 크기를 조작하지 않습니다(`no_viewport=True`, custom header·user agent 금지).
   일관성이 은닉보다 낫습니다.
+
+2026-07-31 통합 범위로 아래가 더해집니다.
+
+- 내 글 본문이 provider로 전송됩니다. 요청 전에 참고 글 목록을 화면에 보여주고 개수·길이 상한을 두며
+  문서에 명시합니다. 지금까지는 남의 공개 글 한 건만 나갔으므로 경계가 실제로 넓어집니다.
+- 업로드 이미지가 disk에 남습니다. runtime 디렉터리에만 저장하고 삭제 방법을 문서화하며
+  log·artifact에 남기지 않습니다.
+- provider가 셋으로 늘어 key 노출 경로가 늘어납니다. key는 Python process 환경에만 두고 API 응답에는
+  구성 여부만 반환하며 오류 메시지에 key 조각을 넣지 않습니다.
+- 임시저장은 내 블로그에만 작용합니다. blogId 일치 검증을 통과하지 못하면 실행하지 않습니다.
+- 발행은 자동화하지 않습니다. 되돌릴 수 없는 공개 동작은 사람이 최종 확인합니다.
 
 ## 테스트 전략
 
@@ -258,6 +594,11 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 - migration은 up/down 양방향과 기존 데이터 backfill을 테스트합니다.
 - 테스트 이름은 관찰 가능한 행동으로 짓습니다(예: `test_timeout_reuses_original_idempotency_key`).
 - fixture는 합성 HTML만 사용합니다.
+- 열린 stream을 `TestClient`로 소비하지 않습니다. 무한 대기가 실패가 아니라 정지로 나타납니다.
+- `pytest-timeout`을 dev 그룹에 추가하고(`uv.lock`이 정확 버전을 고정) `addopts`에
+  `--timeout=60 --timeout-method=thread`를 추가합니다. 어떤 교착도 60초 안에 stack과 함께 실패합니다.
+- multipart 업로드는 MIME·크기·개수·파일명·traversal을 개별 테스트로 분리합니다.
+- provider별 오류 매핑은 provider마다 전 항목을 테스트합니다.
 
 ### Task별 완료 검증 절차
 
@@ -271,6 +612,17 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 5. 해당 Task의 Demo 실행
 6. 이 문서의 체크박스·상태·검증 결과·결정 로그 갱신
 
+## 실행 순서
+
+| Phase | Task | 이유 |
+| --- | --- | --- |
+| A | 8 | 교착 수정 없이는 이후 모든 검증이 막힘 |
+| B | 9 | 단건 실행 흐름 완결 |
+| C | 10, 11 | 글쓰기가 provider 추상화 위에 올라감 |
+| D | 12~16 | 글쓰기 파이프라인 |
+| E | 17~19 | 자동화 확대는 안전장치와 함께 |
+| F | 20, 21 | UI/UX 개선과 문서 정리 |
+
 ## PR 분할
 
 | PR | Task | Conventional Commit | 상태 |
@@ -281,15 +633,34 @@ governor 파라미터: `daily_caps{like,comment,neighbor}`, `min_interval_second
 | 4 | 4 | `feat(automation): extract article content through browser session` | 완료 |
 | 5 | 5 | `feat(client): add local web app workspace shell` | 완료 |
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 완료 |
-| 7 | 7 | `feat(client): add comment generation and review workspace` | 진행 |
-| 8 | 8 | `feat(automation): execute one approved engagement run` | 대기 |
-| 9 | 9 | `feat(automation): add session-scoped engagement batches` | 대기 |
-| 10 | 10 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
-| 11 | 11 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
-| 12 | 12 | `test(automation): add integration suite and refresh docs` | 대기 |
+| 7 | 7 | `feat(client): add comment generation and review workspace` | 완료 |
+| 8 | 8 | `feat(automation): execute one approved engagement run` | 진행 |
+| 9 | 9 | `feat(client): add single post engagement run workspace` | 대기 |
+| 10 | 10 | `feat(llm): add multi provider structured completion port` | 대기 |
+| 11 | 11 | `feat(llm): add provider fan-out and call budget` | 대기 |
+| 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 대기 |
+| 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 대기 |
+| 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 대기 |
+| 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 대기 |
+| 16 | 16 | `feat(client): add post writing workspace` | 대기 |
+| 17 | 17 | `feat(automation): add session-scoped engagement batches` | 대기 |
+| 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
+| 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
+| 20 | 20 | `feat(client): improve task workspace usability` | 대기 |
+| 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
+
+Task 번호 대응표입니다. 2026-07-31 통합에서 글쓰기·provider Task를 중간에 넣으면서 뒤쪽 Task를
+재번호했습니다.
+
+| 이전 번호 | 새 번호 | 내용 |
+| --- | --- | --- |
+| Task 9 | Task 17 | 세션 단위 승인 배치 |
+| Task 10 | Task 18 | safety governor |
+| Task 11 | Task 19 | 무인 스케줄 모드 |
+| Task 12 | Task 21 | 통합 스위트, 경계 규칙, 문서 개정 |
 
 CI 배선은 앞으로 당깁니다. PR 2에 Python automation 통합 job(Linux는 xvfb), PR 3에 `client/`
-workspace 게이트를 `.github/workflows/ci.yml`에 추가합니다. PR 12는 fixture 서버 통합 스위트와 문서
+workspace 게이트를 `.github/workflows/ci.yml`에 추가합니다. PR 21은 fixture 서버 통합 스위트와 문서
 개정만 담당합니다.
 
 ## Task 목록
@@ -434,23 +805,137 @@ Demo 실행 결과: 생성 → `attempt=1 replayed=False`, 후보 3개(warm/curi
 동일 요청 반복 → `replayed=True`와 `Idempotency-Replayed: true`, `replace: true` → `attempt=2`와
 새 recommendation id, 승인 → `review_status=approved`이고 저장된 댓글이 마무리 문구로 끝남.
 
-### [ ] Task 8 — 단일 글 실행 엔진과 SSE (PR 8)
+### [ ] Task 8 — 단일 글 실행 엔진, SSE 수명주기, 테스트 timeout 게이트 (PR 8)
 
 목표: 공감 → 댓글 → 서로이웃을 순서대로 실행합니다. 대상 탐지는 evaluate, 클릭·타이핑은 trusted
 input(`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`)으로 수행합니다. 기존 `engagement_runs`에
-기록하고 단계 진행을 SSE로 전송합니다.
+기록하고 단계 진행을 SSE로 전송합니다. SSE 채널 수명주기를 안전하게 만들고 테스트 timeout 게이트를
+도입합니다.
 
-테스트 요건: 결과 코드 전 조합, 이미 공감됨, 모호한 대상, 작성자 불일치, popup 미출현·다중 popup,
+구현 지침: 미커밋 working tree를 이어받습니다. 먼저 `events()`가 채널을 만들지 않도록 고치고
+`pytest-timeout`을 추가해 `uv run pytest`가 유한 시간에 끝나는 것을 확인한 다음 나머지를 진행합니다.
+SSE 테스트는 `asyncio.run` + `httpx.ASGITransport`로 재작성합니다.
+
+테스트 요건: 결과 코드 전 조합, 이미 공감됨, 모호한 대상, 작성자 불일치(probe가 보고한 blog id와
+대기열 후보 비교, 대소문자·공백 정규화, id 미보고 시 통과), popup 미출현·다중 popup,
 기본 이웃만 가능, captcha placeholder 오탐 방지, 중단 후 재실행 시 성공 단계 skip, `running` 잔여
-단계를 `unconfirmed`로 전환, SSE 연결 끊김 후 재연결.
+단계를 `unconfirmed`로 전환, 알 수 없는 run 구독 즉시 종료, 종료된 run의 snapshot 후 종료, 진행 중
+run의 history 재생, 구독 중 이탈과 재연결, keepalive 발생, 전체 상한 도달, 채널 회수 후 재구독.
 
-Demo: 버튼 한 번으로 글 하나를 처리하고 단계별 진행과 결과 코드를 실시간으로 봅니다.
+Demo: `uv run pytest`가 유한 시간에 종료됩니다. `curl`로 승인 한 건을 실행하고 SSE에서 단계별 결과
+코드를 실시간으로 봅니다. 없는 run id로 SSE를 열면 즉시 닫힙니다.
+
+상태: 진행.
+
+### [ ] Task 9 — SPA 단건 실행 화면 (PR 9)
+
+목표: 댓글 승인 화면에서 실행 버튼 한 번으로 글 하나를 처리하고 진행을 실시간으로 표시합니다.
+
+테스트 요건: 진행 중 중복 조작 차단, SSE 끊김 후 재연결, 부분 실패 표시, 수동 완료 기록, 동의 없음,
+세션 미실행, 접근성(키보드 이동, `aria-live` 상태 안내).
+
+Demo: 웹앱에서 버튼 한 번으로 글 하나가 처리되고 단계별 결과가 화면에 나타납니다.
 
 상태: 대기.
 
-### [ ] Task 9 — 세션 단위 승인 배치 (PR 9)
+### [ ] Task 10 — LLM provider 추상화 (PR 10)
 
-목표: migration 0011로 `automation_sessions`와 `engagement_runs.session_id`·`trigger`를 추가하고
+목표: `ports/llm.py`와 `infrastructure/llm/`을 만들고 OpenAI를 새 추상화 위로 옮기며 Gemini·Claude
+adapter를 추가합니다. 기존 댓글 생성 동작은 바뀌지 않습니다.
+
+구현 지침: `google-genai`와 `anthropic`을 정확 버전으로 pin합니다. prompt·schema를
+`comment_prompt.py`로 추출하고 provider마다 오류 매핑 표를 구현합니다. SDK 자동 재시도는 0으로
+강제합니다.
+
+테스트 요건: provider별 오류 매핑 전 항목, 429 `Retry-After` 파싱(정상·음수·비정수·부재), refusal,
+불완전 출력, schema 위반, timeout, connection 실패, 5xx, key 미구성 거부, `/llm/providers`가 key 값을
+노출하지 않음, 기존 OpenAI 경로 회귀 없음, extension 회귀 없음.
+
+Demo: 설정에서 provider·model을 고르면 같은 글에 대해 provider별 댓글이 생성됩니다.
+
+상태: 대기.
+
+### [ ] Task 11 — 다중 provider 동시 호출과 예산 (PR 11)
+
+목표: migration 0011 `llm_generation_attempts`와 `llm_budget` 설정을 추가하고 댓글 생성을 여러
+provider에 병렬 요청해 provider별 결과를 함께 보여줍니다.
+
+테스트 요건: 부분 실패, 전부 실패, provider별 idempotency key 파생과 replay, 같은 요청 반복, 예산
+초과 거부, provider 수 상한, 전체·provider별 timeout, 동일 provider 중복 지정 거부, 응답에 key·본문
+미포함, migration up/down.
+
+Demo: 글 하나에 OpenAI·Gemini·Claude 댓글이 나란히 표시되고 하나를 선택해 승인합니다.
+
+상태: 대기.
+
+### [ ] Task 12 — 내 블로그 카테고리·참고 글 수집 (PR 12)
+
+목표: migration 0012와 함께 browser session으로 내 블로그 카테고리와 카테고리별 글 목록을 읽어
+캐시하고, 유사 카테고리 순위를 결정적으로 계산합니다.
+
+테스트 요건: 카테고리 없음, 단일 카테고리, 비공개 카테고리, 목록 빈 경우, 페이지 구조 변형, 유사도
+동점 처리, 캐시 갱신과 삭제된 카테고리 처리, 내 블로그 ID 불일치 거부, 합성 fixture 기반 page script
+검증, 실제 Chromium 통합 테스트.
+
+Demo: 카테고리 목록과 선택한 카테고리의 최근 글, 유사 카테고리 추천이 화면에 나타납니다.
+
+상태: 대기.
+
+### [ ] Task 13 — 초안·이미지 저장과 본문 생성 (PR 13)
+
+목표: migration 0013과 함께 초안 등록, 이미지 업로드, 참고 글을 근거로 한 본문 생성(fan-out 지원)을
+구현합니다.
+
+테스트 요건: MIME allowlist 위반, 크기·개수 상한, 파일명 정규화와 traversal 시도, 이미지 순서 변경·
+삭제, block 배열 스키마 검증, 참고 글 0건, 참고 글 truncation 경계, vision 옵션 on/off, provider별
+변형 저장과 active 선택, 요청 전 참고 글 목록 노출, prompt injection 방어(참고 글·초안은 신뢰할 수
+없는 데이터로 취급).
+
+Demo: 초안 text와 이미지 3장을 올려 provider별 본문 변형을 받고 하나를 고릅니다.
+
+상태: 대기.
+
+### [ ] Task 14 — 반복 다듬기와 태그 생성 (PR 14)
+
+목표: 사용자 편집을 revision으로 저장하고 다듬기와 태그 50개 생성을 각각 반복 실행할 수 있게
+합니다.
+
+테스트 요건: revision chain 순서, 편집 없이 다듬기 반복, 다듬기 결과 되돌리기, 동일 입력 replay, 태그
+중복·공백·특수문자·길이 초과 정규화, 50개 미달 응답 처리, 태그 재생성 시 사용자 선택 보존, 본문 삽입
+상한 적용.
+
+Demo: 같은 글을 세 번 다듬고 태그를 두 번 재생성해도 이전 선택이 유지됩니다.
+
+상태: 대기.
+
+### [ ] Task 15 — 임시저장 자동화 (PR 15)
+
+목표: migration 0014 `publish_runs`와 함께 에디터 자동 입력과 임시저장을 단계 상태 기계로 실행하고
+SSE로 진행을 전송합니다. `PageHandle`에 `set_input_files`를 추가합니다.
+
+테스트 요건: 복구 popup 있음·없음·판별 불가, 제목·본문·이미지·태그 단계별 실패, 이미지 업로드 지연과
+실패, 임시저장 확인 성공·불명확, 내 블로그 아님 거부, 로그인 필요, captcha, 중단 후 재실행 시 성공
+단계 skip, 합성 에디터 fixture 기반 통합 테스트.
+
+Demo: 승인 한 번으로 다듬어진 글이 내 블로그 임시저장 목록에 나타나고, 사용자는 에디터에서 발행
+버튼만 누릅니다.
+
+상태: 대기.
+
+### [ ] Task 16 — 글쓰기 작업 공간 SPA (PR 16)
+
+목표: 초안 입력부터 임시저장 결과까지의 화면을 SPA에 추가합니다.
+
+테스트 요건: 단계 전환, 이미지 미리보기와 순서 변경, provider 변형 비교 표시, 다듬기 이력, 태그 선택
+UI, 실행 중 중복 조작 차단, 접근성, 오류 상태 표시.
+
+Demo: 웹앱만으로 초안에서 임시저장까지 한 흐름으로 진행합니다.
+
+상태: 대기.
+
+### [ ] Task 17 — 세션 단위 승인 배치 (PR 17)
+
+목표: migration 0015로 `automation_sessions`와 `engagement_runs.session_id`·`trigger`를 추가하고
 승인 1회로 대기열 N개를 순차 처리하며 언제든 취소할 수 있게 합니다.
 
 테스트 요건: 순차 처리, 중간 취소, 부분 실패 후 요약, 동시 세션 거부, `max_posts` 경계, 대기열
@@ -460,9 +945,9 @@ Demo: 대기열 5개를 한 번 승인해 순차 처리하고 3번째에서 취�
 
 상태: 대기.
 
-### [ ] Task 10 — safety governor (PR 10)
+### [ ] Task 18 — safety governor (PR 18)
 
-목표: migration 0012 `automation_activity_ledger`와 함께 일일 상한, 최소 간격과 jitter, 본문 길이
+목표: migration 0016 `automation_activity_ledger`와 함께 일일 상한, 최소 간격과 jitter, 본문 길이
 비례 체류·스크롤, 허용 시간대, 연속 실패 차단, 간헐적 skip을 구현하고 중단 사유를 기존 SMTP
 digest로 알립니다.
 
@@ -473,10 +958,11 @@ Demo: captcha fixture에서 세션이 즉시 중단되고 알림이 발송됩니
 
 상태: 대기.
 
-### [ ] Task 11 — 무인 스케줄 모드 (PR 11)
+### [ ] Task 19 — 무인 스케줄 모드 (PR 19)
 
 목표: 기존 discovery scheduler를 확장해 저장된 정책대로 세션을 자동 생성·실행합니다. 활성화 시 위험
-고지와 명시적 동의를 요구하고 governor 설정 없이는 활성화할 수 없게 합니다.
+고지와 명시적 동의를 요구하고 governor 설정 없이는 활성화할 수 없게 합니다. 임시저장 경계의 글쓰기는
+governor 대상이 아니므로 이 조건에 포함하지 않습니다.
 
 테스트 요건: 시각 trigger, 중복 실행 방지(date ledger 재사용), 동의 없음 거부, governor 미설정 거부,
 스케줄 시각에 browser 미실행 시 자체 launch, 로그인 만료 시 중단·알림, process 재시작 시 미완 세션
@@ -486,16 +972,34 @@ Demo: 테스트 시각 설정 후 사람 개입 없이 세션이 생성·실행�
 
 상태: 대기.
 
-### [ ] Task 12 — 통합 스위트, 경계 규칙, 문서 개정 (PR 12)
+### [ ] Task 20 — UI/UX 개선 검토와 적용 (PR 20)
+
+목표: 전체 기능이 붙은 뒤 실제 사용 흐름을 근거로 개선안을 정리하고 우선순위가 높은 항목을
+구현합니다.
+
+검토 축: 대기열에서 처리까지의 클릭 수, 키보드만으로 완주 가능한지, 진행·실패 상태의 가독성,
+되돌리기 가능성, 위험 동작의 확인 단계, 반복 작업의 기본값 학습, 넓은 화면에서 비교 화면(provider
+변형, 다듬기 diff)의 배치.
+
+구현 지침: 구현 전에 후보와 근거를 사용자에게 제시하고 승인받은 항목만 진행합니다.
+
+테스트 요건: 변경한 화면의 상태 전이와 접근성 회귀, 키보드 완주 경로, 되돌리기 동작.
+
+Demo: 개선 전후의 조작 수와 키보드 완주 가능 여부를 비교해 보여줍니다.
+
+상태: 대기.
+
+### [ ] Task 21 — 통합 스위트, 경계 규칙, 문서 개정 (PR 21)
 
 목표: fixture 서버 기반 통합 테스트를 정리하고, `client/`와 automation 코드가 `extension/`을 import
 하지 않도록 tsconfig 경계와 CI 검사를 추가합니다. `architecture.md`의 보안 경계, `README.md`,
 `local-operations.md`, `api-contract.md`, `docs/api/openapi.yaml`을 개정하고 extension을 FROZEN으로
-표기합니다.
+표기합니다. provider 설정, 참고 글이 provider로 전송되는 데이터 경계, 임시저장 경계와 수동 발행
+절차, 태그 상한을 함께 문서화합니다.
 
 테스트 요건: 전체 게이트 통과와 import 경계 검사 실패 케이스.
 
-Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료.
+Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글쓰기 완주.
 
 상태: 대기.
 
@@ -525,11 +1029,28 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 | 2026-07-31 | `/app` static mount는 build 산출물이 없으면 건너뜀 | client build 없이도 API가 기동하고 로그로 안내 |
 | 2026-07-31 | settings payload 검증은 domain layer가 단독 소유 | 웹앱과 무인 scheduler가 같은 규칙을 쓰도록 보장 |
 | 2026-07-31 | 저장 전 조회는 문서화된 default를 반환(`updated_at: null`) | 화면이 빈 상태를 특별 처리하지 않아도 됨 |
-| 2026-07-31 | `safety_policy`·`schedule_policy`·`browser_profile` kind를 0010에서 미리 정의 | Task 10·11이 migration을 추가하지 않고 값만 채우도록 |
+| 2026-07-31 | `safety_policy`·`schedule_policy`·`browser_profile` kind를 0010에서 미리 정의 | Task 18·19(구 10·11)가 migration을 추가하지 않고 값만 채우도록 |
 | 2026-07-31 | idempotency key를 `uuid5(digest, attempt)`로 서버가 파생 | 같은 요청은 항상 같은 key로 replay되고 client는 registry를 갖지 않음 |
 | 2026-07-31 | 교체 생성은 `replace: true`로만 attempt를 올림 | timeout·불명확 결과에서 자동으로 새 key를 만들지 않음 |
 | 2026-07-31 | 웹앱은 URL만 보내고 서버가 추출·생성을 수행 | 본문이 client에 머무르지 않고 요청 동안만 메모리에 존재 |
 | 2026-07-31 | 마무리 문구는 provider 요청에 넣지 않고 후보 선택 시 로컬에서 부착 | 기존 정책 유지 |
+| 2026-07-31 | Task 8을 backend(PR 8)와 SPA(PR 9)로 분리 | 저장소 관례가 계층별 분리이고 합치면 리뷰 단위가 2,500줄 초과 |
+| 2026-07-31 | `events()`는 채널을 만들지 않고 run 존재를 먼저 확인 | 없는 run 구독이 영구 대기해 pytest가 무한 정지했음 |
+| 2026-07-31 | 열린 SSE 스트림은 `TestClient`로 소비하지 않음 | `portal.call`이 응답 완료까지 기다리며 body를 버퍼링 |
+| 2026-07-31 | `pytest-timeout` 도입, 전체 테스트 60초 상한 | 교착이 정지가 아니라 실패로 드러나야 함 |
+| 2026-07-31 | LLM provider를 `StructuredCompletion` port 뒤에 두고 OpenAI를 그 위로 이전 | prompt·schema 중복 없이 Gemini·Claude 추가 |
+| 2026-07-31 | fan-out key는 `uuid5(request_hash, attempt, provider, model)` | 기존 서버 소유 idempotency 규칙의 확장 |
+| 2026-07-31 | fan-out은 신규 경로·신규 table만 사용 | 동결된 extension의 응답 검증을 깨지 않음 |
+| 2026-07-31 | 참고 글 수집은 browser session의 DOM probe로 수행 | 내부 XHR endpoint 의존 회피, 로그인 상태 재사용 |
+| 2026-07-31 | 발행은 자동화하지 않고 임시저장까지만 | 되돌릴 수 없는 공개 동작은 사람이 확인 |
+| 2026-07-31 | 태그는 본문 태그 입력 기능으로 본문 끝에 삽입 | 발행 레이어를 열지 않는 임시저장에서도 태그가 보존됨 |
+| 2026-07-31 | 카테고리는 임시저장 단계에서 설정하지 않음 | 발행 레이어 항목이며 참고 글 수집·표시에만 사용 |
+| 2026-07-31 | 본문은 HTML 대신 block 배열로 저장 | 에디터 순차 입력과 대응, diff 표시와 이식성 확보 |
+| 2026-07-31 | 이미지 vision 전송은 draft 옵션이며 기본 off | 비용·프라이버시 예측 가능성 우선 |
+| 2026-07-31 | 글쓰기 기능을 세션 배치·governor보다 먼저 | 임시저장 경계는 남의 계정에 작용하지 않아 안전 |
+| 2026-07-31 | 새 설정은 `app_settings` kind 추가로 처리 | kind 기반 table이라 migration 불필요 |
+| 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
+| 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 
 ## 미해결 검증 항목
 
@@ -549,3 +1070,15 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅 완료
 - 무인 모드의 계정 제한 위험은 어떤 기술적 대책으로도 제거되지 않습니다. 네이버 약관은 매크로성 자동
   접근을 제한하며 실제 집행은 서버측 활동량 제한과 어뷰징 휴리스틱으로 이루어집니다. 네이버
   고객센터에 "댓글과 공감 활동의 제한 안내" 문서가 존재하는 것을 확인했습니다.
+- 네이버 글당 태그 등록 상한의 정확한 값. 도움말("태그 입력 기능 안내")에는 입력 위치만 있고 숫자가
+  없어 live 확인이 필요하며, 그때까지 보수적 기본값과 설정 가능 상한(`writing_profile.body_tag_cap`)
+  으로 대응합니다.
+- 스마트에디터 ONE의 실제 selector와 작성 중 글 복구 popup 동작. sanitized DOM을 얻어 합성 fixture로
+  고정한 뒤 opt-in live 확인이 필요합니다.
+- 이미지 업로드 완료 판정 기준. 진행 표시가 사라지는 것만으로 성공을 단정할 수 없어 판정 근거를
+  live에서 확인해야 합니다.
+- 본문 태그 입력으로 넣은 태그가 임시저장 후에도 유지되는지.
+- Gemini와 Claude의 한국어 structured output 품질과 길이 제약 준수도. schema 위반 빈도가 높으면
+  provider별 프롬프트 보정이 필요합니다.
+- 네이버 블로그 공식 글쓰기 API의 현재 지원 여부. 조사 결과가 불명확해 에디터 자동화를 기본 경로로
+  두었습니다.
