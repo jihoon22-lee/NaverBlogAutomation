@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
 
+from naver_blog_assistant.application.automation.governor import (
+    GovernorRefusedError,
+    SafetyGovernor,
+)
 from naver_blog_assistant.application.automation.run_engagement import RunChannel, RunEvent
 from naver_blog_assistant.domain.discovery import DiscoveredPost, DiscoverySource
 from naver_blog_assistant.domain.engagement import EngagementRunState
@@ -82,6 +86,8 @@ class RunSession:
         sessions: SessionStore,
         queue: QueueReader,
         runner: PostRunner,
+        governor: SafetyGovernor | None = None,
+        pause: Callable[[float], Any] | None = None,
         keepalive_seconds: float = KEEPALIVE_SECONDS,
         stream_deadline_seconds: float = STREAM_DEADLINE_SECONDS,
         retained_channels: int = RETAINED_CHANNELS,
@@ -92,6 +98,8 @@ class RunSession:
         self._sessions = sessions
         self._queue = queue
         self._runner = runner
+        self._governor = governor
+        self._pause = pause
         self._keepalive_seconds = keepalive_seconds
         self._stream_deadline_seconds = stream_deadline_seconds
         self._retained_channels = retained_channels
@@ -188,6 +196,9 @@ class RunSession:
                 return SessionOutcome(session=session, processed=0, aborted_reason=None)
             session = self._sessions.transition(session_id, SessionState.RUNNING)
             channel.publish(RunEvent("session_started", session_snapshot(session)))
+            if self._governor is not None:
+                self._governor.reset_failures()
+            first = True
             for post in self._posts(session):
                 if session_id in self._cancelled:
                     session = self._sessions.transition(session_id, SessionState.CANCELLED)
@@ -197,7 +208,22 @@ class RunSession:
                         processed=session.processed_count,
                         aborted_reason=None,
                     )
+                try:
+                    policy = (
+                        None
+                        if self._governor is None
+                        else self._governor.check(session.approved_steps)
+                    )
+                except GovernorRefusedError as refusal:
+                    abort_reason = refusal.reason
+                    break
+                if not first and policy is not None and self._governor is not None:
+                    await self._sleep(self._governor.next_interval_seconds(policy))
+                first = False
                 state, codes = await self._runner.run_one(post)
+                if self._governor is not None:
+                    self._governor.record_actions(session.approved_steps)
+                    self._governor.record_result(succeeded=state is EngagementRunState.SUCCEEDED)
                 session = self._sessions.record_processed(session_id)
                 channel.publish(
                     RunEvent(
@@ -250,6 +276,15 @@ class RunSession:
 
     async def _background(self, session_id: UUID) -> None:
         await self.run(session_id)
+
+    async def _sleep(self, seconds: float) -> None:
+        """Pause between posts, using the injected sleeper in tests."""
+        if seconds <= 0:
+            return
+        if self._pause is not None:
+            await self._pause(seconds)
+            return
+        await asyncio.sleep(seconds)
 
     def _posts(self, session: AutomationSession) -> list[DiscoveredPost]:
         collected: list[DiscoveredPost] = []
