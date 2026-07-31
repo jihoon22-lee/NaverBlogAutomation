@@ -9,10 +9,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 from naver_blog_assistant.application.errors import ApplicationError
-from naver_blog_assistant.application.settings import ReadAppSetting
 from naver_blog_assistant.domain import AppSettingKind, ModelSelection
 
 
@@ -28,6 +27,12 @@ class BudgetExceededError(ApplicationError):
         self.code = code
         self.limit = limit
         self.observed = observed
+
+
+class SettingReader(Protocol):
+    """Read one settings record, falling back to its documented default."""
+
+    def execute(self, kind: AppSettingKind) -> Any: ...
 
 
 class AttemptCounter(Protocol):
@@ -50,7 +55,7 @@ class CallBudget:
     def __init__(
         self,
         *,
-        read_setting: ReadAppSetting,
+        read_setting: SettingReader,
         attempts: AttemptCounter,
         clock: Callable[[], datetime] | None = None,
     ) -> None:

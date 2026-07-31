@@ -152,6 +152,7 @@ def register_comment_routes(
         operation_id="generateCommentFanout",
     )
     async def generate_comment_fanout(payload: CommentFanoutRequest) -> CommentFanoutResponse:
+        extraction = await _extract(payload.url)
         if fanout is None or selection_for is None:
             raise ApiError(
                 status=503,
@@ -160,7 +161,6 @@ def register_comment_routes(
                 detail="호출할 수 있는 provider가 구성되지 않았습니다.",
             )
         generation, resolve = fanout, selection_for
-        extraction = await _extract(payload.url)
         options = _options(payload)
         try:
             plan = planner.execute(extraction, options)

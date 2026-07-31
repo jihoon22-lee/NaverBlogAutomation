@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 
-from naver_blog_assistant.domain.llm import LlmCallStatus, ModelSelection
+from naver_blog_assistant.domain.llm import LlmCallStatus, LlmProvider, ModelSelection
 from naver_blog_assistant.infrastructure.database.schema import llm_generation_attempts
 
 
@@ -113,7 +113,7 @@ class SqliteLlmAttemptRepository:
                 id=UUID(row.id),
                 request_hash=row.request_hash,
                 attempt=int(row.attempt),
-                selection=ModelSelection(provider=row.provider, model=row.model),
+                selection=ModelSelection(provider=LlmProvider(row.provider), model=row.model),
                 status=LlmCallStatus(row.status),
                 result_code=row.result_code,
                 recommendation_id=None

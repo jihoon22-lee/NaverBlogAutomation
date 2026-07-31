@@ -10,6 +10,7 @@ from naver_blog_assistant.application.llm.fanout import (
     FanOutGeneration,
     FanOutResult,
     ProviderOutcome,
+    RecommendationGenerator,
     fanout_key,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "FanOutGeneration",
     "FanOutResult",
     "ProviderOutcome",
+    "RecommendationGenerator",
     "fanout_key",
 ]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID, uuid5
@@ -22,10 +22,7 @@ from naver_blog_assistant.application.errors import (
     IdempotencyConflictError,
     ReplayedGenerationFailure,
 )
-from naver_blog_assistant.application.generate_recommendation import (
-    GenerateRecommendation,
-    GenerationResult,
-)
+from naver_blog_assistant.application.generate_recommendation import GenerationResult
 from naver_blog_assistant.application.llm.budget import CallBudget
 from naver_blog_assistant.domain import (
     CapturedPost,
@@ -40,6 +37,19 @@ logger = logging.getLogger("naver_blog_assistant.api")
 
 # Fixed namespace so a provider key is reproducible across processes and restarts.
 FANOUT_NAMESPACE = UUID("6f1d5c2e-8f3a-4a0e-9c2b-8a7c1d3e5f90")
+
+
+class RecommendationGenerator(Protocol):
+    """Generate and persist one recommendation for one idempotency key."""
+
+    def execute(
+        self,
+        *,
+        post: CapturedPost,
+        idempotency_key: UUID,
+        preferences: GenerationPreferences,
+        personalization_mode: PersonalizationMode,
+    ) -> GenerationResult: ...
 
 
 class AttemptRecorder(Protocol):
@@ -105,7 +115,7 @@ class FanOutGeneration:
     def __init__(
         self,
         *,
-        generators: dict[str, GenerateRecommendation],
+        generators: Mapping[str, RecommendationGenerator],
         attempts: AttemptRecorder,
         budget: CallBudget,
         timeout_seconds: float = 45.0,
