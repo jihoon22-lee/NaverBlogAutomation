@@ -652,7 +652,8 @@ stateDiagram-v2
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 완료 |
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 완료 |
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 완료 |
-| 20 | 20 | `feat(client): improve task workspace usability` | 대기 |
+| 20 | 20a | `feat(client): make every workspace section reachable` | 완료 |
+| 20 | 20b | `feat(client): add session batch screen` | 대기 |
 | 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
 
 Task 번호 대응표입니다. 2026-07-31 통합에서 글쓰기·provider Task를 중간에 넣으면서 뒤쪽 Task를
@@ -1207,7 +1208,40 @@ background 시작), `test_sessions_api.py` 8건(endpoint의 gate별 사유 4건,
 
 Demo: 개선 전후의 조작 수와 키보드 완주 가능 여부를 비교해 보여줍니다.
 
-상태: 대기.
+상태: 진행 중(1/2 PR 머지). 감사 결과와 도출한 개선안은 아래 표에 정리했습니다.
+
+#### 통합 감사 결과 (2026-08-01)
+
+모든 기능이 붙은 뒤 client SPA와 backend를 각각 독립적으로 감사했습니다. 근거는 파일:줄로 확인했습니다.
+
+| # | 축 | 심각도 | 확인한 사실 |
+| --- | --- | --- | --- |
+| 1 | 글 작성 화면 도달 | 치명 | `showWriting()`을 호출하는 UI 요소가 없어 Task 16 기능 전체가 닫혀 있었음 |
+| 2 | 글로벌 navigation | 치명 | `client/public/index.html`에 `<nav>`가 없어 화면 전환 수단 자체가 부재 |
+| 3 | 세션 배치 UI | 치명 | `/automation/sessions` 5개 endpoint를 client가 전혀 호출하지 않음 |
+| 4 | 화면 전환 focus | 중대 | 모든 view가 `root.textContent = ""`로 비워 focus가 body로 떨어짐 |
+| 5 | 스케줄 상태 노출 | 중대 | `GET /automation/schedule`을 client가 호출하지 않아 막힌 사유를 볼 수 없음 |
+| 6 | 버튼 상태 피드백 | 경미 | 새로고침·복사 버튼만 busy 중 시각적 disable 누락 |
+| 7 | 문서 반영 | 중대 | README·getting-started·local-operations·architecture·api-contract가 최근 5개 기능을 반영하지 않음 (Task 21에서 처리) |
+
+양호했던 축: click handler가 모두 `<button>`에 붙어 있고, 토글은 `aria-pressed`, 상태는
+`role="status"`+`aria-live`, form label은 모두 `for`로 연결돼 있었습니다. 주요 action 버튼의
+중복 클릭은 view의 `disabled`와 controller의 busy flag로 이중 방어됩니다.
+
+#### 도출한 추가 계획
+
+| PR | 범위 | 상태 |
+| --- | --- | --- |
+| 20a | shell `<nav>`, 화면 전환, 전환 시 focus 이동, 버튼 상태 피드백 (#1·2·4·6) | 완료 |
+| 20b | 세션 배치 화면(승인·진행 SSE·취소)과 스케줄 상태 표시 (#3·5) | 대기 |
+
+#### 20a 검증(2026-08-01)
+
+`npm --prefix client run check` **399 passed**, statements 90.13% / branches 82.09%.
+신규 테스트 14건: `navigation.test.ts` 9건(각 구역 선택 보고, 현재 구역만 표시, 표시 이동,
+표시가 handler를 부르지 않음, nav 없는 shell, 버튼 하나가 빠진 nav, focus 이동, tabindex,
+status 없을 때 root fallback), `main.test.ts` 5건(nav로 글 작성 도달, 오늘의 작업 복귀,
+전환 시 focus 진입, 댓글 화면에서도 오늘의 작업 탭 유지, nav 없이도 동작).
 
 ### [ ] Task 21 — 통합 스위트, 경계 규칙, 문서 개정 (PR 21)
 
@@ -1294,6 +1328,8 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-08-01 | 무인 모드는 동의와 safety policy 저장을 모두 요구 | 사용자가 고르지 않은 기본값으로 무인 실행이 돌지 않음 |
 | 2026-08-01 | 하루 한 번 제한은 같은 날 schedule 세션 존재로 판정 | 새 table 없이 중복 실행을 막고 이력이 그대로 근거가 됨 |
 | 2026-08-01 | safety-policy·schedule 설정은 기존 `/settings/{kind}`를 그대로 사용 | 같은 일을 하는 endpoint를 둘로 만들지 않음. 조회 전용 `/automation/schedule`만 추가 |
+| 2026-08-01 | navigation은 `#workspace` 밖 shell에 배치 | 모든 view가 render 시 root를 비우므로 안에 두면 사라짐 |
+| 2026-08-01 | focus 이동은 화면 전환에서만 수행 | 매 render마다 옮기면 사용자가 입력하는 중에 focus를 빼앗음 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
