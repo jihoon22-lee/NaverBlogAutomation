@@ -177,6 +177,11 @@ class RunSession:
         session = self._sessions.get(session_id)
         abort_reason: str | None = None
         try:
+            if session.finished:
+                channel.publish(RunEvent("session_cancelled", session_snapshot(session)))
+                return SessionOutcome(
+                    session=session, processed=session.processed_count, aborted_reason=None
+                )
             if session_id in self._cancelled:
                 session = self._sessions.transition(session_id, SessionState.CANCELLED)
                 channel.publish(RunEvent("session_cancelled", session_snapshot(session)))
