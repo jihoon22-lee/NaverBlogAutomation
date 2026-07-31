@@ -17,6 +17,12 @@ import {
 } from "./comment";
 import { type LikeProbe, probeLike, probeLikeOption } from "./like";
 import {
+  type BlogCategoryListProbe,
+  type BlogPostListProbe,
+  probeCategoryPostList,
+  probeMyBlogCategories,
+} from "./my-blog";
+import {
   type NeighborApplicationProbe,
   type NeighborConfirmationProbe,
   type NeighborOptionProbe,
@@ -28,7 +34,7 @@ import {
 } from "./mutual-neighbor";
 
 export const PAGE_BUNDLE_NAMESPACE = "__nbaPage";
-export const PAGE_BUNDLE_VERSION = 1;
+export const PAGE_BUNDLE_VERSION = 2;
 
 export interface PageBundle {
   captchaVisible(): boolean;
@@ -36,8 +42,10 @@ export interface PageBundle {
   commentStillPending(selector: string, expectedValue: string): boolean;
   countMatchingComments(expectedValue: string): number;
   diagnoseCommentPage(): CommentPageDiagnosis;
+  probeCategoryPostList(): BlogPostListProbe;
   probeComment(expectedValue: string): CommentProbe;
   probeLike(): LikeProbe;
+  probeMyBlogCategories(): BlogCategoryListProbe;
   probeLikeOption(): string | null;
   probeNeighborApplication(expectedMessage: string): NeighborApplicationProbe;
   probeNeighborConfirmation(): NeighborConfirmationProbe;
@@ -54,9 +62,11 @@ export function createPageBundle(): PageBundle {
     commentStillPending,
     countMatchingComments,
     diagnoseCommentPage,
+    probeCategoryPostList,
     probeComment,
     probeLike,
     probeLikeOption,
+    probeMyBlogCategories,
     probeNeighborApplication,
     probeNeighborConfirmation,
     probeNeighborOption,

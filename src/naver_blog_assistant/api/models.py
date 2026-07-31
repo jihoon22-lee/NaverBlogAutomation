@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from difflib import SequenceMatcher
 from itertools import combinations
 from typing import Annotated, Any, Literal, Self, cast
@@ -24,6 +24,7 @@ from naver_blog_assistant.domain import (
     AppSetting,
     ArticleExtraction,
     AutoDiscoverySettings,
+    BlogCategory,
     BrowserSessionStatus,
     CommentLength,
     CommentMood,
@@ -37,6 +38,7 @@ from naver_blog_assistant.domain import (
     PersonalizationMode,
     ProviderAvailability,
     Recommendation,
+    ReferencePost,
     Relationship,
     ReviewStatus,
     SavedSearch,
@@ -614,6 +616,72 @@ class LlmProvidersResponse(StrictModel):
                     model=entry.model,
                 )
                 for entry in availability
+            ]
+        )
+
+
+class BlogCategoryResponse(StrictModel):
+    """One cached category of the owner's blog."""
+
+    category_no: Annotated[int, Field(ge=0)]
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    post_count: Annotated[int | None, Field(ge=0)]
+    synced_at: datetime | None
+
+
+class BlogCategoriesResponse(StrictModel):
+    """Every cached category ordered by number."""
+
+    items: list[BlogCategoryResponse]
+
+    @classmethod
+    def from_domain(cls, categories: Sequence[BlogCategory]) -> Self:
+        return cls(
+            items=[
+                BlogCategoryResponse(
+                    category_no=category.category_no,
+                    name=category.name,
+                    post_count=category.post_count,
+                    synced_at=category.synced_at,
+                )
+                for category in categories
+            ]
+        )
+
+
+class BlogCategorySyncRequest(StrictModel):
+    """Optionally name the blog to sync; the configured owner is the default."""
+
+    blog_id: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+
+
+class ReferencePostResponse(StrictModel):
+    """One of the owner's posts, metadata only."""
+
+    category_no: Annotated[int, Field(ge=0)]
+    source_url: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+    title: Annotated[str, StringConstraints(min_length=1, max_length=300)]
+    published_at: date | None
+    synced_at: datetime | None
+
+
+class ReferencePostsResponse(StrictModel):
+    """The reference posts selected for one category."""
+
+    items: list[ReferencePostResponse]
+
+    @classmethod
+    def from_domain(cls, posts: Sequence[ReferencePost]) -> Self:
+        return cls(
+            items=[
+                ReferencePostResponse(
+                    category_no=post.category_no,
+                    source_url=post.source_url,
+                    title=post.title,
+                    published_at=post.published_at,
+                    synced_at=post.synced_at,
+                )
+                for post in posts
             ]
         )
 

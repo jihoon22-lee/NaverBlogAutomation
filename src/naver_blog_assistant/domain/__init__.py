@@ -12,6 +12,17 @@ from naver_blog_assistant.domain.automation import (
     TriggerKind,
     assert_session_transition,
 )
+from naver_blog_assistant.domain.blog import (
+    DEFAULT_REFERENCE_POST_COUNT,
+    MAX_REFERENCE_POST_COUNT,
+    SIMILAR_CATEGORY_THRESHOLD,
+    BlogCategory,
+    CategoryMatch,
+    ReferencePost,
+    rank_similar_categories,
+    reference_category_numbers,
+    similarity,
+)
 from naver_blog_assistant.domain.discovery import (
     AutoDiscoverySettings,
     DigestSettings,
@@ -132,4 +143,13 @@ __all__ = [
     "LlmProvider",
     "ModelSelection",
     "ProviderAvailability",
+    "BlogCategory",
+    "CategoryMatch",
+    "DEFAULT_REFERENCE_POST_COUNT",
+    "MAX_REFERENCE_POST_COUNT",
+    "ReferencePost",
+    "SIMILAR_CATEGORY_THRESHOLD",
+    "rank_similar_categories",
+    "reference_category_numbers",
+    "similarity",
 ]

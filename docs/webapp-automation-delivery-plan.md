@@ -644,7 +644,7 @@ stateDiagram-v2
 | 9 | 9 | `feat(client): add single post engagement run workspace` | 완료 |
 | 10 | 10 | `feat(llm): add multi provider structured completion port` | 완료 |
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 완료 |
-| 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 대기 |
+| 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 완료 |
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 대기 |
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 대기 |
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 대기 |
@@ -960,10 +960,14 @@ Demo 실행 결과: fake 모드에서는 호출할 provider가 없으므로 `503
 provider가 구성된 환경에서는 provider별 outcome 배열을 반환합니다. 응답 본문에 key 문자열이 없고
 본문도 포함되지 않습니다.
 
-### [ ] Task 12 — 내 블로그 카테고리·참고 글 수집 (PR 12)
+### [x] Task 12 — 내 블로그 카테고리·참고 글 수집 (PR 12)
 
 목표: migration 0013과 함께 browser session으로 내 블로그 카테고리와 카테고리별 글 목록을 읽어
 캐시하고, 유사 카테고리 순위를 결정적으로 계산합니다.
+
+구현 지침: page script는 렌더된 페이지만 읽고 내부 endpoint를 호출하지 않습니다. 유사도는 토큰 겹침
+2 : 문자 bigram 1 가중으로 계산하고 동점은 카테고리 번호로 끊습니다. 참고 글은 metadata만 저장하고
+본문은 생성 시점에 다시 읽습니다.
 
 테스트 요건: 카테고리 없음, 단일 카테고리, 비공개 카테고리, 목록 빈 경우, 페이지 구조 변형, 유사도
 동점 처리, 캐시 갱신과 삭제된 카테고리 처리, 내 블로그 ID 불일치 거부, 합성 fixture 기반 page script
@@ -971,7 +975,22 @@ provider가 구성된 환경에서는 provider별 outcome 배열을 반환합니
 
 Demo: 카테고리 목록과 선택한 카테고리의 최근 글, 유사 카테고리 추천이 화면에 나타납니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 168 files, `ruff check`·`ty check` All checks
+passed, `uv run pytest` **1045 passed / 7 skipped**, total coverage 91.07%,
+`npm --prefix client run check` **322 passed**, coverage statements 94.47% / branches 87.86%,
+`page.js` 34.7kb, wheel smoke 통과(migration head `20260731_0013`).
+
+신규 모듈: `client/src/page/my-blog.ts`(카테고리·글 목록 probe, bundle version 2),
+`domain/blog.py`(`BlogCategory`, `ReferencePost`, 결정적 유사도),
+`infrastructure/database/blog_catalog_repository.py`, migration 0013,
+`application/automation/collect_reference_posts.py`, `api/routers/blog.py`.
+
+신규 테스트 56건: `my-blog.test.ts` 12건(카테고리 이름·글 수 파싱, 중복 번호, 숨은 링크, 잘못된 번호,
+두 링크 형태의 글 목록, 날짜 파싱, 중복 제거, 제목·번호 없음), `test_collect_reference_posts.py` 28건
+(유사도 6종, 순위·동점·임계, domain 검증 9종, 잘못된 항목 무시, 날짜 파싱 실패, blog ID 없음,
+카테고리 없음, navigation 실패, 참고 글 선택), `test_blog_catalog_repository.py` 6건(스냅샷 교체,
+URL 기준 upsert, 정렬, 상한, 빈 요청, 초기화), `test_blog_catalog_api.py` 10건(동기화 전 빈 목록,
+동기화 캐시, 소유자 미저장 거부, 다른 블로그 거부, 참고 글 조회, 파라미터 검증).
 
 ### [ ] Task 13 — 초안·이미지 저장과 본문 생성 (PR 13)
 
@@ -1148,6 +1167,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 일일 호출 상한은 attempt ledger의 `created_at`으로 집계 | 별도 date ledger table을 만들지 않고 같은 사실을 한 곳에서 읽음 |
 | 2026-07-31 | fan-out은 URL 검증을 provider 구성 확인보다 먼저 수행 | 잘못된 요청이 구성 문제로 잘못 보고되지 않게 함 |
 | 2026-07-31 | fan-out 응답은 provider별 outcome 배열이며 부분 실패를 허용 | 한 provider의 거부가 다른 provider의 결과를 버리지 않음 |
+| 2026-07-31 | 유사 카테고리는 토큰 겹침 2 : 문자 bigram 1 가중으로 계산 | 같은 이름 쌍이 항상 같은 점수를 내고 사용자가 최종 선택 |
+| 2026-07-31 | 참고 글은 metadata만 저장하고 본문은 생성 시점에 다시 읽음 | 내 글 본문을 disk에 남기지 않음 |
+| 2026-07-31 | page bundle version을 2로 올리고 Python 상수를 함께 맞춤 | 구버전 bundle이 남아 있으면 재설치되도록 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
