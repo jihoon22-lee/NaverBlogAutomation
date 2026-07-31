@@ -647,7 +647,7 @@ stateDiagram-v2
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 완료 |
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 완료 |
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 완료 |
-| 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 대기 |
+| 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 완료 |
 | 16 | 16 | `feat(client): add post writing workspace` | 대기 |
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 대기 |
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
@@ -1050,7 +1050,7 @@ passed, `uv run pytest` **1208 passed / 7 skipped**, total coverage 91.29%.
 이미지 참조 허용, 잘못된 본문 5종, 알 수 없는 초안, writing profile 기본값·저장·검증 8종, 본문 태그
 상한).
 
-### [ ] Task 15 — 임시저장 자동화 (PR 15)
+### [x] Task 15 — 임시저장 자동화 (PR 15)
 
 목표: migration 0015 `publish_runs`와 함께 에디터 자동 입력과 임시저장을 단계 상태 기계로 실행하고
 SSE로 진행을 전송합니다. `PageHandle`에 `set_input_files`를 추가합니다.
@@ -1062,7 +1062,22 @@ SSE로 진행을 전송합니다. `PageHandle`에 `set_input_files`를 추가합
 Demo: 승인 한 번으로 다듬어진 글이 내 블로그 임시저장 목록에 나타나고, 사용자는 에디터에서 발행
 버튼만 누릅니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **1254 passed / 7 skipped**, total coverage 91.08%,
+`npm --prefix client run check` **339 passed**, coverage statements 94.69% / branches 88.08%,
+`page.js` 38.9kb, wheel smoke 통과(migration head `20260731_0016`).
+
+신규 모듈: `client/src/page/editor.ts`(단계·selector·저장 확인 probe, bundle version 3),
+`domain/publishing.py`(5단계 forward-only 상태 기계), migration 0016 `publish_runs`,
+`infrastructure/database/publish_run_repository.py`,
+`application/automation/stage_post.py`와 `run_staging.py`, `api/routers/staging.py`.
+`PageHandle`에 `set_input_files`를 추가했습니다.
+
+신규 테스트 63건: `editor.test.ts` 17건(준비됨·복구 popup·로그인·대상 없음·모호함, 저장 개수 판별,
+captcha 우선 보고, 텍스트 읽기), `test_stage_post.py` 24건(단계 순서, 이미지 없음 skip, 파일 누락 중단,
+제목 미반영 unconfirmed, 저장 미확인, captcha, 복구 popup 취소, 요청 단계만 실행, navigation 실패),
+`test_staging_api.py` 22건(상태 기계 허용·금지 전이 10종, 저장소 재시작·중단 복구, 202 응답과 SSE,
+본문 없음·blog ID 없음 거부, run 없는 draft의 스트림 즉시 종료).
 
 ### [ ] Task 16 — 글쓰기 작업 공간 SPA (PR 16)
 
@@ -1205,6 +1220,8 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 생성된 image 블록은 업로드된 이미지만 참조 가능하고 중복 금지 | 존재하지 않는 이미지를 참조한 본문이 저장되지 않음 |
 | 2026-07-31 | 태그 재생성은 이전 선택 상태와 사용자가 입력한 태그를 보존 | 반복 생성이 사용자의 판단을 지우지 않음 |
 | 2026-07-31 | 사용자 편집도 revision으로 저장하고 되돌리기는 active 전환으로 표현 | 편집·다듬기 이력이 한 chain에 남아 사라지지 않음 |
+| 2026-07-31 | 임시저장 확인은 저장 버튼 옆 임시저장 개수 증가로 판별 | 토스트 문구에 의존하지 않고 관찰 가능한 상태 변화를 사용 |
+| 2026-07-31 | 이미지는 본문이 참조하는 것만 첨부하고 파일이 없으면 중단 | 본문과 첨부가 어긋난 임시저장을 만들지 않음 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
