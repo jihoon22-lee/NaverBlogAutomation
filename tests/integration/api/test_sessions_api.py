@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -240,3 +241,91 @@ class TestApi:
         self, client: TestClient, params: dict[str, Any]
     ) -> None:
         assert client.get(SESSIONS, params=params).status_code == 422
+
+
+class TestScheduleStatus:
+    def test_it_reports_the_saved_policy_and_what_blocks_it(self, client: TestClient) -> None:
+        response = client.get("/api/v1/automation/schedule")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["mode"] == "manual"
+        assert body["enabled"] is False
+        assert body["blocking_reason"] == "not_scheduled"
+        assert body["max_posts"] >= 1
+
+    def test_consent_alone_does_not_enable_it(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/schedule_policy",
+            json={"payload": {"mode": "schedule", "hour": 9, "minute": 0, "max_posts": 3}},
+        )
+
+        body = client.get("/api/v1/automation/schedule").json()
+
+        assert body["mode"] == "schedule"
+        assert body["enabled"] is False
+        assert body["blocking_reason"] == "consent_missing"
+
+    def test_it_asks_for_a_saved_safety_policy_last(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/schedule_policy",
+            json={"payload": {"mode": "schedule", "hour": 9, "minute": 0, "max_posts": 3}},
+        )
+        client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": True, "consent_version": 1}},
+        )
+
+        body = client.get("/api/v1/automation/schedule").json()
+
+        assert body["enabled"] is False
+        assert body["blocking_reason"] == "safety_policy_missing"
+
+    def test_saving_every_gate_enables_it(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/schedule_policy",
+            json={"payload": {"mode": "schedule", "hour": 9, "minute": 0, "max_posts": 3}},
+        )
+        client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": True, "consent_version": 1}},
+        )
+        safety = client.get("/api/v1/settings/safety_policy").json()["payload"]
+        client.put("/api/v1/settings/safety_policy", json={"payload": safety})
+
+        body = client.get("/api/v1/automation/schedule").json()
+
+        assert body["enabled"] is True
+        assert body["blocking_reason"] is None
+
+
+class TestCreatedOn:
+    def test_no_session_means_no_run_today(self, repository: SqliteSessionRepository) -> None:
+        assert repository.created_on(date(2026, 8, 1), SessionTrigger.SCHEDULE) is False
+
+    def test_a_session_created_today_is_reported(self, repository: SqliteSessionRepository) -> None:
+        session = repository.create(**approval_kwargs(trigger=SessionTrigger.SCHEDULE))
+        assert session.created_at is not None
+
+        assert repository.created_on(session.created_at.date(), SessionTrigger.SCHEDULE) is True
+
+    def test_another_trigger_does_not_count(self, repository: SqliteSessionRepository) -> None:
+        session = repository.create(**approval_kwargs(trigger=SessionTrigger.SESSION))
+        assert session.created_at is not None
+
+        assert repository.created_on(session.created_at.date(), SessionTrigger.SCHEDULE) is False
+
+    def test_another_day_does_not_count(self, repository: SqliteSessionRepository) -> None:
+        repository.create(**approval_kwargs(trigger=SessionTrigger.SCHEDULE))
+
+        assert repository.created_on(date(2000, 1, 1), SessionTrigger.SCHEDULE) is False
+
+
+def approval_kwargs(*, trigger: SessionTrigger) -> dict[str, Any]:
+    """Build the minimum arguments the repository needs to create a session."""
+    return {
+        "trigger": trigger,
+        "approved_steps": [EngagementStepName.LIKE],
+        "max_posts": 2,
+        "sources": [DiscoverySource.NEIGHBOR],
+    }

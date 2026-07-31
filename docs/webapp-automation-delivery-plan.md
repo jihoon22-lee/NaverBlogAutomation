@@ -651,7 +651,7 @@ stateDiagram-v2
 | 16 | 16 | `feat(client): add post writing workspace` | 완료 |
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 완료 |
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 완료 |
-| 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
+| 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 완료 |
 | 20 | 20 | `feat(client): improve task workspace usability` | 대기 |
 | 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
 
@@ -1159,7 +1159,7 @@ Demo 대신 확인한 것: 상한이 이미 찬 상태에서는 첫 글도 실�
 허용 시간대를 벗어나면 `outside_allowed_hours`, 연속 실패가 임계에 닿으면 `consecutive_failures`로
 중단합니다. 배치는 글 사이에만 간격을 두고 첫 글 앞에서는 기다리지 않습니다.
 
-### [ ] Task 19 — 무인 스케줄 모드 (PR 19)
+### [x] Task 19 — 무인 스케줄 모드 (PR 19)
 
 목표: 기존 discovery scheduler를 확장해 저장된 정책대로 세션을 자동 생성·실행합니다. 활성화 시 위험
 고지와 명시적 동의를 요구하고 governor 설정 없이는 활성화할 수 없게 합니다. 임시저장 경계의 글쓰기는
@@ -1171,7 +1171,26 @@ governor 대상이 아니므로 이 조건에 포함하지 않습니다.
 
 Demo: 테스트 시각 설정 후 사람 개입 없이 세션이 생성·실행되고 결과가 기록됩니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-08-01): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **1366 passed / 7 skipped**.
+
+신규 모듈: `application/automation/schedule_sessions.py`(`ScheduleSessions`).
+`SqliteSessionRepository.created_on(day, trigger)`로 하루 한 번만 시작하며 별도 ledger table을
+추가하지 않았습니다. 기존 discovery scheduler 루프(60초 주기)에 `run_scheduled_session_if_due()`를
+붙였습니다.
+
+활성화는 두 번 막혀 있습니다. `schedule_policy.mode == "schedule"`이어야 하고, 자동 실행 동의가
+있어야 하며, `safety_policy`를 명시적으로 저장해야 합니다(`updated_at is not None`).
+사용자가 고르지 않은 기본값으로 무인 실행이 돌지 않습니다.
+
+신규 endpoint `GET /api/v1/automation/schedule`이 현재 활성화 여부와 막고 있는 사유를 알려줍니다
+(`not_scheduled`·`consent_missing`·`safety_policy_missing`·`not_due`·`already_ran_today`·
+`session_active`·`browser_unavailable`).
+
+신규 테스트 23건: `test_schedule_sessions.py` 15건(세 gate 각각의 차단, 5분 창 경계와 이탈,
+지역 시간대 판정, 하루 한 번, 활성 세션 차단, 중지된 browser 자동 기동, 기동 실패 시 중단과 알림,
+launch 예외가 loop를 죽이지 않음, 알림 실패가 판정을 바꾸지 않음, 승인 단계·source 확인,
+background 시작), `test_sessions_api.py` 8건(endpoint의 gate별 사유 4건, `created_on` 4건).
 
 ### [ ] Task 20 — UI/UX 개선 검토와 적용 (PR 20)
 
@@ -1272,6 +1291,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-08-01 | 일일 상한은 로컬 시간대(Asia/Seoul) 날짜로 집계 | 사용자가 보는 날짜와 상한이 어긋나지 않음 |
 | 2026-08-01 | governor는 실행 전에 판정하고 실행 후에 집계 | 상한을 넘긴 동작이 먼저 일어나는 일이 없음 |
 | 2026-08-01 | 간격·jitter·체류는 주입한 sleeper와 clock으로 계산 | fake clock으로 결정적으로 테스트하고 실제로는 pacing을 적용 |
+| 2026-08-01 | 무인 모드는 동의와 safety policy 저장을 모두 요구 | 사용자가 고르지 않은 기본값으로 무인 실행이 돌지 않음 |
+| 2026-08-01 | 하루 한 번 제한은 같은 날 schedule 세션 존재로 판정 | 새 table 없이 중복 실행을 막고 이력이 그대로 근거가 됨 |
+| 2026-08-01 | safety-policy·schedule 설정은 기존 `/settings/{kind}`를 그대로 사용 | 같은 일을 하는 endpoint를 둘로 만들지 않음. 조회 전용 `/automation/schedule`만 추가 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
