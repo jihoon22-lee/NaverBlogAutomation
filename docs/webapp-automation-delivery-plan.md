@@ -650,7 +650,7 @@ stateDiagram-v2
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 완료 |
 | 16 | 16 | `feat(client): add post writing workspace` | 완료 |
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 완료 |
-| 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
+| 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 완료 |
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
 | 20 | 20 | `feat(client): improve task workspace usability` | 대기 |
 | 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
@@ -1131,7 +1131,7 @@ Demo: 대기열 5개를 한 번 승인해 순차 처리하고 3번째에서 취�
 `test_sessions_api.py` 28건(저장소 round-trip, 활성 1개 제한, 종료 후 슬롯 반환, timestamp, 금지 전이,
 중단 사유, 처리 수 집계, 202 승인, 잘못된 승인 9종, 조회·목록·취소, 알 수 없는 세션 404, 스트림).
 
-### [ ] Task 18 — safety governor (PR 18)
+### [x] Task 18 — safety governor (PR 18)
 
 목표: migration 0017 `automation_activity_ledger`와 함께 일일 상한, 최소 간격과 jitter, 본문 길이
 비례 체류·스크롤, 허용 시간대, 연속 실패 차단, 간헐적 skip을 구현하고 중단 사유를 기존 SMTP
@@ -1142,7 +1142,22 @@ captcha·login_required 즉시 중단, 알림 발송 실패 시 세션 상태 �
 
 Demo: captcha fixture에서 세션이 즉시 중단되고 알림이 발송됩니다. 상한 도달 후 실행이 거부됩니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-08-01): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **1343 passed / 7 skipped**, total coverage 90.85%, wheel smoke 통과
+(migration head `20260801_0018`).
+
+신규 모듈: migration 0018 `automation_activity_ledger`,
+`infrastructure/database/activity_ledger.py`, `application/automation/governor.py`.
+`RunSession`이 글마다 governor를 통과해야 진행하고, 간격·jitter는 주입한 sleeper로 적용합니다.
+
+신규 테스트 29건: `test_governor.py` 23건(설정 읽기, 지역 날짜 판정, 허용 시간대 경계와 벗어남,
+상한 도달 직전·도달, 승인하지 않은 단계는 무시, 연속 실패 임계와 성공 시 초기화, 활동 집계,
+jitter 범위와 음수 방지, 본문 길이 비례 체류와 상한, 배치 통합 6종),
+`test_activity_ledger.py` 6건(미기록 0, 누적, 날짜 분리, 일괄 증가, 비양수 거부, 재기동 후 보존).
+
+Demo 대신 확인한 것: 상한이 이미 찬 상태에서는 첫 글도 실행되지 않고 `daily_cap_reached`로 중단되며,
+허용 시간대를 벗어나면 `outside_allowed_hours`, 연속 실패가 임계에 닿으면 `consecutive_failures`로
+중단합니다. 배치는 글 사이에만 간격을 두고 첫 글 앞에서는 기다리지 않습니다.
 
 ### [ ] Task 19 — 무인 스케줄 모드 (PR 19)
 
@@ -1254,6 +1269,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-08-01 | 활성 세션은 하나만 허용하고 저장소가 강제 | 두 배치가 같은 브라우저를 조작하는 상황을 구조적으로 차단 |
 | 2026-08-01 | 취소는 다음 글로 넘어가기 전에만 반영 | 이미 시작한 외부 동작을 중간에 끊지 않음 |
 | 2026-08-01 | captcha·login_required만 배치를 중단하고 일반 실패는 계속 | 사람 개입이 필요한 신호와 개별 글의 문제를 구분 |
+| 2026-08-01 | 일일 상한은 로컬 시간대(Asia/Seoul) 날짜로 집계 | 사용자가 보는 날짜와 상한이 어긋나지 않음 |
+| 2026-08-01 | governor는 실행 전에 판정하고 실행 후에 집계 | 상한을 넘긴 동작이 먼저 일어나는 일이 없음 |
+| 2026-08-01 | 간격·jitter·체류는 주입한 sleeper와 clock으로 계산 | fake clock으로 결정적으로 테스트하고 실제로는 pacing을 적용 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |

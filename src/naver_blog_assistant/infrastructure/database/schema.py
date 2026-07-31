@@ -555,3 +555,16 @@ automation_sessions = Table(
     CheckConstraint("max_posts >= 1", name="ck_automation_sessions_max_posts"),
     CheckConstraint("processed_count >= 0", name="ck_automation_sessions_processed"),
 )
+
+ACTIVITY_ACTIONS = ("like", "comment", "mutual_neighbor")
+
+automation_activity_ledger = Table(
+    "automation_activity_ledger",
+    metadata,
+    Column("date", String(10), primary_key=True),
+    Column("action", String(16), primary_key=True),
+    Column("count", Integer, nullable=False),
+    CheckConstraint(_allowed("action", ACTIVITY_ACTIONS), name="ck_activity_ledger_action"),
+    CheckConstraint("count >= 0", name="ck_activity_ledger_count"),
+    CheckConstraint("length(date) = 10", name="ck_activity_ledger_date"),
+)

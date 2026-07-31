@@ -110,6 +110,7 @@ from naver_blog_assistant.application.automation import (
     GenerationKeyRegistry,
     PlanGeneration,
     RunSession,
+    SafetyGovernor,
     SessionPostRunner,
     StagePost,
     StagePostService,
@@ -154,6 +155,7 @@ from naver_blog_assistant.infrastructure.database import (
     SqliteEngagementRepository,
     create_sqlite_engine,
 )
+from naver_blog_assistant.infrastructure.database.activity_ledger import SqliteActivityLedger
 from naver_blog_assistant.infrastructure.database.app_settings_repository import (
     SqliteAppSettingsRepository,
 )
@@ -846,8 +848,13 @@ def create_app(
         owner_blog_id=_owner_blog_id,
         problem_metadata=_problem_metadata,
     )
+    safety_governor = SafetyGovernor(
+        read_setting=read_setting,
+        ledger=SqliteActivityLedger(engine),
+    )
     session_batches = RunSession(
         sessions=session_repository,
+        governor=safety_governor,
         queue=_SessionQueue(discovery),
         runner=SessionPostRunner(
             extract=article_extractions,
