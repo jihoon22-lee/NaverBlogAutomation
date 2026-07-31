@@ -8,6 +8,7 @@ from naver_blog_assistant.api.routers.engagement import register_engagement_rout
 from naver_blog_assistant.api.routers.llm import register_llm_routes
 from naver_blog_assistant.api.routers.settings import register_settings_routes
 from naver_blog_assistant.api.routers.spa import register_app_mount
+from naver_blog_assistant.api.routers.staging import register_staging_routes
 
 __all__ = [
     "register_app_mount",
@@ -18,4 +19,5 @@ __all__ = [
     "register_engagement_routes",
     "register_llm_routes",
     "register_settings_routes",
+    "register_staging_routes",
 ]

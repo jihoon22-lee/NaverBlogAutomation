@@ -48,6 +48,10 @@ from naver_blog_assistant.application.automation.run_engagement import (
     RunChannel,
     RunEvent,
 )
+from naver_blog_assistant.application.automation.run_staging import (
+    StagePostService,
+    StagingApproval,
+)
 from naver_blog_assistant.application.automation.session import (
     LOGIN_PROBE_URL,
     LOGIN_STATE_EXPRESSION,
@@ -101,6 +105,8 @@ __all__ = [
     "CatalogSync",
     "CollectReferencePosts",
     "StagePost",
+    "StagePostService",
+    "StagingApproval",
     "StagingBlockedError",
     "StagingRequest",
     "body_text",
