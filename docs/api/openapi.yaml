@@ -605,6 +605,201 @@ paths:
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
         "503": {$ref: "#/components/responses/BrowserUnavailable"}
         "504": {$ref: "#/components/responses/GenerationTimeout"}
+  /api/v1/drafts:
+    post:
+      operationId: createPostDraft
+      tags: [Writing]
+      summary: Register one draft with the text the user wrote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftCreateRequest"}
+      responses:
+        "201":
+          description: The created draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    get:
+      operationId: listPostDrafts
+      tags: [Writing]
+      summary: List the newest drafts
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+      responses:
+        "200":
+          description: The newest drafts, newest first.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftListResponse"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/drafts/{draft_id}:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: getPostDraft
+      tags: [Writing]
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    patch:
+      operationId: updatePostDraft
+      tags: [Writing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftPatchRequest"}
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    delete:
+      operationId: deletePostDraft
+      tags: [Writing]
+      responses:
+        "204": {description: The draft and its images were removed.}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/drafts/{draft_id}/images:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: uploadDraftImage
+      tags: [Writing]
+      summary: Upload one image for the draft
+      description: Bytes stay in the runtime directory and never appear in a response.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+                alt_text: {type: string, maxLength: 300}
+      responses:
+        "201":
+          description: The draft with the uploaded image attached.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "409": {$ref: "#/components/responses/ImageLimitReached"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/drafts/{draft_id}/images/{image_id}:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: image_id, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      operationId: deleteDraftImage
+      tags: [Writing]
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/drafts/{draft_id}/compose:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: composePostDraft
+      tags: [Writing]
+      summary: Write one body from the seed text and the author's own style
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftGenerationRequest"}
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/DraftNotUsable"}
+        "502": {$ref: "#/components/responses/FanoutAllFailed"}
+        "503": {$ref: "#/components/responses/FanoutUnavailable"}
+  /api/v1/drafts/{draft_id}/refine:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: refinePostDraft
+      tags: [Writing]
+      summary: Refine the active body, keeping its facts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftGenerationRequest"}
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/DraftNotUsable"}
+        "502": {$ref: "#/components/responses/FanoutAllFailed"}
+        "503": {$ref: "#/components/responses/FanoutUnavailable"}
+  /api/v1/drafts/{draft_id}/tags:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: generateDraftTags
+      tags: [Writing]
+      summary: Propose tags for the active body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftGenerationRequest"}
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/DraftNotUsable"}
+        "502": {$ref: "#/components/responses/FanoutAllFailed"}
+        "503": {$ref: "#/components/responses/FanoutUnavailable"}
+    patch:
+      operationId: updateDraftTags
+      tags: [Writing]
+      summary: Change the tag selection or add tags the user typed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DraftTagPatchRequest"}
+      responses:
+        "200":
+          description: The stored draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/blog/categories:
     get:
       operationId: listBlogCategories
@@ -1180,6 +1375,130 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    DraftCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [title, seed_text]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        seed_text: {type: string, minLength: 1, maxLength: 20000}
+        category_no: {type: integer, minimum: 0, nullable: true}
+        use_image_vision: {type: boolean, default: false}
+    DraftPatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300, nullable: true}
+        category_no: {type: integer, minimum: 0, nullable: true}
+        use_image_vision: {type: boolean, nullable: true}
+        active_revision_id: {type: string, format: uuid, nullable: true}
+    DraftGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [provider]
+      properties:
+        provider: {type: string, enum: [openai, gemini, anthropic]}
+        model: {type: string, minLength: 1, maxLength: 100, nullable: true}
+        length: {type: string, enum: [short, medium, long], default: medium}
+        tone: {type: string, enum: [calm, warm, lively], default: warm}
+        structure: {type: string, enum: [plain, sectioned, story], default: sectioned}
+        reference_limit: {type: integer, minimum: 0, maximum: 10, default: 5}
+        request: {type: string, maxLength: 2000, default: ""}
+    DraftTagPatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        selected:
+          type: array
+          maxItems: 50
+          nullable: true
+          items: {type: string}
+        added:
+          type: array
+          maxItems: 50
+          nullable: true
+          items: {type: string}
+    DraftImageResponse:
+      type: object
+      additionalProperties: false
+      required: [id, ordinal, original_filename, byte_size, mime, alt_text]
+      properties:
+        id: {type: string, format: uuid}
+        ordinal: {type: integer, minimum: 0}
+        original_filename: {type: string}
+        byte_size: {type: integer, exclusiveMinimum: 0}
+        mime: {type: string}
+        alt_text: {type: string}
+    DraftRevisionResponse:
+      type: object
+      additionalProperties: false
+      required: [id, round_no, kind, provider, model, title, summary, is_active, blocks, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        round_no: {type: integer, minimum: 0}
+        kind: {type: string, enum: [seed, composed, refined, user_edited]}
+        provider: {type: string, nullable: true}
+        model: {type: string, nullable: true}
+        title: {type: string}
+        summary: {type: string}
+        is_active: {type: boolean}
+        blocks:
+          type: array
+          maxItems: 200
+          items: {type: object}
+        created_at: {type: string, format: date-time, nullable: true}
+    DraftTagResponse:
+      type: object
+      additionalProperties: false
+      required: [tag, ordinal, source, selected]
+      properties:
+        tag: {type: string}
+        ordinal: {type: integer, minimum: 0}
+        source: {type: string, enum: [generated, user]}
+        selected: {type: boolean}
+    DraftResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - category_no
+        - status
+        - use_image_vision
+        - seed_text
+        - revisions
+        - images
+        - tags
+        - created_at
+        - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        category_no: {type: integer, minimum: 0, nullable: true}
+        status:
+          type: string
+          enum: [collecting, composed, refining, tagged, staging, staged, abandoned]
+        use_image_vision: {type: boolean}
+        seed_text: {type: string}
+        revisions:
+          type: array
+          items: {$ref: "#/components/schemas/DraftRevisionResponse"}
+        images:
+          type: array
+          items: {$ref: "#/components/schemas/DraftImageResponse"}
+        tags:
+          type: array
+          items: {$ref: "#/components/schemas/DraftTagResponse"}
+        created_at: {type: string, format: date-time, nullable: true}
+        updated_at: {type: string, format: date-time, nullable: true}
+    DraftListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DraftResponse"}
     BlogCategoryResponse:
       type: object
       additionalProperties: false
@@ -1512,6 +1831,21 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
+    DraftNotFound:
+      description: The draft, revision, or image does not exist.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
+    DraftNotUsable:
+      description: The draft or the generated body cannot be used.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
+    ImageLimitReached:
+      description: The draft already holds the maximum number of images.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
     NotBlogOwner:
       description: The requested blog is not the configured owner.
       content:

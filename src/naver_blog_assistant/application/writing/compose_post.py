@@ -69,7 +69,21 @@ class DraftStore(Protocol):
 
     def get(self, draft_id: UUID) -> PostDraft: ...
 
-    def add_revision(self, **kwargs: Any) -> PostDraft: ...
+    def add_revision(
+        self,
+        *,
+        draft_id: UUID,
+        revision_id: UUID,
+        round_no: int,
+        kind: RevisionKind,
+        title: str,
+        blocks: Sequence[BodyBlock],
+        summary: str = "",
+        provider: str | None = None,
+        model: str | None = None,
+        activate: bool = False,
+        status: DraftStatus | None = None,
+    ) -> PostDraft: ...
 
     def replace_tags(self, draft_id: UUID, tags: Sequence[DraftTag]) -> PostDraft: ...
 

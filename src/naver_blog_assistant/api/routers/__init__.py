@@ -3,6 +3,7 @@
 from naver_blog_assistant.api.routers.automation import register_automation_session_routes
 from naver_blog_assistant.api.routers.blog import register_blog_routes
 from naver_blog_assistant.api.routers.comments import register_comment_routes
+from naver_blog_assistant.api.routers.drafts import register_draft_routes
 from naver_blog_assistant.api.routers.engagement import register_engagement_routes
 from naver_blog_assistant.api.routers.llm import register_llm_routes
 from naver_blog_assistant.api.routers.settings import register_settings_routes
@@ -13,6 +14,7 @@ __all__ = [
     "register_automation_session_routes",
     "register_blog_routes",
     "register_comment_routes",
+    "register_draft_routes",
     "register_engagement_routes",
     "register_llm_routes",
     "register_settings_routes",
