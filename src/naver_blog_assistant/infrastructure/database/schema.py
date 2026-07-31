@@ -358,3 +358,28 @@ llm_generation_attempts = Table(
     ),
     Index("ix_llm_attempts_created_at", "created_at"),
 )
+
+blog_categories = Table(
+    "blog_categories",
+    metadata,
+    Column("category_no", Integer, primary_key=True),
+    Column("name", String(120), nullable=False),
+    Column("post_count", Integer, nullable=True),
+    Column("synced_at", String(32), nullable=False),
+    CheckConstraint("category_no >= 0", name="ck_blog_categories_no"),
+    CheckConstraint("length(name) > 0", name="ck_blog_categories_name"),
+    CheckConstraint("post_count IS NULL OR post_count >= 0", name="ck_blog_categories_post_count"),
+)
+
+blog_reference_posts = Table(
+    "blog_reference_posts",
+    metadata,
+    Column("source_url", String(2048), primary_key=True),
+    Column("category_no", Integer, nullable=False),
+    Column("title", String(300), nullable=False),
+    Column("published_at", String(10), nullable=True),
+    Column("synced_at", String(32), nullable=False),
+    CheckConstraint("category_no >= 0", name="ck_blog_reference_category_no"),
+    CheckConstraint("length(title) > 0", name="ck_blog_reference_title"),
+    Index("ix_blog_reference_category", "category_no", "published_at"),
+)

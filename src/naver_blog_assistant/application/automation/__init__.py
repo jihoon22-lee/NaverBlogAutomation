@@ -1,5 +1,10 @@
 """Use cases for the locally owned browser automation surface."""
 
+from naver_blog_assistant.application.automation.collect_reference_posts import (
+    BlogCatalogFailedError,
+    CatalogSync,
+    CollectReferencePosts,
+)
 from naver_blog_assistant.application.automation.errors import (
     ArticleExtractionFailedError,
     AutomationError,
@@ -84,4 +89,7 @@ __all__ = [
     "EngagementRunService",
     "RunChannel",
     "RunEvent",
+    "BlogCatalogFailedError",
+    "CatalogSync",
+    "CollectReferencePosts",
 ]

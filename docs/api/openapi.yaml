@@ -605,6 +605,57 @@ paths:
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
         "503": {$ref: "#/components/responses/BrowserUnavailable"}
         "504": {$ref: "#/components/responses/GenerationTimeout"}
+  /api/v1/blog/categories:
+    get:
+      operationId: listBlogCategories
+      tags: [Blog]
+      summary: Read the cached category tree of the owner's blog
+      responses:
+        "200":
+          description: Every cached category ordered by number.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BlogCategoriesResponse"}
+  /api/v1/blog/categories/sync:
+    post:
+      operationId: syncBlogCategories
+      tags: [Blog]
+      summary: Re-read the owner's categories and recent post metadata
+      description: Reads only the public rendering through the existing browser session.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/BlogCategorySyncRequest"}
+      responses:
+        "200":
+          description: The refreshed category snapshot.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BlogCategoriesResponse"}
+        "403": {$ref: "#/components/responses/NotBlogOwner"}
+        "409": {$ref: "#/components/responses/BrowserSessionConflict"}
+        "422": {$ref: "#/components/responses/BlogCatalogFailed"}
+        "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+        "503": {$ref: "#/components/responses/BrowserUnavailable"}
+  /api/v1/blog/reference-posts:
+    get:
+      operationId: listReferencePosts
+      tags: [Blog]
+      summary: Read the reference posts selected for one category
+      parameters:
+        - {name: category_no, in: query, required: true, schema: {type: integer, minimum: 0}}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 10, default: 5}
+      responses:
+        "200":
+          description: The selected reference posts, newest first.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReferencePostsResponse"}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/automation/comments/fanout:
     post:
       operationId: generateCommentFanout
@@ -1129,6 +1180,46 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    BlogCategoryResponse:
+      type: object
+      additionalProperties: false
+      required: [category_no, name, post_count, synced_at]
+      properties:
+        category_no: {type: integer, minimum: 0}
+        name: {type: string, minLength: 1, maxLength: 120}
+        post_count: {type: integer, minimum: 0, nullable: true}
+        synced_at: {type: string, format: date-time, nullable: true}
+    BlogCategoriesResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BlogCategoryResponse"}
+    BlogCategorySyncRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        blog_id: {type: string, minLength: 1, maxLength: 100, nullable: true}
+    ReferencePostResponse:
+      type: object
+      additionalProperties: false
+      required: [category_no, source_url, title, published_at, synced_at]
+      properties:
+        category_no: {type: integer, minimum: 0}
+        source_url: {type: string, minLength: 1, maxLength: 2048}
+        title: {type: string, minLength: 1, maxLength: 300}
+        published_at: {type: string, format: date, nullable: true}
+        synced_at: {type: string, format: date-time, nullable: true}
+    ReferencePostsResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReferencePostResponse"}
     ProviderSelectionRequest:
       type: object
       additionalProperties: false
@@ -1421,6 +1512,16 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
+    NotBlogOwner:
+      description: The requested blog is not the configured owner.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
+    BlogCatalogFailed:
+      description: The own-blog catalog could not be read.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
     FanoutAllFailed:
       description: Every selected provider failed to produce candidates.
       content:

@@ -73,6 +73,7 @@ from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.api.routers import (
     register_app_mount,
     register_automation_session_routes,
+    register_blog_routes,
     register_comment_routes,
     register_engagement_routes,
     register_llm_routes,
@@ -99,6 +100,7 @@ from naver_blog_assistant.application import (
 )
 from naver_blog_assistant.application.automation import (
     BrowserSessionManager,
+    CollectReferencePosts,
     EngagementRunService,
     ExecuteEngagement,
     ExtractArticle,
@@ -145,6 +147,9 @@ from naver_blog_assistant.infrastructure.database import (
 )
 from naver_blog_assistant.infrastructure.database.app_settings_repository import (
     SqliteAppSettingsRepository,
+)
+from naver_blog_assistant.infrastructure.database.blog_catalog_repository import (
+    SqliteBlogCatalogRepository,
 )
 from naver_blog_assistant.infrastructure.database.llm_attempt_repository import (
     SqliteLlmAttemptRepository,
@@ -745,6 +750,12 @@ def create_app(
         problem_metadata=_problem_metadata,
         extractions=article_extractions,
     )
+    blog_catalog = CollectReferencePosts(browser_sessions, SqliteBlogCatalogRepository(engine))
+
+    def _owner_blog_id() -> str:
+        """Return the configured own blog id, or an empty string before it is saved."""
+        return discovery.get_automatic_settings().own_blog_id.strip()
+
     attempt_repository = SqliteLlmAttemptRepository(engine)
     call_budget = CallBudget(read_setting=read_setting, attempts=attempt_repository)
     fanout_generation = _configured_fanout(
@@ -777,6 +788,12 @@ def create_app(
     register_llm_routes(
         app,
         availability=provider_registry.availability,
+        problem_metadata=_problem_metadata,
+    )
+    register_blog_routes(
+        app,
+        catalog=blog_catalog,
+        owner_blog_id=_owner_blog_id,
         problem_metadata=_problem_metadata,
     )
     register_settings_routes(
