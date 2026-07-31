@@ -17,7 +17,7 @@ from naver_blog_assistant.ports.browser import BrowserOperationError, Evaluation
 BUNDLE_PACKAGE: Final = "naver_blog_assistant.infrastructure.browser.bundles"
 BUNDLE_FILENAME: Final = "page.js"
 BUNDLE_NAMESPACE: Final = "__nbaPage"
-BUNDLE_VERSION: Final = 2
+BUNDLE_VERSION: Final = 3
 
 PAGE_PROBES: Final = frozenset(
     {
@@ -28,6 +28,8 @@ PAGE_PROBES: Final = frozenset(
         "diagnoseCommentPage",
         "probeCategoryPostList",
         "probeComment",
+        "probeEditor",
+        "probeEditorSave",
         "probeLike",
         "probeLikeOption",
         "probeMyBlogCategories",
@@ -35,6 +37,7 @@ PAGE_PROBES: Final = frozenset(
         "probeNeighborConfirmation",
         "probeNeighborOption",
         "probeNeighborRelationship",
+        "readEditorText",
     }
 )
 

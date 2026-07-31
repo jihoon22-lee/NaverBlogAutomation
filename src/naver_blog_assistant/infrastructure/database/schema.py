@@ -484,3 +484,48 @@ post_draft_tags = Table(
     CheckConstraint("length(tag) > 0", name="ck_post_draft_tags_tag"),
     CheckConstraint(_allowed("source", DRAFT_TAG_SOURCES), name="ck_post_draft_tags_source"),
 )
+
+PUBLISH_RUN_STATES = ("running", "succeeded", "failed", "unconfirmed")
+PUBLISH_STEP_NAMES = ("title", "body", "images", "tags", "save")
+PUBLISH_STEP_STATES = (
+    "pending",
+    "running",
+    "succeeded",
+    "skipped",
+    "failed",
+    "unconfirmed",
+)
+
+publish_runs = Table(
+    "publish_runs",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("draft_id", String(36), nullable=False),
+    Column("revision_id", String(36), nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("result_code", String(64), nullable=True),
+    Column("created_at", String(32), nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint(_allowed("state", PUBLISH_RUN_STATES), name="ck_publish_runs_state"),
+    UniqueConstraint("draft_id", "revision_id", name="uq_publish_runs_revision"),
+)
+
+publish_run_steps = Table(
+    "publish_run_steps",
+    metadata,
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("publish_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("name", String(16), primary_key=True),
+    Column("position", Integer, nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("result_code", String(64), nullable=True),
+    Column("updated_at", String(32), nullable=False),
+    CheckConstraint(_allowed("name", PUBLISH_STEP_NAMES), name="ck_publish_run_steps_name"),
+    CheckConstraint(_allowed("state", PUBLISH_STEP_STATES), name="ck_publish_run_steps_state"),
+    CheckConstraint("position >= 0 AND position <= 4", name="ck_publish_run_steps_position"),
+    UniqueConstraint("run_id", "position", name="uq_publish_run_steps_position"),
+)

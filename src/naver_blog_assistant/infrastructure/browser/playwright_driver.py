@@ -111,6 +111,16 @@ class PlaywrightPage:
         except Exception as error:  # noqa: BLE001 - provider exception types are library specific
             raise BrowserOperationError("option selection failed") from error
 
+    async def set_input_files(
+        self, selector: str, paths: Sequence[str], *, timeout_seconds: float | None = None
+    ) -> None:
+        try:
+            await self._page.locator(selector).first.set_input_files(
+                list(paths), timeout=_timeout_ms(timeout_seconds)
+            )
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("file attachment failed") from error
+
     async def scroll_by(self, pixels: int) -> None:
         try:
             await self._page.mouse.wheel(0, pixels)

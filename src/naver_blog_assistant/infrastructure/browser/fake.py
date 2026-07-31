@@ -70,6 +70,7 @@ class FakePage:
     selected: list[tuple[str, str]] = field(default_factory=list)
     scrolls: list[int] = field(default_factory=list)
     waits: list[float] = field(default_factory=list)
+    attachments: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     action_failures: dict[str, str] = field(default_factory=dict)
     probe_results: dict[str, Any] = field(default_factory=dict)
     probe_calls: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
@@ -153,6 +154,17 @@ class FakePage:
         if failure is not None:
             raise BrowserOperationError(failure)
         self.selected.append((selector, value))
+
+    async def set_input_files(
+        self, selector: str, paths: Sequence[str], *, timeout_seconds: float | None = None
+    ) -> None:
+        del timeout_seconds
+        if self.closed:
+            raise BrowserOperationError("page is already closed")
+        failure = self.action_failures.get(selector)
+        if failure is not None:
+            raise BrowserOperationError(failure)
+        self.attachments.append((selector, tuple(paths)))
 
     async def scroll_by(self, pixels: int) -> None:
         if self.closed:
