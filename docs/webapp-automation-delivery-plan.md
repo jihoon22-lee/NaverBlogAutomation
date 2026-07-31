@@ -634,7 +634,7 @@ stateDiagram-v2
 | 5 | 5 | `feat(client): add local web app workspace shell` | 완료 |
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 완료 |
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 완료 |
-| 8 | 8 | `feat(automation): execute one approved engagement run` | 진행 |
+| 8 | 8 | `feat(automation): execute one approved engagement run` | 완료 |
 | 9 | 9 | `feat(client): add single post engagement run workspace` | 대기 |
 | 10 | 10 | `feat(llm): add multi provider structured completion port` | 대기 |
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 대기 |
@@ -805,7 +805,7 @@ Demo 실행 결과: 생성 → `attempt=1 replayed=False`, 후보 3개(warm/curi
 동일 요청 반복 → `replayed=True`와 `Idempotency-Replayed: true`, `replace: true` → `attempt=2`와
 새 recommendation id, 승인 → `review_status=approved`이고 저장된 댓글이 마무리 문구로 끝남.
 
-### [ ] Task 8 — 단일 글 실행 엔진, SSE 수명주기, 테스트 timeout 게이트 (PR 8)
+### [x] Task 8 — 단일 글 실행 엔진, SSE 수명주기, 테스트 timeout 게이트 (PR 8)
 
 목표: 공감 → 댓글 → 서로이웃을 순서대로 실행합니다. 대상 탐지는 evaluate, 클릭·타이핑은 trusted
 input(`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`)으로 수행합니다. 기존 `engagement_runs`에
@@ -825,7 +825,35 @@ run의 history 재생, 구독 중 이탈과 재연결, keepalive 발생, 전체 
 Demo: `uv run pytest`가 유한 시간에 종료됩니다. `curl`로 승인 한 건을 실행하고 SSE에서 단계별 결과
 코드를 실시간으로 봅니다. 없는 run id로 SSE를 열면 즉시 닫힙니다.
 
-상태: 진행.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 136 files already formatted,
+`ruff check`·`ty check` All checks passed, `uv run pytest` **879 passed / 7 skipped**,
+total coverage 90.46%, 소요 186초(수정 전에는 무한 정지). `npm --prefix client run check`
+**270 passed**, coverage statements 94.58% / branches 87.31%(게이트 80%), `page.js` 31.1kb 재빌드.
+`npm --prefix extension run check` **368 passed**(회귀 없음).
+
+커버리지: `application/automation/run_engagement.py` 100%(statement·branch),
+`application/automation/execute_engagement.py` 96%.
+
+신규·수정 테스트: `tests/unit/application/test_run_engagement.py` 19건(알 수 없는 run이 채널을
+만들지 않음, 종료된 run의 snapshot, history 재생, 구독 후 발행, 유휴 keepalive, deadline 종료, 구독
+해제, 채널 재생성·회수 순서, 실행 실패·내부 오류·단계 없음에서도 스트림 종료, background 실행,
+중단된 `running` 단계의 `unconfirmed` 전환, 승인 댓글 없음 거부),
+`tests/integration/api/test_engagement_run_api.py` 11건(알 수 없는 run이 빈 본문으로 200 종료,
+완료된 run 재생, ASGI transport 증분 소비 후 종료),
+`tests/unit/application/test_execute_engagement.py` 61건(작성자 불일치 3건 추가),
+`tests/unit/infrastructure/test_playwright_adapter.py` 27건(click·type·select·scroll·wait의 성공
+경로와 오류 매핑), `tests/integration/infrastructure/test_trusted_input_browser.py` 3건(실제
+Chromium).
+
+Demo 실행 결과:
+- `uv run --env-file <임시 env> naver-blog-api` 기동 후 `GET /api/v1/status` → `ready`,
+  없는 run id의 SSE → `HTTP 200 bytes=0 time=0.014s`. 같은 요청이 수정 전에는 영구 대기했습니다.
+- 실제 Chromium에서 `click`·`type_text`가 `event.isTrusted === true`로 도달하고 `aria-pressed`가
+  `true`로 바뀌며 입력값이 정확히 일치합니다. 없는 selector는 `trusted click failed`로 fail closed.
+- ASGI transport 통합 테스트가 SSE를 증분 소비해 `event: run_finished`로 종료됨을 확인합니다.
+
+남은 항목: SPA 실행 화면은 Task 9입니다. 실제 네이버 반응 레이어·에디터에 대한 live opt-in 확인은
+미해결 검증 항목에 남아 있습니다.
 
 ### [ ] Task 9 — SPA 단건 실행 화면 (PR 9)
 

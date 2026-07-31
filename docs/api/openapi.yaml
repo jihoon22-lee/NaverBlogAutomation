@@ -504,6 +504,51 @@ paths:
                 format: binary
         "409": {$ref: "#/components/responses/BrowserSessionConflict"}
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
+  /api/v1/automation/engagement-runs:
+    post:
+      operationId: startAutomationRun
+      tags: [Automation]
+      summary: Start the reviewed actions for one approved post
+      description: >-
+        One explicit approval starts one run. The response returns the persisted run immediately and
+        progress arrives on the event stream, so a long browser sequence never blocks this request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationRunRequest"
+      responses:
+        "202":
+          description: The run was accepted and is executing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementRunResponse"
+        "403": {$ref: "#/components/responses/ConsentRequired"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/EngagementConflict"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/engagement-runs/{run_id}/events:
+    get:
+      operationId: streamAutomationRunEvents
+      tags: [Automation]
+      summary: Stream step progress for one run
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Server-sent step progress for one run.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/automation/extract:
     post:
       operationId: extractArticle
@@ -983,6 +1028,17 @@ components:
             - {type: string, pattern: "^[a-z][a-z0-9_]{0,63}$"}
             - {type: "null"}
         updated_at: {type: string, format: date-time}
+    AutomationRunRequest:
+      type: object
+      additionalProperties: false
+      required: [discovery_post_id, recommendation_id]
+      properties:
+        discovery_post_id:
+          type: string
+          format: uuid
+        recommendation_id:
+          type: string
+          format: uuid
     CommentGenerationRequest:
       type: object
       additionalProperties: false
@@ -1252,6 +1308,12 @@ components:
             $ref: "#/components/schemas/ProblemDetails"
     GenerationTimeout:
       description: Model generation did not finish within the configured timeout.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    ConsentRequired:
+      description: Automation consent has not been accepted for the current version.
       content:
         application/problem+json:
           schema:

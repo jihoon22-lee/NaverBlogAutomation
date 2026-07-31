@@ -61,6 +61,34 @@ class PageHandle(Protocol):
         """Evaluate ``expression`` in the main frame's isolated context."""
         ...
 
+    async def click(self, selector: str, *, timeout_seconds: float | None = None) -> None:
+        """Click one element with trusted browser input rather than a synthetic event.
+
+        A synthetic `element.click()` is both detectable and ignored by some handlers, so every
+        action goes through the browser's real input pipeline.
+        """
+        ...
+
+    async def type_text(
+        self, selector: str, text: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        """Focus one editable element and type ``text`` with trusted key events."""
+        ...
+
+    async def select_option(
+        self, selector: str, value: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        """Choose one option in a native select control."""
+        ...
+
+    async def scroll_by(self, pixels: int) -> None:
+        """Scroll the document, mimicking the reading motion before an action."""
+        ...
+
+    async def wait(self, seconds: float) -> None:
+        """Pause inside the browser context without blocking the event loop."""
+        ...
+
     async def screenshot(self) -> bytes:
         """Return a PNG capture that must stay in memory."""
         ...

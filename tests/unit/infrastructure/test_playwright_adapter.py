@@ -36,14 +36,66 @@ class _StubFrame:
         return "ok"
 
 
+class _StubLocator:
+    def __init__(self, page: _StubPage, selector: str, *, failing: bool) -> None:
+        self._page = page
+        self._selector = selector
+        self._failing = failing
+
+    @property
+    def first(self) -> _StubLocator:
+        return self
+
+    def _record(self, name: str, *args: Any) -> None:
+        if self._failing:
+            raise _LibraryError(f"{name} failed")
+        self._page.actions.append((name, self._selector, *args))
+
+    async def scroll_into_view_if_needed(self, *, timeout: float) -> None:
+        self._record("scroll_into_view", timeout)
+
+    async def click(self, *, timeout: float) -> None:
+        self._record("click", timeout)
+
+    async def fill(self, value: str, *, timeout: float) -> None:
+        self._record("fill", value, timeout)
+
+    async def type(self, text: str, delay: float) -> None:  # noqa: A003 - library method name
+        self._record("type", text, delay)
+
+    async def select_option(self, value: str, *, timeout: float) -> None:
+        self._record("select_option", value, timeout)
+
+
+class _StubMouse:
+    def __init__(self, page: _StubPage, *, failing: bool) -> None:
+        self._page = page
+        self._failing = failing
+
+    async def wheel(self, x: int, y: int) -> None:
+        if self._failing:
+            raise _LibraryError("wheel failed")
+        self._page.actions.append(("wheel", x, y))
+
+
 class _StubPage:
     def __init__(self, *, failing: bool = False, frames: list[_StubFrame] | None = None):
         self.url = "https://blog.naver.com/example/1"
         self.frames = frames or [_StubFrame()]
         self._failing = failing
         self.navigations: list[tuple[str, float, str]] = []
+        self.actions: list[tuple[Any, ...]] = []
         self.closed = False
         self.front = 0
+        self.mouse = _StubMouse(self, failing=failing)
+
+    def locator(self, selector: str) -> _StubLocator:
+        return _StubLocator(self, selector, failing=self._failing)
+
+    async def wait_for_timeout(self, milliseconds: float) -> None:
+        if self._failing:
+            raise _LibraryError("wait failed")
+        self.actions.append(("wait_for_timeout", milliseconds))
 
     async def goto(self, url: str, *, timeout: float, wait_until: str) -> None:
         if self._failing:
@@ -127,6 +179,88 @@ def test_screenshot_requests_png_bytes() -> None:
 
     assert image.startswith(b"\x89PNG")
     assert image.endswith(b"png")
+
+
+def test_a_click_scrolls_the_target_into_view_first() -> None:
+    stub = _StubPage()
+
+    asyncio.run(PlaywrightPage(stub).click("#like", timeout_seconds=3))
+
+    assert stub.actions == [("scroll_into_view", "#like", 3_000), ("click", "#like", 3_000)]
+
+
+def test_a_click_falls_back_to_the_default_action_timeout() -> None:
+    stub = _StubPage()
+
+    asyncio.run(PlaywrightPage(stub).click("#like"))
+
+    assert stub.actions[0][2] == 10_000
+
+
+def test_click_failure_maps_to_a_browser_operation_error() -> None:
+    with pytest.raises(BrowserOperationError, match="trusted click failed"):
+        asyncio.run(PlaywrightPage(_StubPage(failing=True)).click("#like"))
+
+
+def test_typing_clears_the_field_before_sending_key_events() -> None:
+    stub = _StubPage()
+
+    asyncio.run(PlaywrightPage(stub).type_text("#editor", "댓글", timeout_seconds=2))
+
+    assert [action[0] for action in stub.actions] == [
+        "scroll_into_view",
+        "click",
+        "fill",
+        "type",
+    ]
+    assert stub.actions[2] == ("fill", "#editor", "", 2_000)
+    assert stub.actions[3] == ("type", "#editor", "댓글", 25)
+
+
+def test_typing_failure_maps_to_a_browser_operation_error() -> None:
+    with pytest.raises(BrowserOperationError, match="trusted typing failed"):
+        asyncio.run(PlaywrightPage(_StubPage(failing=True)).type_text("#editor", "댓글"))
+
+
+def test_selecting_an_option_passes_the_value_and_timeout() -> None:
+    stub = _StubPage()
+
+    asyncio.run(PlaywrightPage(stub).select_option("#group", "1", timeout_seconds=4))
+
+    assert stub.actions == [("select_option", "#group", "1", 4_000)]
+
+
+def test_option_selection_failure_maps_to_a_browser_operation_error() -> None:
+    with pytest.raises(BrowserOperationError, match="option selection failed"):
+        asyncio.run(PlaywrightPage(_StubPage(failing=True)).select_option("#group", "1"))
+
+
+def test_scrolling_uses_the_mouse_wheel() -> None:
+    stub = _StubPage()
+
+    asyncio.run(PlaywrightPage(stub).scroll_by(400))
+
+    assert stub.actions == [("wheel", 0, 400)]
+
+
+def test_scrolling_failure_maps_to_a_browser_operation_error() -> None:
+    with pytest.raises(BrowserOperationError, match="scrolling failed"):
+        asyncio.run(PlaywrightPage(_StubPage(failing=True)).scroll_by(400))
+
+
+def test_waiting_converts_seconds_to_milliseconds_and_clamps_negatives() -> None:
+    stub = _StubPage()
+    page = PlaywrightPage(stub)
+
+    asyncio.run(page.wait(0.25))
+    asyncio.run(page.wait(-5))
+
+    assert stub.actions == [("wait_for_timeout", 250.0), ("wait_for_timeout", 0.0)]
+
+
+def test_waiting_failure_maps_to_a_browser_operation_error() -> None:
+    with pytest.raises(BrowserOperationError, match="waiting failed"):
+        asyncio.run(PlaywrightPage(_StubPage(failing=True)).wait(0.1))
 
 
 def test_screenshot_failure_maps_to_a_browser_operation_error() -> None:

@@ -580,6 +580,13 @@ class AppSettingResponse(StrictModel):
         )
 
 
+class AutomationRunRequest(StrictModel):
+    """One explicit approval to run the reviewed actions for a queued post."""
+
+    discovery_post_id: UUID
+    recommendation_id: UUID
+
+
 class CommentGenerationRequest(StrictModel):
     """Generate candidates for one supported post using the saved profile."""
 

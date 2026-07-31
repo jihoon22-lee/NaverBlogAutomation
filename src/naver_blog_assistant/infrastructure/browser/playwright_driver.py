@@ -21,6 +21,15 @@ from naver_blog_assistant.ports.browser import (
 )
 
 DEFAULT_NAVIGATION_TIMEOUT_SECONDS = 20.0
+DEFAULT_ACTION_TIMEOUT_SECONDS = 10.0
+
+
+def _timeout_ms(timeout_seconds: float | None) -> float:
+    """Return the millisecond timeout the driver expects."""
+    seconds = DEFAULT_ACTION_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    return max(seconds, 0.1) * 1_000
+
+
 _REMOVED_LAUNCH_ARGUMENTS = ("--enable-automation",)
 
 
@@ -69,6 +78,50 @@ class PlaywrightPage:
             return await self._page.evaluate(expression, argument)
         except Exception as error:  # noqa: BLE001 - provider exception types are library specific
             raise BrowserOperationError("page evaluation failed") from error
+
+    async def click(self, selector: str, *, timeout_seconds: float | None = None) -> None:
+        timeout = _timeout_ms(timeout_seconds)
+        try:
+            locator = self._page.locator(selector).first
+            await locator.scroll_into_view_if_needed(timeout=timeout)
+            await locator.click(timeout=timeout)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("trusted click failed") from error
+
+    async def type_text(
+        self, selector: str, text: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        timeout = _timeout_ms(timeout_seconds)
+        try:
+            locator = self._page.locator(selector).first
+            await locator.scroll_into_view_if_needed(timeout=timeout)
+            await locator.click(timeout=timeout)
+            await locator.fill("", timeout=timeout)
+            await locator.type(text, delay=25)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("trusted typing failed") from error
+
+    async def select_option(
+        self, selector: str, value: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        try:
+            await self._page.locator(selector).first.select_option(
+                value, timeout=_timeout_ms(timeout_seconds)
+            )
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("option selection failed") from error
+
+    async def scroll_by(self, pixels: int) -> None:
+        try:
+            await self._page.mouse.wheel(0, pixels)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("scrolling failed") from error
+
+    async def wait(self, seconds: float) -> None:
+        try:
+            await self._page.wait_for_timeout(max(seconds, 0) * 1_000)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("waiting failed") from error
 
     async def screenshot(self) -> bytes:
         try:

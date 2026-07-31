@@ -18,6 +18,7 @@ export type NeighborRelationshipState =
   | "state_unknown";
 
 export interface NeighborRelationshipProbe {
+  blogId: string | null;
   candidateCount: number;
   entrySelector: string | null;
   matchedKinds: string[];
@@ -98,6 +99,22 @@ const CAPTCHA_SELECTORS = ".captcha, #captcha, iframe[title*='캡차'], iframe[t
 
 const LOGIN_SELECTORS = "a[href*='nidlogin.login'], form[action*='nidlogin.login']";
 
+/** Read the author's blog id from a buddy entry control, without guessing. */
+function readEntryBlogId(entry: Element): string | null {
+  const attribute = entry.getAttribute("data-blog-id");
+  if (attribute !== null && attribute.trim() !== "") return attribute.trim();
+  const href = entry.getAttribute("href");
+  if (href === null) return null;
+  const match = /[?&]blogId=([^&#]+)/.exec(href);
+  if (match === null) return null;
+  try {
+    const decoded = decodeURIComponent(match[1] as string).trim();
+    return decoded === "" ? null : decoded;
+  } catch {
+    return null;
+  }
+}
+
 /** Report the current relationship with the post author and the entry control for a request. */
 export function probeNeighborRelationship(): NeighborRelationshipProbe {
   const matchedKinds: string[] = [];
@@ -108,10 +125,17 @@ export function probeNeighborRelationship(): NeighborRelationshipProbe {
     candidates.push(...found.filter((element) => !candidates.includes(element)));
   }
   if (candidates.length === 0) {
-    return { candidateCount: 0, entrySelector: null, matchedKinds, state: "state_unknown" };
+    return {
+      blogId: null,
+      candidateCount: 0,
+      entrySelector: null,
+      matchedKinds,
+      state: "state_unknown",
+    };
   }
   if (candidates.length > 1) {
     return {
+      blogId: null,
       candidateCount: candidates.length,
       entrySelector: null,
       matchedKinds,
@@ -120,6 +144,7 @@ export function probeNeighborRelationship(): NeighborRelationshipProbe {
   }
   const entry = candidates[0] as Element;
   return {
+    blogId: readEntryBlogId(entry),
     candidateCount: 1,
     entrySelector: elementSelector(entry),
     matchedKinds,

@@ -30,6 +30,46 @@ describe("probeNeighborRelationship", () => {
     expect(probe.matchedKinds).toContain("buddy_add_href");
   });
 
+  it("reports the author blog id from the entry href", () => {
+    setBody(neighborEntry("서로이웃추가"));
+
+    expect(probeNeighborRelationship().blogId).toBe("example");
+  });
+
+  it("prefers an explicit data attribute over the href", () => {
+    setBody(
+      `<a data-blog-id=" tagged " href="https://blog.naver.com/BuddyAddForm.naver?blogId=example">서로이웃추가</a>`,
+    );
+
+    expect(probeNeighborRelationship().blogId).toBe("tagged");
+  });
+
+  it("decodes a percent-encoded blog id", () => {
+    setBody(
+      `<a href="https://blog.naver.com/BuddyAddForm.naver?blogId=%ED%95%9C%EA%B8%80">서로이웃추가</a>`,
+    );
+
+    expect(probeNeighborRelationship().blogId).toBe("한글");
+  });
+
+  it("reports no blog id when the entry carries none", () => {
+    setBody(`<a class="btn_buddy" href="#">서로이웃추가</a>`);
+
+    expect(probeNeighborRelationship().blogId).toBeNull();
+  });
+
+  it("reports no blog id for a malformed percent escape", () => {
+    setBody(`<a href="https://blog.naver.com/BuddyAddForm.naver?blogId=%E0%A4%A">서로이웃추가</a>`);
+
+    expect(probeNeighborRelationship().blogId).toBeNull();
+  });
+
+  it("reports no blog id for an empty query value", () => {
+    setBody(`<a href="https://blog.naver.com/BuddyAddForm.naver?blogId=&x=1">서로이웃추가</a>`);
+
+    expect(probeNeighborRelationship().blogId).toBeNull();
+  });
+
   it("reports already_mutual", () => {
     setBody(neighborEntry("서로이웃"));
 
