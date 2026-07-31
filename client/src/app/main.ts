@@ -9,6 +9,7 @@ import type { ArticleExtraction } from "./api/types";
 import { CommentController } from "./controllers/comment";
 import { TodayController } from "./controllers/today";
 import { WritingController } from "./controllers/writing";
+import { createNavigation, focusWorkspace, type NavSection } from "./navigation";
 
 export const APP_ROOT_ID = "workspace";
 
@@ -21,9 +22,15 @@ export interface Workspace {
   writing: WritingController;
 }
 
-/** Compose the Today and Comment controllers over one root element. */
+/** Compose the Today, Comment, and Writing controllers over one root element. */
 export function createWorkspace(root: Element): Workspace {
   const workspace: Partial<Workspace> = {};
+  const navigation = createNavigation(root.ownerDocument, {
+    onSelect: (section: NavSection) => {
+      if (section === "writing") workspace.showWriting?.();
+      else workspace.showToday?.();
+    },
+  });
   const comment = new CommentController(root, {
     copy: async (text: string) => {
       await navigator.clipboard.writeText(text);
@@ -39,15 +46,21 @@ export function createWorkspace(root: Element): Workspace {
   workspace.today = today;
   workspace.writing = writing;
   workspace.showWriting = () => {
+    navigation?.mark("writing");
     writing.render();
+    focusWorkspace(root);
     void writing.load();
   };
   workspace.openComment = (extraction: ArticleExtraction, discoveryPostId: string) => {
+    navigation?.mark("today");
     comment.open(extraction, discoveryPostId);
+    focusWorkspace(root);
     void comment.loadClosingPhrase();
   };
   workspace.showToday = () => {
+    navigation?.mark("today");
     today.render();
+    focusWorkspace(root);
     void today.load();
   };
   return workspace as Workspace;

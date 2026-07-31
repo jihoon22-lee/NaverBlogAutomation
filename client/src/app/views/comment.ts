@@ -282,7 +282,9 @@ function renderEditor(document: Document, state: CommentState, handlers: Comment
 
   const actions = document.createElement("div");
   actions.className = "editor-actions";
-  actions.append(button(document, "copy-button", "댓글 복사", handlers.onCopy));
+  const copy = button(document, "copy-button", "댓글 복사", handlers.onCopy);
+  copy.disabled = state.draft.length === 0;
+  actions.append(copy);
   const approve = button(document, "approve-button", "이 댓글로 승인", handlers.onApprove);
   approve.disabled = !canApprove(state);
   actions.append(approve);

@@ -106,7 +106,9 @@ function renderServicePanel(
 
   const actions = document.createElement("div");
   actions.className = "service-actions";
-  actions.append(button(document, "refresh-button", "새로고침", handlers.onRefresh));
+  const refresh = button(document, "refresh-button", "새로고침", handlers.onRefresh);
+  refresh.disabled = state.phase === "loading";
+  actions.append(refresh);
   if (state.session?.state === "ready") {
     actions.append(
       button(document, "focus-session-button", "브라우저 창 보이기", handlers.onFocusSession),

@@ -61,3 +61,75 @@ describe("createWorkspace", () => {
     expect(document.getElementById("comment-status")).toBeNull();
   });
 });
+
+describe("navigation", () => {
+  function shell(): Element {
+    document.body.innerHTML = `
+      <nav id="workspace-nav">
+        <button type="button" data-section="today" aria-current="page"></button>
+        <button type="button" data-section="writing"></button>
+      </nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    const root = document.getElementById(APP_ROOT_ID);
+    if (root === null) throw new Error("missing root");
+    return root;
+  }
+
+  function tab(section: string): HTMLButtonElement {
+    const button = document.querySelector<HTMLButtonElement>(`[data-section="${section}"]`);
+    if (button === null) throw new Error(`missing tab: ${section}`);
+    return button;
+  }
+
+  it("reaches the writing workspace from the nav", () => {
+    const root = shell();
+    createWorkspace(root);
+
+    tab("writing").click();
+
+    expect(root.querySelector(".seed-panel")).not.toBeNull();
+    expect(tab("writing").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("returns to today from the nav", () => {
+    const root = shell();
+    const workspace = createWorkspace(root);
+    workspace.showWriting();
+
+    tab("today").click();
+
+    expect(tab("today").getAttribute("aria-current")).toBe("page");
+    expect(tab("writing").hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("moves focus into the workspace on a section change", () => {
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showWriting();
+
+    expect(root.contains(document.activeElement)).toBe(true);
+  });
+
+  it("keeps the today tab current while the comment view is open", () => {
+    const root = shell();
+    const workspace = createWorkspace(root);
+    workspace.showWriting();
+
+    workspace.openComment(EXTRACTION, "11111111-1111-4111-8111-111111111111");
+
+    expect(tab("today").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("works without a nav in the shell", () => {
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const root = document.getElementById(APP_ROOT_ID);
+    if (root === null) throw new Error("missing root");
+
+    const workspace = createWorkspace(root);
+    workspace.showWriting();
+
+    expect(root.querySelector(".seed-panel")).not.toBeNull();
+  });
+});
