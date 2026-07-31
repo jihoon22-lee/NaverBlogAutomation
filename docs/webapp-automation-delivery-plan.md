@@ -649,7 +649,7 @@ stateDiagram-v2
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 완료 |
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 완료 |
 | 16 | 16 | `feat(client): add post writing workspace` | 완료 |
-| 17 | 17 | `feat(automation): add session-scoped engagement batches` | 대기 |
+| 17 | 17 | `feat(automation): add session-scoped engagement batches` | 완료 |
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
 | 20 | 20 | `feat(client): improve task workspace usability` | 대기 |
@@ -1105,7 +1105,7 @@ Vitest **385 passed**, coverage statements 89.69% / branches 81.7%(게이트 80%
 계약 위반 6종, 제목 없는 초안 거부, 편집 저장 시 image block 유지, 태그 toggle·추가, SSE 종료 후
 재조회, 거부 메시지 매핑).
 
-### [ ] Task 17 — 세션 단위 승인 배치 (PR 17)
+### [x] Task 17 — 세션 단위 승인 배치 (PR 17)
 
 목표: migration 0016으로 `automation_sessions`와 `engagement_runs.session_id`·`trigger`를 추가하고
 승인 1회로 대기열 N개를 순차 처리하며 언제든 취소할 수 있게 합니다.
@@ -1115,7 +1115,21 @@ Vitest **385 passed**, coverage statements 89.69% / branches 81.7%(게이트 80%
 
 Demo: 대기열 5개를 한 번 승인해 순차 처리하고 3번째에서 취소하면 남은 글은 건드리지 않습니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-08-01): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **1314 passed / 7 skipped**, total coverage 90.74%, wheel smoke 통과
+(migration head `20260731_0017`).
+
+신규 모듈: `domain/sessions.py`(승인 단위와 forward-only 전이), migration 0017,
+`infrastructure/database/session_repository.py`(활성 세션 1개 제한),
+`application/automation/run_session.py`(순차 처리·취소·중단 판정과 SSE),
+`application/automation/session_post_runner.py`(글 하나의 추출→생성→승인→실행),
+`api/routers/sessions.py`, `api/session_models.py`.
+
+신규 테스트 60건: `test_run_session.py` 32건(단계 파생, 금지 전이 5종, domain 검증 8종, 순차 처리,
+승인 수 상한, 진행 중 취소, pending 취소, 종료된 세션 취소 무시, captcha·login 중단, 일반 실패는 계속,
+빈 대기열, 예외 시 internal_error, 이벤트 스트림, 알 수 없는 세션),
+`test_sessions_api.py` 28건(저장소 round-trip, 활성 1개 제한, 종료 후 슬롯 반환, timestamp, 금지 전이,
+중단 사유, 처리 수 집계, 202 승인, 잘못된 승인 9종, 조회·목록·취소, 알 수 없는 세션 404, 스트림).
 
 ### [ ] Task 18 — safety governor (PR 18)
 
@@ -1237,6 +1251,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 사용자 편집도 revision으로 저장하고 되돌리기는 active 전환으로 표현 | 편집·다듬기 이력이 한 chain에 남아 사라지지 않음 |
 | 2026-07-31 | 임시저장 확인은 저장 버튼 옆 임시저장 개수 증가로 판별 | 토스트 문구에 의존하지 않고 관찰 가능한 상태 변화를 사용 |
 | 2026-07-31 | 이미지는 본문이 참조하는 것만 첨부하고 파일이 없으면 중단 | 본문과 첨부가 어긋난 임시저장을 만들지 않음 |
+| 2026-08-01 | 활성 세션은 하나만 허용하고 저장소가 강제 | 두 배치가 같은 브라우저를 조작하는 상황을 구조적으로 차단 |
+| 2026-08-01 | 취소는 다음 글로 넘어가기 전에만 반영 | 이미 시작한 외부 동작을 중간에 끊지 않음 |
+| 2026-08-01 | captcha·login_required만 배치를 중단하고 일반 실패는 계속 | 사람 개입이 필요한 신호와 개별 글의 문제를 구분 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |

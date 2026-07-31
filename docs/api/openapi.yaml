@@ -851,6 +851,84 @@ paths:
               schema: {$ref: "#/components/schemas/DraftResponse"}
         "404": {$ref: "#/components/responses/DraftNotFound"}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/sessions:
+    post:
+      operationId: approveAutomationSession
+      tags: [Automation]
+      summary: Approve one batch of queued posts
+      description: One approval covers several posts; cancelling stops before the next one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionApprovalRequest"}
+      responses:
+        "202":
+          description: The persisted session.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "409": {$ref: "#/components/responses/SessionAlreadyRunning"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+    get:
+      operationId: listAutomationSessions
+      tags: [Automation]
+      summary: List the newest sessions
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+      responses:
+        "200":
+          description: The newest sessions, newest first.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionListResponse"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/sessions/{session_id}:
+    parameters:
+        - {name: session_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: getAutomationSession
+      tags: [Automation]
+      responses:
+        "200":
+          description: The stored session.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "404": {$ref: "#/components/responses/SessionNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/sessions/{session_id}/cancel:
+    parameters:
+        - {name: session_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: cancelAutomationSession
+      tags: [Automation]
+      summary: Ask a running session to stop before the next post
+      responses:
+        "200":
+          description: The stored session.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionResponse"}
+        "404": {$ref: "#/components/responses/SessionNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/automation/sessions/{session_id}/events:
+    parameters:
+        - {name: session_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: streamAutomationSessionEvents
+      tags: [Automation]
+      summary: Follow one session batch post by post
+      responses:
+        "200":
+          description: Server-sent progress for one session batch.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/blog/categories:
     get:
       operationId: listBlogCategories
@@ -1426,6 +1504,63 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    SessionApprovalRequest:
+      type: object
+      additionalProperties: false
+      required: [approved_steps, sources, max_posts]
+      properties:
+        approved_steps:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items: {type: string, enum: [like, comment, mutual_neighbor]}
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: {type: string, enum: [neighbor, search]}
+        max_posts: {type: integer, minimum: 1, maximum: 50}
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - trigger
+        - state
+        - approved_steps
+        - sources
+        - max_posts
+        - processed_count
+        - abort_reason
+        - created_at
+        - started_at
+        - finished_at
+      properties:
+        id: {type: string, format: uuid}
+        trigger: {type: string, enum: [manual, session, schedule]}
+        state: {type: string, enum: [pending, running, completed, aborted, cancelled]}
+        approved_steps:
+          type: array
+          items: {type: string}
+        sources:
+          type: array
+          items: {type: string}
+        max_posts: {type: integer, minimum: 1}
+        processed_count: {type: integer, minimum: 0}
+        abort_reason: {type: string, nullable: true}
+        created_at: {type: string, format: date-time, nullable: true}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+    SessionListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SessionResponse"}
     PublishStepResponse:
       type: object
       additionalProperties: false
@@ -1923,6 +2058,16 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/ProblemDetails"
+    SessionAlreadyRunning:
+      description: Another session is still pending or running.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
+    SessionNotFound:
+      description: The session does not exist.
+      content:
+        application/problem+json:
+          schema: {$ref: "#/components/schemas/ProblemDetails"}
     DraftNotFound:
       description: The draft, revision, or image does not exist.
       content:
