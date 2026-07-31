@@ -42,7 +42,7 @@ describe("createWorkspace", () => {
     document.body.append(root);
     const workspace = createWorkspace(root);
 
-    workspace.openComment(EXTRACTION);
+    workspace.openComment(EXTRACTION, "11111111-1111-4111-8111-111111111111");
 
     expect(document.getElementById("comment-status")).not.toBeNull();
     expect(document.getElementById("preview-title")?.textContent).toBe("합성 제목");
@@ -53,7 +53,7 @@ describe("createWorkspace", () => {
     const root = document.createElement("main");
     document.body.append(root);
     const workspace = createWorkspace(root);
-    workspace.openComment(EXTRACTION);
+    workspace.openComment(EXTRACTION, "11111111-1111-4111-8111-111111111111");
 
     (document.getElementById("comment-back-button") as HTMLButtonElement).click();
 

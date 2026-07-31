@@ -32,13 +32,13 @@ type TodayApi = Pick<
 
 export interface TodayControllerOptions {
   api?: TodayApi;
-  onExtracted?: (extraction: ArticleExtraction) => void;
+  onExtracted?: (extraction: ArticleExtraction, discoveryPostId: string) => void;
 }
 
 export class TodayController {
   readonly #api: TodayApi;
   readonly #root: Element;
-  readonly #onExtracted: (extraction: ArticleExtraction) => void;
+  readonly #onExtracted: (extraction: ArticleExtraction, discoveryPostId: string) => void;
   #state: TodayState = initialTodayState();
   #busy = false;
 
@@ -108,7 +108,7 @@ export class TodayController {
     this.#busy = true;
     try {
       const extraction = await this.#api.extractArticle(post.sourceUrl);
-      this.#onExtracted(extraction);
+      this.#onExtracted(extraction, post.id);
       return extraction;
     } catch (error) {
       this.#update(withFailure(this.#state, describe(error)));

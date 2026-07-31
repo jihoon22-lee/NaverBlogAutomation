@@ -125,3 +125,41 @@ export interface AppSettingRecord {
   payload: Record<string, unknown>;
   updatedAt: string | null;
 }
+
+export type EngagementStepName = "like" | "comment" | "mutual_neighbor";
+
+export type EngagementStepState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "skipped"
+  | "failed"
+  | "unconfirmed";
+
+export type EngagementRunState = "running" | "succeeded" | "failed" | "unconfirmed";
+
+export interface EngagementStep {
+  name: EngagementStepName;
+  position: number;
+  state: EngagementStepState;
+  resultCode: string | null;
+  updatedAt: string;
+}
+
+export interface EngagementRun {
+  id: string;
+  approvalId: string;
+  discoveryPostId: string;
+  recommendationId: string;
+  source: DiscoverySource;
+  state: EngagementRunState;
+  steps: EngagementStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One decoded server-sent event from a run's progress stream. */
+export interface RunStreamEvent {
+  event: string;
+  payload: Record<string, unknown>;
+}

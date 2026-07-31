@@ -7,6 +7,7 @@
 
 import { ApiError, LocalApiClient } from "../api/client";
 import type { ArticleExtraction, GenerationOptions, Recommendation } from "../api/types";
+import { RunController } from "./run";
 import {
   type CommentState,
   appendClosingPhrase,
@@ -44,6 +45,7 @@ export interface CommentControllerOptions {
   api?: CommentApi;
   copy?: (text: string) => Promise<void>;
   onBack?: () => void;
+  run?: RunController;
 }
 
 export class CommentController {
@@ -51,7 +53,9 @@ export class CommentController {
   readonly #root: Element;
   readonly #copy: (text: string) => Promise<void>;
   readonly #onBack: () => void;
+  readonly #run: RunController;
   #state: CommentState = initialCommentState();
+  #discoveryPostId: string | null = null;
   #busy = false;
 
   constructor(root: Element, options: CommentControllerOptions = {}) {
@@ -59,10 +63,16 @@ export class CommentController {
     this.#api = options.api ?? new LocalApiClient();
     this.#copy = options.copy ?? (async () => undefined);
     this.#onBack = options.onBack ?? (() => undefined);
+    this.#run = options.run ?? new RunController();
+    this.#run.observe(() => this.render());
   }
 
   get state(): CommentState {
     return this.#state;
+  }
+
+  get run(): RunController {
+    return this.#run;
   }
 
   /** Load the saved closing phrase so candidate selection can append it locally. */
@@ -77,12 +87,14 @@ export class CommentController {
   }
 
   /** Show one extracted post and wait for the user to request generation. */
-  open(extraction: ArticleExtraction): void {
+  open(extraction: ArticleExtraction, discoveryPostId: string | null = null): void {
+    this.#discoveryPostId = discoveryPostId;
+    this.#run.reset();
     this.#update(withExtraction(this.#state, extraction));
   }
 
   render(): void {
-    renderComment(this.#root, this.#state, this.#handlers());
+    renderComment(this.#root, this.#state, this.#handlers(), this.#run.state);
   }
 
   #handlers(): CommentHandlers {
@@ -98,7 +110,19 @@ export class CommentController {
       onReplace: () => void this.generate({ replace: true }),
       onSelectCandidate: (candidateId: string) =>
         this.#update(withSelectedCandidate(this.#state, candidateId)),
+      run: {
+        onManualComplete: () => void this.#run.completeManually(),
+        onStart: () => void this.startRun(),
+        onToggleManualStep: (name) => this.#run.toggleManualStep(name),
+      },
     };
+  }
+
+  /** Execute the approved comment for the open post. */
+  async startRun(): Promise<void> {
+    const recommendation = this.#state.recommendation;
+    if (recommendation === null || this.#discoveryPostId === null) return;
+    await this.#run.start(this.#discoveryPostId, recommendation.id);
   }
 
   #setOption(option: string, value: string): void {

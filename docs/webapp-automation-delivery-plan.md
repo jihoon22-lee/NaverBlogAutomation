@@ -635,7 +635,7 @@ stateDiagram-v2
 | 6 | 6 | `feat(api): persist web app settings in sqlite` | 완료 |
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 완료 |
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 완료 |
-| 9 | 9 | `feat(client): add single post engagement run workspace` | 대기 |
+| 9 | 9 | `feat(client): add single post engagement run workspace` | 완료 |
 | 10 | 10 | `feat(llm): add multi provider structured completion port` | 대기 |
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 대기 |
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 대기 |
@@ -855,16 +855,33 @@ Demo 실행 결과:
 남은 항목: SPA 실행 화면은 Task 9입니다. 실제 네이버 반응 레이어·에디터에 대한 live opt-in 확인은
 미해결 검증 항목에 남아 있습니다.
 
-### [ ] Task 9 — SPA 단건 실행 화면 (PR 9)
+### [x] Task 9 — SPA 단건 실행 화면 (PR 9)
 
 목표: 댓글 승인 화면에서 실행 버튼 한 번으로 글 하나를 처리하고 진행을 실시간으로 표시합니다.
+
+구현 지침: `RunController`가 SSE를 구독하고 종료 이벤트에서 스스로 닫습니다. `EventSource`는 서버가
+의도적으로 닫은 스트림에도 재연결을 시도하므로, 종료 이벤트를 보면 client가 닫아야 합니다. 연결이
+끊기면 제한된 횟수만 재연결하고 그 뒤에는 run을 한 번 직접 읽습니다.
 
 테스트 요건: 진행 중 중복 조작 차단, SSE 끊김 후 재연결, 부분 실패 표시, 수동 완료 기록, 동의 없음,
 세션 미실행, 접근성(키보드 이동, `aria-live` 상태 안내).
 
 Demo: 웹앱에서 버튼 한 번으로 글 하나가 처리되고 단계별 결과가 화면에 나타납니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `npm --prefix client run check` → Biome format·lint, tsc,
+Vitest **310 passed**, coverage statements 94.36% / branches 88.13%(게이트 80%), build 성공
+(`app.js` 61.4kb, `page.js` 31.1kb). `uv run pytest` **879 passed / 7 skipped**, total coverage
+90.46%(SPA 변경이 서버에 영향 없음).
+
+신규 모듈: `app/api/run-stream.ts`(SSE 구독 추상화와 payload 해석), `app/state/run.ts`(단계 순서 유지,
+수동 완료 선택), `app/views/run.ts`(실행 panel, 결과 코드 한글 안내), `app/controllers/run.ts`(실행
+시작, 재연결 상한, 수동 완료).
+
+신규 테스트 40건: `run.test.ts` 23건(단계 순서, 중복 갱신, 수동 해결 필요 판정, payload 해석,
+중복 start 차단, 알 수 없는 step 무시, 종료 이벤트에서 스트림 닫기, 재연결 상한 후 직접 읽기, 닫힌
+스트림 재구독 금지, 거부 메시지 매핑, 수동 완료 기록, reset, `aria-live` 안내, 부분 실패 표시),
+`run-api.test.ts` 12건(요청 본문, 경로, 계약 위반 7종), `comment-run.test.ts` 5건(승인 전 panel 숨김,
+클릭 한 번으로 실행, 대기열 id 없으면 실행 금지, 스트림 결과 렌더링, 다음 글에서 초기화).
 
 ### [ ] Task 10 — LLM provider 추상화 (PR 10)
 
@@ -1079,6 +1096,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 새 설정은 `app_settings` kind 추가로 처리 | kind 기반 table이라 migration 불필요 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
+| 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
+| 2026-07-31 | SSE 재연결은 3회로 제한하고 이후 run을 한 번 직접 읽음 | 화면이 영구 대기하지 않고 확정된 상태를 보여줌 |
+| 2026-07-31 | 실행 panel은 승인된 추천에만 표시하고 대기열 글 id가 없으면 실행하지 않음 | 승인 단위를 글 하나로 유지 |
 
 ## 미해결 검증 항목
 

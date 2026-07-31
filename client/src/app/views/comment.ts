@@ -13,6 +13,8 @@ import {
   canApprove,
   selectedCandidate,
 } from "../state/comment";
+import type { RunState } from "../state/run";
+import { type RunHandlers, renderRun } from "./run";
 
 export interface CommentHandlers {
   onApprove(): void;
@@ -23,6 +25,7 @@ export interface CommentHandlers {
   onOptionChange(option: string, value: string): void;
   onReplace(): void;
   onSelectCandidate(candidateId: string): void;
+  run?: RunHandlers;
 }
 
 const RELATIONSHIPS: readonly [RelationshipLevel, string][] = [
@@ -62,13 +65,19 @@ const WARNING_LABELS: Record<string, string> = {
 };
 
 /** Render the comment workspace into `root`. */
-export function renderComment(root: Element, state: CommentState, handlers: CommentHandlers): void {
+export function renderComment(
+  root: Element,
+  state: CommentState,
+  handlers: CommentHandlers,
+  run: RunState | null = null,
+): void {
   const document = root.ownerDocument;
   root.textContent = "";
 
   const status = document.createElement("p");
   status.id = "comment-status";
   status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
   status.textContent = statusMessage(state);
   root.append(status);
 
@@ -83,6 +92,14 @@ export function renderComment(root: Element, state: CommentState, handlers: Comm
   if (state.recommendation !== null) {
     root.append(renderCandidates(document, state, handlers));
     root.append(renderEditor(document, state, handlers));
+  }
+  if (
+    run !== null &&
+    handlers.run !== undefined &&
+    state.recommendation !== null &&
+    state.recommendation.reviewStatus !== "drafted"
+  ) {
+    root.append(renderRun(document, run, handlers.run));
   }
 }
 
