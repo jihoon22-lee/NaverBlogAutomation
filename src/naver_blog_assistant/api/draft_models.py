@@ -73,6 +73,14 @@ class DraftGenerationRequest(StrictDraftModel):
     request: Annotated[str, StringConstraints(max_length=2_000)] = ""
 
 
+class DraftBodyRequest(StrictDraftModel):
+    """Store the body the user edited by hand as a new revision."""
+
+    title: Annotated[str, StringConstraints(min_length=1, max_length=MAX_DRAFT_TITLE_LENGTH)]
+    blocks: Annotated[list[dict[str, Any]], Field(min_length=1, max_length=MAX_BLOCKS)]
+    summary: Annotated[str, StringConstraints(max_length=800)] = ""
+
+
 class DraftTagPatchRequest(StrictDraftModel):
     """Replace the tag selection or add tags the user typed."""
 

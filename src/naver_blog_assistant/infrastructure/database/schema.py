@@ -315,6 +315,7 @@ APP_SETTING_KINDS = (
     "browser_profile",
     "llm_providers",
     "llm_budget",
+    "writing_profile",
 )
 
 app_settings = Table(

@@ -646,7 +646,7 @@ stateDiagram-v2
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 완료 |
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 완료 |
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 완료 |
-| 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 대기 |
+| 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 완료 |
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 대기 |
 | 16 | 16 | `feat(client): add post writing workspace` | 대기 |
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 대기 |
@@ -1024,10 +1024,14 @@ Demo 실행 결과: 초안 생성 → 201과 `status=collecting`, PNG 업로드 
 (경로·bytes 미포함), 태그 추가 → `#전시`가 `전시`로 정규화되고 `source=user`, 초안 삭제 → 204와 저장된
 이미지 파일까지 제거.
 
-### [ ] Task 14 — 반복 다듬기와 태그 생성 (PR 14)
+### [x] Task 14 — 반복 다듬기와 태그 생성 (PR 14)
 
 목표: 사용자 편집을 revision으로 저장하고 다듬기와 태그 50개 생성을 각각 반복 실행할 수 있게
 합니다.
+
+구현 지침: 사용자 편집도 `user_edited` revision으로 남겨 다듬기와 같은 chain에 들어갑니다. 되돌리기는
+이전 revision을 active로 바꾸는 것으로 표현하므로 이력이 사라지지 않습니다. 본문에 넣을 태그 수는
+`writing_profile.body_tag_cap`으로 조정합니다.
 
 테스트 요건: revision chain 순서, 편집 없이 다듬기 반복, 다듬기 결과 되돌리기, 동일 입력 replay, 태그
 중복·공백·특수문자·길이 초과 정규화, 50개 미달 응답 처리, 태그 재생성 시 사용자 선택 보존, 본문 삽입
@@ -1035,7 +1039,16 @@ Demo 실행 결과: 초안 생성 → 201과 `status=collecting`, PNG 업로드 
 
 Demo: 같은 글을 세 번 다듬고 태그를 두 번 재생성해도 이전 선택이 유지됩니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 184 files, `ruff check`·`ty check` All checks
+passed, `uv run pytest` **1208 passed / 7 skipped**, total coverage 91.29%.
+
+신규: `PUT /api/v1/drafts/{id}/body`(사용자 편집을 `user_edited` revision으로 저장),
+`writing_profile` 설정 kind와 migration 0015.
+
+신규 테스트 23건: `test_draft_revisions_api.py`(사용자 편집 revision, 반복 편집의 round 순서와 active
+전환, 이전 revision 복원, 다른 초안의 revision 복원 거부, 업로드되지 않은 이미지 참조 거부, 업로드된
+이미지 참조 허용, 잘못된 본문 5종, 알 수 없는 초안, writing profile 기본값·저장·검증 8종, 본문 태그
+상한).
 
 ### [ ] Task 15 — 임시저장 자동화 (PR 15)
 
@@ -1191,6 +1204,7 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 업로드 이미지는 생성한 이름으로만 저장하고 magic bytes를 검사 | 악의적 파일명이 디렉터리를 벗어나거나 다른 형식이 위장하지 못하게 함 |
 | 2026-07-31 | 생성된 image 블록은 업로드된 이미지만 참조 가능하고 중복 금지 | 존재하지 않는 이미지를 참조한 본문이 저장되지 않음 |
 | 2026-07-31 | 태그 재생성은 이전 선택 상태와 사용자가 입력한 태그를 보존 | 반복 생성이 사용자의 판단을 지우지 않음 |
+| 2026-07-31 | 사용자 편집도 revision으로 저장하고 되돌리기는 active 전환으로 표현 | 편집·다듬기 이력이 한 chain에 남아 사라지지 않음 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
