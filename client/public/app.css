@@ -172,3 +172,49 @@ button:disabled {
   border-bottom: 1px solid #f0f0f0;
   padding: 0.35rem 0;
 }
+
+.discovery-settings-panel,
+.sync-panel,
+.search-panel {
+  border-top: 1px solid #e5e5e5;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+
+.discovery-settings-panel label,
+.search-panel label {
+  display: block;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.checkbox-label {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.settings-note {
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.search-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.search-item {
+  align-items: center;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+}
+
+.sync-provider-missing {
+  color: #a15c00;
+  font-size: 0.85rem;
+}

@@ -68,6 +68,7 @@ describe("navigation", () => {
       <nav id="workspace-nav">
         <button type="button" data-section="today" aria-current="page"></button>
         <button type="button" data-section="writing"></button>
+        <button type="button" data-section="settings"></button>
       </nav>
       <main id="${APP_ROOT_ID}"></main>
     `;
@@ -120,6 +121,16 @@ describe("navigation", () => {
     workspace.openComment(EXTRACTION, "11111111-1111-4111-8111-111111111111");
 
     expect(tab("today").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("reaches the settings screen from the nav", () => {
+    const root = shell();
+    createWorkspace(root);
+
+    tab("settings").click();
+
+    expect(root.querySelector(".discovery-settings-panel")).not.toBeNull();
+    expect(tab("settings").getAttribute("aria-current")).toBe("page");
   });
 
   it("works without a nav in the shell", () => {
