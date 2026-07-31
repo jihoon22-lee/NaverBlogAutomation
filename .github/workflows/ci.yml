@@ -274,6 +274,11 @@ jobs:
         continue-on-error: true
         run: npm --prefix client run format:check
 
+      - name: Check the frozen extension boundary
+        id: extension_boundary
+        continue-on-error: true
+        run: python3 scripts/check_extension_boundary.py
+
       - name: Lint
         id: lint
         continue-on-error: true
@@ -332,6 +337,7 @@ jobs:
           TEST_RESULT: ${{ steps.tests.outcome }}
           BUILD_RESULT: ${{ steps.build.outcome }}
           BOUNDARY_RESULT: ${{ steps.boundary.outcome }}
+          EXTENSION_BOUNDARY_RESULT: ${{ steps.extension_boundary.outcome }}
         run: |
           echo "## Client quality gate" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
@@ -342,13 +348,15 @@ jobs:
           echo "| Vitest + coverage | $TEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Client build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Page bundle boundary | $BOUNDARY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Frozen extension boundary | $EXTENSION_BOUNDARY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$FORMAT_RESULT" != "success" \
             || "$LINT_RESULT" != "success" \
             || "$TYPES_RESULT" != "success" \
             || "$TEST_RESULT" != "success" \
             || "$BUILD_RESULT" != "success" \
-            || "$BOUNDARY_RESULT" != "success" ]]; then
+            || "$BOUNDARY_RESULT" != "success" \
+            || "$EXTENSION_BOUNDARY_RESULT" != "success" ]]; then
             echo "One or more client checks failed." >&2
             exit 1
           fi
