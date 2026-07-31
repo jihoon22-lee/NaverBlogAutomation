@@ -1,244 +1,244 @@
-# Side Panel Comment Recommendation Architecture
+# 네이버 블로그 댓글·글쓰기 보조 도구 아키텍처
 
-Status: Accepted target architecture, updated 2026-07-27
+Status: 현재 구현을 반영한 개정본, 갱신 2026-08-01
 
-This decision supersedes the earlier split review-UI architecture accepted on 2026-07-16.
-PR 1~8 delivered the domain, SQLite persistence, local API, Side Panel extraction, OpenAI adapter,
-integrated recommendation/review workflow, and release hardening. Delivery boundaries and their
-acceptance criteria are recorded in [`delivery-plan.md`](delivery-plan.md).
+이 문서는 v0.6 이후의 실제 런타임 구조를 기술합니다. PR 1–8이 만든 원래 Side Panel
+아키텍처와 delivery boundary는 [`delivery-plan.md`](delivery-plan.md)에 남아 있습니다.
 
-## Purpose and Boundaries
+## 목적과 경계
 
-The application helps one local user find a Naver Blog post, create a relevant comment, and complete
-one reviewed engagement task. The user opens the extension Side Panel, checks the extracted title
-and preview, explicitly requests recommendations, edits or selects a candidate, and either uses the
-manual input fallback or approves one post for conditionally clicking like, publishing that exact
-comment, and optionally requesting a mutual-neighbor relationship.
+이 도구는 한 명의 로컬 사용자가 네이버 블로그 이웃 글을 발견하고, 관련 댓글을 생성·편집하며,
+공감·댓글 등록·서로이웃 신청을 수행하고, 별도 워크플로로 자기 블로그 글을 작성하는 과정을
+돕습니다.
 
-The application provides a local discovery queue using one explicitly saved own-blog ID, optional
-saved search queries, and manually added neighbors. Once enabled, the local API reads only the
-fixed public BuddyList, Naver search, and RSS metadata endpoints at the user's scheduled time. It
-does not sign in, copy cookies, bypass Captcha or login restrictions, or run an unattended batch.
-Every article extraction, model request, and external engagement run remains bound to an explicit
-user action.
+탐색 대기열은 저장된 블로그 ID 하나와 선택적 검색어, 수동 추가 이웃을 사용합니다. 활성화되면
+공개 BuddyList, 네이버 검색 API, RSS metadata endpoint만 읽습니다. 쿠키·로그인 정보를
+수집하거나 Captcha를 우회하지 않으며, 무인 배치는 명시적 opt-in 없이 동작하지 않습니다.
 
-## System Context
+## 시스템 구조
 
 ```mermaid
 flowchart LR
-    U[User] -->|opens toolbar action| P[Chrome Side Panel]
-    P -->|activeTab + scripting| N[Current Naver Blog tab]
-    N -->|title, URL, visible body| P
-    P -->|one approved like, exact comment, optional mutual-neighbor request| N
-    P -->|status, history, preview-confirmed POST/PATCH/DELETE| A[Local FastAPI service]
-    A -->|public BuddyList, search, RSS metadata| N
-    A -->|structured request| O[OpenAI Responses API]
-    O -->|summary, topics, three candidates| A
+    U[User] -->|브라우저에서 접속| W["Local Web App\n(client/)"]
+    W -->|REST / SSE| A["Local FastAPI\n127.0.0.1:8765"]
+    A -->|page script inject| B["Automation Browser\n(Playwright)"]
+    B -->|DOM probe / CDP action| N["Naver Blog"]
+    A -->|public BuddyList, search, RSS| N
+    A -->|structured request| LLM["LLM Providers\n(OpenAI · Gemini · Claude)"]
+    LLM -->|summary, candidates, body| A
     A --> D[(SQLite)]
-    A -->|recommendation and review state| P
-    P -->|edit and copy| U
+    A --> FS["Local Filesystem\n(초안 이미지)"]
 ```
 
-FastAPI listens only on `127.0.0.1:8765`. The Side Panel is the only end-user UI. The Python
-package provides the loopback service and contains no second presentation layer.
+FastAPI는 `127.0.0.1:8765`에만 bind합니다. **`client/` 로컬 웹앱**이 유일한 end-user
+UI입니다. 과거 Chrome Side Panel extension은 v0.5.6에서 동결(FROZEN)되었으며 더 이상
+개발·사용되지 않습니다. Python 패키지는 loopback 서비스와 SPA를 함께 제공하며
+별도 프레젠테이션 프로세스는 필요하지 않습니다.
 
-## Component Responsibilities
+## 구성 요소 책임
 
-### Side Panel and Browser Boundary
+### 로컬 웹앱 (`client/`)
 
-The Manifest V3 TypeScript extension requests `activeTab`, `scripting`, `sidePanel`, `storage`, and
-the loopback API host permission. It offers the two Naver Blog origins as an **optional** host
-permission; accepting it makes article capture and comment-input assistance available after normal
-navigation, while declining keeps the toolbar-click `activeTab` fallback. Storage holds no article,
-generated candidate, or edited-comment text; it contains retry metadata and the user's explicitly
-saved options, including one bounded closing phrase and one bounded default mutual-neighbor message.
-The service worker configures toolbar clicks
-to open the panel and performs only short browser-API orchestration. It never owns a model request
-because its lifecycle is ephemeral.
+TypeScript SPA로 빌드되며 같은 loopback 서비스에서 static으로 제공됩니다. CORS 추가
+설정 없이 같은 origin에서 API를 호출합니다.
 
-The Side Panel owns UI and HTTP request lifecycles. Its workspace controller exposes only one of
-**Today**, **Comment**, **History**, and **Settings** at a time. On open, Today shows the loopback
-service state, per-source queue counts, current item, and queue actions. Opening one queued post
-switches to Comment, where extraction shows the URL, title, character count, truncation state, and a
-bounded preview. Transmission begins only after the user confirms relationship, speech style,
-comment mood, and comment length and presses the generation button. A complete preference profile
-persists only after the user explicitly saves it as
-the default. An optional 50-code-point closing phrase stays out of generation requests and is appended
-in the local review editor only when a candidate is selected. The response echoes the effective options and non-blocking quality warnings so the
-review UI can show provenance and weak role separation without hiding usable candidates. Direct
-regeneration recaptures the article and, when its digest is unchanged, uses a fresh idempotency key
-immediately; changed content returns to Preview. A separate settings action returns to Preview
-without an API call. The panel then supports candidate selection, editing, approval, safe
-comment-input filling, clipboard copy, and an explicit completed action. Filling or copying alone
-never marks a recommendation completed. Copy uses the user gesture Clipboard API on a best-effort
-basis and falls back to a selectable text area; the extension does not request `clipboardWrite`.
-Input filling uses the user-granted Naver host permission or the existing `activeTab` and `scripting`
-fallback, may click one verified standard comment-editor opener, and proceeds only when exactly one
-visible editable target is empty. The manual fallback never clicks a submit control. Separately
-isolated engagement gateways can run only after versioned consent and a one-use in-memory approval:
-they read current state before clicking a single trusted like, comment-submit, or mutual-neighbor
-target. The mutual-neighbor gateway verifies the current post author against the queued blog ID,
-supports the current Naver popup entry, selects only one explicit mutual-neighbor option, and writes
-only the final approved message. Ambiguous, occupied, missing, stale, denied, and unknown-state
-targets fail closed. An unconfirmed submit is not automatically clicked again.
+워크스페이스에는 **오늘의 작업(Today)**, **여러 글 처리(Session)**, **글 작성(Writing)**
+세 탭이 있으며, 한 번에 하나만 표시합니다.
 
-A separate history controller reads runtime diagnostics, the latest 20 local recommendations, and
-their linked per-step engagement results.
-It can copy a previously approved comment, open the original URL, or explicitly delete one local
-record. History text stays in DOM memory and is never copied into `chrome.storage.local`.
+- **Today** — 탐색 대기열 상태, 큐 동기화, 개별 글 처리 시작.
+- **Comment** — 추출 결과 확인, 댓글 생성·선택·편집·복사, 실행 승인.
+- **Session** — 세션 배치 승인, SSE 기반 진행 추적, 취소.
+- **Writing** — 초안 등록, 본문 생성·다듬기, 태그 생성, 임시저장 실행.
 
-Naver-specific selectors are isolated behind an extractor adapter. A generic semantic fallback
-handles minor markup changes. Results from eligible frames are ranked, normalized, and bounded to
-the API limit. The extractor returns strings only and excludes navigation and comments. An
-unsupported URL, image-only post, short result, or changed DOM produces a local error without an
-API call. Switching tabs or navigating marks the current preview stale. A different tab or origin
-requires the user to click the toolbar action again to grant `activeTab`; stale asynchronous
-results are discarded using the tab/document identity and an operation token. If neither permission
-is available, the panel explains how to grant the optional Naver permission before retrying.
+SPA는 secret이나 API key를 보유하지 않으며, LLM provider 설정 여부만 표시합니다.
 
-### Local API, Domain, and Persistence
+### Page Script Injection (`client/src/page/`)
 
-FastAPI owns the checked-in [`api/openapi.yaml`](api/openapi.yaml) contract, input validation,
-request-size control, exact-origin CORS, local rate limiting, timeout handling, and redacted logs.
-The application and domain layers remain independent of FastAPI, Chrome, SQLAlchemy, and OpenAI.
+자동화 브라우저(Playwright)의 isolated context에 `window.__nbaPage`로 주입되는 read-only
+probe 번들입니다. 기사 추출, 댓글·공감·서로이웃 popup probe, 에디터 probe, 내 블로그 카테고리
+읽기 등 DOM 관측만 담당합니다. CDP를 통한 클릭·입력은 Python 레이어가 probe 결과를 확인한 뒤
+trusted input으로 실행합니다.
 
-SQLite is the canonical owner of recommendations and review status. It stores the canonical URL,
-title, content hash, bounded excerpt, summary, topics, candidates, timestamps, and generation
-metadata, but never the complete body. A bounded list endpoint returns history summaries without
-excerpts, hashes, candidates, or full article bodies. Deleting one recommendation also deletes its
-candidates and completed retry snapshot transactionally. A review conflict is recovered by
-fetching the current recommendation before the user retries; ETag is still outside the local
-single-user scope.
+### Local API, Domain, Persistence
 
-SQLite also owns one engagement run per discovery post. The run references the existing discovery
-post and recommendation, stores only the opaque approval ID and ordered step state/result codes,
-and never stores the final comment or mutual-neighbor message. `BEGIN IMMEDIATE`, unique approval
-and post constraints, and forward-only transitions prevent duplicate run creation. A successful
-comment step completes the recommendation transactionally; completing all required steps completes
-the discovery post. A leftover `running` step after panel reload is converted to `unconfirmed`
-before any further action, so an unknown external result is never retried automatically.
+FastAPI는 체크인된 [`api/openapi.yaml`](api/openapi.yaml) 계약, 입력 검증, request-size
+제한, exact-origin CORS, local rate limiting, timeout 처리, redacted 로그를 소유합니다.
+application과 domain 레이어는 FastAPI, Chrome, SQLAlchemy, 어떤 LLM SDK에도 의존하지
+않습니다.
 
-### OpenAI Adapter
+SQLite는 추천(recommendations), 교류 실행(engagement runs), 탐색 큐(discovery posts),
+세션 배치(automation sessions), 초안(post drafts)과 그 revision·tag·이미지 metadata,
+설정(app settings), LLM 호출 기록(call attempts)의 정식 소유자입니다. 완전한 기사
+본문은 절대 저장하지 않습니다.
 
-The adapter uses the Responses API with Pydantic Structured Outputs. The default model is
-`gpt-5.6-terra`, with low reasoning effort and provider storage disabled using `store=false`.
-Configuration may override the model without weakening output validation. Article content is
-untrusted data: the entire provider input channel remains untrusted even when article text contains
-delimiter-like strings. Validated preference enums select static relationship, speech, and target
-length directives in trusted instructions; raw article fields cannot redefine those directives.
-When the user enables personalization, at most five explicitly eligible completed comments are sent
-as a separate untrusted style-example input. They can influence surface style only; their facts and
-wording are not instructions or grounding.
+### 다중 LLM Provider 구조
 
-The result contains a short summary, one to five topics, and exactly three grounded candidates in
-the warm, curious, and supportive tones. Refusals, rate limits, timeouts, unavailable providers,
-and invalid outputs map to stable application errors; raw provider payloads are never returned.
+```
+infrastructure/llm/
+├── registry.py        — ProviderRegistry
+├── openai_client.py   — OpenAIStructuredClient
+├── gemini_client.py   — GeminiStructuredClient
+├── anthropic_client.py — AnthropicStructuredClient
+└── fake_client.py     — FakeStructuredClient (테스트·기본)
+```
 
-## State Ownership and Data Lifetime
+**`ProviderRegistry`**는 프로세스 환경에서 API key를 읽고, 어떤 provider가 호출 가능한지
+보고하며, 요청 시 client를 캐싱해 반환합니다. Key 값은 response나 로그에 절대 노출하지
+않으며, SPA에는 `configured: bool` 여부만 반환합니다.
 
-| State | Owner | Lifetime |
+각 adapter는 공통 `StructuredCompletion` port를 구현하며, Pydantic Structured Outputs를
+사용해 결과를 검증합니다.
+
+| Provider | 환경변수 | 기본 model |
 | --- | --- | --- |
-| Blog DOM | Active tab | Page lifetime |
-| Full extracted body | Side Panel memory | References released on handoff, cancel, panel unload, or navigation |
-| Full request body | FastAPI generation task | Released when that task settles or the process exits |
-| Loading, preview, and unsaved edit state | Side Panel | Panel session |
-| Recommendation, review status, and recent-history source | SQLite | Until individually or globally removed |
-| Eligible completed-comment style examples | SQLite/OpenAI request | Until excluded; at most five per enabled generation |
-| `OPENAI_API_KEY` | Python process environment | Process lifetime |
-| `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET` | Python process environment | Process lifetime |
-| Request fingerprint, idempotency UUID, result ID | Bounded extension storage | Retry window only |
-| Explicitly saved generation profile, bounded closing phrase, and default mutual-neighbor message | Extension storage | Until changed or extension data is removed |
-| Consent version, active state, agreement timestamp | Extension storage | Until withdrawn, superseded, or extension data is removed |
-| Per-post engagement approval and final action text | Side Panel memory | One consumption, navigation, withdrawal, or panel unload |
-| Engagement run and safe per-step result codes | SQLite | Until its linked recommendation or discovery post is removed |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5.6-terra` |
+| Gemini | `GEMINI_API_KEY` | `gemini-3.6-flash` |
+| Claude | `ANTHROPIC_API_KEY` | `claude-sonnet-5-20260514` |
 
-The extension stores no body, title, URL, generated candidate, edited comment, cookie, or credential. Its
-`chrome.storage.local` is restricted to trusted extension contexts. Its registry contains only a
-schema and generation-policy versions, digest, opaque IDs, state, and timestamps; a separate
-versioned record contains the five validated generation preference enums and one normalized user-authored
-closing phrase of at most 50 code points. Another versioned record contains one default
-mutual-neighbor message of at most 500 code points. A separate consent record contains only its
-version, active state, and agreement timestamp; post URLs, comments, per-run edited neighbor
-messages, and one-time approvals are never copied into extension storage. It persists across browser
-restarts and holds at most 20 operations.
-Completed, released, or explicitly dismissed entries expire after 60 minutes and are removed on a
-later registry access. Active, reviewing, terminal-failure, or indeterminate entries never expire
-automatically. If 20 retained entries fill the registry, new generation is blocked until entries
-expire or the user explicitly resolves, replaces, dismisses, or cleans them up. Invalid records are
-quarantined from automatic retry and require cleanup confirmation. Reopening can repeat the same
-request only when the same normalized payload can be extracted again; otherwise it can use a known
-recommendation ID for GET or show manual recovery guidance.
+**Fan-out (`application/llm/fanout.py`)**는 하나의 요청을 여러 provider에 병렬 호출해
+결과를 비교합니다. 각 provider에 독립적인 idempotency key가 파생되므로 재시도 시 이미
+저장된 결과를 재생합니다. 부분 실패는 정상이며, 한 provider의 거부가 다른 provider의
+성공 결과를 무효화하지 않습니다.
 
-## Idempotency and Failure Recovery
+**`CallBudget` (`application/llm/budget.py`)**는 fan-out이 시작되기 전에 두 가지 한도를
+확인합니다:
 
-The extension normalizes whitespace in URL, title, and body using the shared contract, applies the
-100,000-code-point limit, serializes `{source_url,title,body}` in a canonical key order, and hashes
-its UTF-8 bytes. Every request uses a `generation-policy-v3` canonical JSON composite of that post
-digest and all five effective preference values, so an old-policy result or differently configured
-generation cannot be replayed. A non-empty legacy registry is quarantined until explicit cleanup;
-only an empty legacy registry is migrated automatically. The extension persists the new digest and
-UUID before sending `POST /api/v1/recommendations`.
-Unicode and emoji test vectors keep the TypeScript and Python identity rules aligned. Duplicate
-clicks, network interruption, or a `504` reuse that key whenever the same payload is available. A
-completed generation returns the immutable first response; an active one returns
-`generation_in_progress`. The panel stops bounded polling within 60 seconds and then presents an
-unknown/manual-recovery state. A `429` honors `Retry-After`.
+1. **`per_request_provider_cap`** — 한 요청이 동시에 호출할 수 있는 provider 수.
+2. **`daily_call_cap`** — 이 설치가 하루에 사용할 수 있는 총 provider 호출 수.
 
-A failure known to occur before provider work releases the reservation and can be retried with the
-same key. A terminal provider result such as refusal or invalid structured output is persisted as a
-safe error snapshot and replayed without another model call. A timeout, connection loss, or server
-failure after submission is indeterminate and is persisted separately from active generation. The
-UI explains this state and must not silently issue a new key. Creating a replacement attempt
-requires explicit user confirmation after the user understands that the prior provider result is
-unknown.
+한도를 초과하면 `BudgetExceededError`를 반환하며 어떤 provider도 호출하지 않습니다.
+두 값은 `settings/{kind=llm_budget}`에서 구성합니다.
 
-If review returns `409`, the panel fetches the latest stored recommendation and does not overwrite
-it automatically. Without ETag/`If-Match`, the MVP assumes one active panel and does not guarantee
-protection from sequential stale writes across multiple panels. If clipboard access fails, the
-comment remains selectable for manual copying.
+### 글쓰기 Domain
 
-## Security and Privacy Boundaries
+글쓰기 워크플로는 다음 domain 개체를 사용합니다:
 
-- `OPENAI_API_KEY` exists only in the Python process environment.
-- FastAPI binds only to loopback; wildcard CORS and browser credentials are disabled.
-- CORS protects the browser boundary but is not local-process authentication. The MVP assumes one
-  trusted local machine; broader distribution requires a new authentication and privacy review.
-- Only `blog.naver.com` and `m.blog.naver.com` HTTPS URLs are accepted initially.
-- The extension uses no always-on content script, cookies, history access, or remote JavaScript.
-  Persistent access to `blog.naver.com` and `m.blog.naver.com` is optional and requested only from
-  the Side Panel through a user gesture.
-- Request bodies, authorization headers, article text, and provider payloads are excluded from
-  logs, browser storage, test artifacts, and screenshots.
-- Source URL, title, and a bounded excerpt are retained locally and must be disclosed to the user.
-- Client abort, navigation, or panel unload releases browser references but does not guarantee that
-  an already-running FastAPI/provider task is cancelled; server memory is released when it settles.
+- **`PostDraft`** — 초안의 lifecycle을 소유합니다. 상태는 `collecting → composed →
+  refining → tagged → staging → staged`로 전진하며, `abandoned`로의 명시 전환만
+  예외입니다.
+- **`DraftRevision`** — 한 번의 생성·다듬기·사용자 편집 결과. `seed`, `composed`,
+  `refined`, `user_edited` 네 kind가 있으며 draft에 여러 revision이 쌓입니다.
+- **`BodyBlock`** — 본문은 HTML이 아니라 block 배열입니다. 에디터 입력은 block 단위로
+  실행하며, 같은 콘텐츠를 다른 에디터로 옮길 수 있습니다.
+- **`DraftTag`** — 정규화된 태그. `generated`와 `user` 소스를 구분하며 선택 상태를
+  관리합니다.
+- **`PublishRun`** — 에디터 임시저장 step machine. `title → body → images → tags →
+  save` 5단계로 진행하며, engagement run과 같은 forward-only 전이를 따릅니다.
 
-The product remains a user-approved, one-post-at-a-time assistant. Manual input filling still does
-not submit a form. The separate engagement path may click one like, submit the exact approved
-comment, and request one mutual-neighbor relationship only after versioned consent and a final
-per-post confirmation. It does not provide unattended batches, Captcha/login bypass, account
-rotation, or multi-user hosted execution; those remain outside the accepted boundary.
+`ComposePost` use case는 참고 글 본문(최대 4,000자 × `reference_post_count`건)과
+초안 seed text를 LLM provider에 보내 본문을 생성합니다. 다듬기는 기존 body를 입력으로
+같은 port를 호출합니다. 태그 생성도 동일한 경로를 사용합니다.
 
-## Runtime and Quality Strategy
+### 세션 배치 (`RunSession`, `SessionPostRunner`)
 
-Python 3.14 with `uv` runs FastAPI, the OpenAI adapter, SQLAlchemy, Alembic, and SQLite. The
-extension uses Node.js 24 LTS, TypeScript, esbuild, Biome, and Vitest. The Side Panel owns all
-end-user presentation and review interaction.
+**`RunSession`**은 하나의 승인으로 여러 글을 순서대로 처리하는 batch orchestrator입니다.
+각 글 사이에 `SafetyGovernor`가 판정을 수행합니다.
 
-PR CI runs Ruff, ty, pytest with at least 85% branch coverage, TypeScript checking, Biome, Vitest
-coverage, an extension production build, installed-wheel smoke tests, and a separate packaged
-System E2E workflow against the installed console script. Fixtures contain only synthetic HTML.
-Real Naver pages and live OpenAI calls remain opt-in and must not emit source text or secrets into
-artifacts. Operational details and the headless Side Panel limitation are documented in
-[`local-operations.md`](local-operations.md).
+- 사용자가 승인한 `max_posts`건까지 처리하며 하나도 초과하지 않습니다.
+- 취소 요청은 현재 글이 끝난 뒤 반영됩니다.
+- 진행 상태는 SSE event stream으로 client에 전달됩니다.
+- 종료된 세션은 새 승인 없이 재개되지 않습니다.
 
-## Consequences
+**`SessionPostRunner`**는 한 글에서 추출 → 댓글 생성 → 첫 후보 승인 → 교류 실행을
+순서대로 수행합니다. 각 실패는 result code로 기록되며 batch가 계속할지 중단할지를
+`RunSession`이 판단합니다.
 
-- The review flow stays beside the source post without exposing the API key to the extension.
-- Existing domain, persistence, and API work remains usable; only the presentation decision is
-  replaced.
-- One local background service is still required, without a second UI process or duplicated
-  presentation layer.
-- The extension must manage stale-tab detection, retry identity, and accessible long-lived UI.
-- OpenAPI remains the extension-to-service source of truth; incompatible changes require a new API
-  version.
+### SafetyGovernor
+
+`SafetyGovernor`는 모든 외부 행동 전에 다음 조건을 확인합니다:
+
+| 판정 사유 | 조건 |
+| --- | --- |
+| `daily_cap_reached` | 공감·댓글·서로이웃 각각의 일일 상한 초과 |
+| `outside_allowed_hours` | 현재 시각이 허용 시간대(`allowed_hours`) 밖 |
+| `consecutive_failures` | 연속 실패 횟수가 `max_consecutive_failures`에 도달 |
+
+추가로 글 사이 **최소 간격**(`min_interval_seconds`)과 **jitter**(`jitter_ratio`)를
+적용하며, 기사 길이에 비례하는 **dwell time**을 계산합니다.
+
+거부 시 `GovernorRefusedError`가 발생하며 session은 abort 상태로 전이합니다.
+
+### 무인 스케줄 (`ScheduleSessions`)
+
+무인 실행은 opt-in이며 다음 세 조건을 모두 충족해야 활성화됩니다:
+
+1. `settings/automation_consent`에서 `accepted: true`.
+2. `settings/safety_policy`가 한 번 이상 명시적으로 저장됨(`updated_at ≠ null`).
+3. `settings/schedule_policy`의 `mode`가 `"schedule"`.
+
+세 조건을 충족하면 `ScheduleSessions.run_if_due()`가 매일 지정 시각(±5분)에 호출됩니다.
+자동으로 browser session을 시작하고 `SessionTrigger.SCHEDULE`로 세션을 승인합니다.
+
+안전 장치:
+- 하루에 한 번만 실행됨(같은 날 `SessionTrigger.SCHEDULE`로 생성된 세션이 이미 있으면
+  건너뜀).
+- 다른 세션이 활성 상태이면 건너뜀.
+- 브라우저를 시작하지 못하면 건너뜀.
+- 하나라도 누락된 조건이 있으면 `ScheduleDecision(started=False, reason=...)`을
+  반환하며 아무 작업도 하지 않음.
+
+## 상태 소유와 데이터 수명
+
+| 상태 | 소유자 | 수명 |
+| --- | --- | --- |
+| Blog DOM | Automation Browser tab | 페이지 수명 |
+| 추출된 전체 본문 | FastAPI 메모리 | 해당 작업이 완료되거나 프로세스 종료 시 해제 |
+| 참고 글 본문 (글쓰기용) | FastAPI 메모리 → LLM provider 전송 | generation 완료 시 해제 |
+| SPA UI 상태 | 브라우저 메모리 | 탭 수명 |
+| 추천·교류 실행·세션·초안·설정 | SQLite | 명시 삭제까지 |
+| 초안 이미지 bytes | 로컬 filesystem (`DRAFT_MEDIA_DIR`) | 초안 삭제까지 |
+| LLM API Key | Python process 환경변수 | 프로세스 수명 |
+| `NAVER_SEARCH_CLIENT_ID`/`SECRET` | Python process 환경변수 | 프로세스 수명 |
+| LLM 호출 기록 (attempts) | SQLite | 예산 계산용, 일별 |
+| 세션 배치 진행·SSE event | 메모리 + SQLite | 세션 종료까지 |
+
+## 보안과 개인정보 경계
+
+- **LLM API key는 Python 프로세스 환경에만 존재합니다.** 어떤 경우에도 client(SPA),
+  response body, 로그, 브라우저 storage에 전달되지 않습니다. SPA에는 `configured: bool`
+  여부만 반환합니다.
+- **참고 글 본문은 LLM provider로 전송됩니다.** 글쓰기의 `ComposePost`와 `RefinePost`는
+  내 블로그 참고 글 본문(최대 4,000자 × 설정된 건수)을 provider에 전달합니다. 댓글
+  생성 시에도 대상 글 본문이 provider에 전달됩니다. 전송된 본문은 SQLite나 로그에
+  저장되지 않습니다.
+- **초안 이미지는 로컬 filesystem에만 존재합니다.** `DraftImageStore`가 관리하는 runtime
+  directory(`DRAFT_MEDIA_DIR` 또는 기본 경로)에 generated UUID 이름으로 저장됩니다.
+  원본 파일명은 sanitize되며, response에 bytes가 포함되지 않습니다. `use_image_vision:
+  true`를 설정한 경우에만 이미지가 provider에 전달됩니다.
+- FastAPI는 loopback에만 bind하며, CORS는 선언된 origin만 허용합니다. 브라우저
+  credentials는 비활성입니다.
+- `blog.naver.com`과 `m.blog.naver.com` HTTPS URL만 초기 허용 대상입니다.
+- 자동화 브라우저는 전용 profile을 사용하며 기존 브라우저와 분리됩니다. 쿠키·계정
+  정보를 읽지 않고, 공개 페이지의 sign-in affordance만 관찰합니다.
+- Request body, authorization header, 기사 본문, provider payload는 로그·브라우저
+  storage·테스트 artifact·스크린샷에서 제외됩니다.
+- Client abort나 탭 닫기 시 브라우저 reference는 해제되나, 이미 실행 중인 FastAPI/
+  provider 작업의 취소는 보장하지 않습니다.
+
+### Extension 동결 상태
+
+Chrome Manifest V3 extension은 v0.5.6에서 동결(FROZEN)되었습니다. `extension/`
+디렉토리는 코드베이스에 남아 있지만 새 기능이 추가되지 않으며, 사용자 워크플로에서
+사용되지 않습니다. 기존 `chrome.storage.local`에 저장된 데이터는 웹앱 이전을 위해
+참조만 가능합니다.
+
+## 런타임과 품질 전략
+
+Python 3.14, `uv`, FastAPI, SQLAlchemy, Alembic, SQLite가 서비스를 구성합니다.
+`client/`는 Node.js 24 LTS, TypeScript, esbuild, Biome, Vitest로 빌드합니다.
+자동화 브라우저는 Playwright입니다.
+
+PR CI는 Ruff, ty, pytest(85% branch coverage 이상), TypeScript 검사, Biome, Vitest
+coverage, extension production build, 설치된 wheel smoke test, 별도 System E2E
+workflow를 실행합니다. Fixture는 합성 HTML만 포함하며, 실제 Naver 페이지나 live LLM
+호출은 opt-in입니다.
+
+## 결과
+
+- API key가 SPA에 노출되지 않으면서도 같은 loopback에서 모든 기능을 제공합니다.
+- 여러 LLM provider를 동시 비교할 수 있으면서도 예산 제한으로 비용을 통제합니다.
+- 세션 배치와 무인 스케줄은 항상 SafetyGovernor를 거치며 일일 상한과 시간대를
+  준수합니다.
+- 글쓰기 워크플로는 임시저장까지만 자동화하며 발행은 사용자가 직접 수행합니다.
+- OpenAPI가 SPA-to-service의 단일 진실 소스이며, 비호환 변경은 새 API version을
+  요구합니다.

@@ -1041,6 +1041,8 @@ paths:
             - schedule_policy
             - browser_profile
             - llm_providers
+            - llm_budget
+            - writing_profile
     get:
       operationId: getAppSetting
       tags: [Settings]
@@ -1865,6 +1867,8 @@ components:
             - schedule_policy
             - browser_profile
             - llm_providers
+            - llm_budget
+            - writing_profile
         schema_version:
           type: integer
           minimum: 1
