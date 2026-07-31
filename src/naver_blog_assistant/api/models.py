@@ -618,6 +618,25 @@ class LlmProvidersResponse(StrictModel):
         )
 
 
+class ProviderSelectionRequest(StrictModel):
+    """One provider to call, optionally overriding its configured model."""
+
+    provider: Literal["openai", "gemini", "anthropic"]
+    model: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+
+
+class ProviderOutcomeResponse(StrictModel):
+    """The result of one provider attempt."""
+
+    provider: Literal["openai", "gemini", "anthropic"]
+    model: str
+    status: Literal["succeeded", "failed", "indeterminate"]
+    result_code: str | None
+    replayed: bool
+    retry_after: int | None
+    recommendation: RecommendationResponse | None
+
+
 class CommentGenerationRequest(StrictModel):
     """Generate candidates for one supported post using the saved profile."""
 
@@ -637,6 +656,27 @@ class CommentGenerationResponse(StrictModel):
     extraction: ArticleExtractionResponse
     recommendation: RecommendationResponse
     replayed: bool
+
+
+class CommentFanoutRequest(CommentGenerationRequest):
+    """Generate candidates for one post with several providers at once."""
+
+    providers: Annotated[list[ProviderSelectionRequest], Field(min_length=1, max_length=3)]
+
+    @model_validator(mode="after")
+    def validate_unique_providers(self) -> Self:
+        names = [selection.provider for selection in self.providers]
+        if len(set(names)) != len(names):
+            raise ValueError("each provider may appear at most once")
+        return self
+
+
+class CommentFanoutResponse(StrictModel):
+    """Every provider outcome for one request."""
+
+    attempt: Annotated[int, Field(ge=1)]
+    extraction: ArticleExtractionResponse
+    items: Annotated[list[ProviderOutcomeResponse], Field(min_length=1, max_length=3)]
 
 
 class ArticleExtractionRequest(StrictModel):
