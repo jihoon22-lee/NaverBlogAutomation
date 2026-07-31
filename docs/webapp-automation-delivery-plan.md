@@ -654,7 +654,9 @@ stateDiagram-v2
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 완료 |
 | 20 | 20a | `feat(client): make every workspace section reachable` | 완료 |
 | 20 | 20b | `feat(client): add the session batch screen` | 완료 |
-| 21 | 21 | `test(automation): add integration suite and refresh docs` | 대기 |
+| 21 | 21a | `ci: enforce the frozen extension boundary` | 완료 |
+| 21 | 21b | `docs: 웹앱 전환과 신규 기능에 맞춰 문서 개정` | 완료 |
+| 21 | 21c | `test(api): add cross-feature journey suite` | 완료 |
 
 Task 번호 대응표입니다. 2026-07-31 통합에서 글쓰기·provider Task를 중간에 넣으면서 뒤쪽 Task를
 재번호했습니다.
@@ -1257,7 +1259,7 @@ Demo: 개선 전후의 조작 수와 키보드 완주 가능 여부를 비교해
 status 없을 때 root fallback), `main.test.ts` 5건(nav로 글 작성 도달, 오늘의 작업 복귀,
 전환 시 focus 진입, 댓글 화면에서도 오늘의 작업 탭 유지, nav 없이도 동작).
 
-### [ ] Task 21 — 통합 스위트, 경계 규칙, 문서 개정 (PR 21)
+### [x] Task 21 — 통합 스위트, 경계 규칙, 문서 개정 (PR 21)
 
 목표: fixture 서버 기반 통합 테스트를 정리하고, `client/`와 automation 코드가 `extension/`을 import
 하지 않도록 tsconfig 경계와 CI 검사를 추가합니다. `architecture.md`의 보안 경계, `README.md`,
@@ -1269,7 +1271,30 @@ status 없을 때 root fallback), `main.test.ts` 5건(nav로 글 작성 도달, 
 
 Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글쓰기 완주.
 
-상태: 대기.
+상태: 완료. 검증(2026-08-01): `ruff format --check`·`ruff check`·`ty check` All checks passed,
+`uv run pytest` **1413 passed / 7 skipped**, `npm --prefix client run check` **451 passed**,
+wheel smoke 통과.
+
+신규: `scripts/check_extension_boundary.py`(CI `Client quality` job에 단계 추가),
+`extension/FROZEN.md`, `tests/integration/api/test_journeys.py`.
+
+문서 개정: `README.md`, `docs/getting-started.md`, `docs/local-operations.md`,
+`docs/architecture.md`, `docs/api-contract.md`, `docs/api/openapi.yaml`.
+`architecture.md`는 extension Side Panel이 유일한 UI라는 전제로 쓰여 있어 현재 구조와 맞지 않았고,
+`README.md`는 여러 글을 무인·일괄 처리하지 않는다고 단언하고 있어 사실과 달라졌습니다.
+`openapi.yaml`의 settings kind enum에 `llm_budget`·`writing_profile`이 빠져 있던 것도 함께 고쳤습니다.
+
+통합 여정 테스트에서 찾아 고친 실제 결함: **세션 배치 승인이 자동 실행 동의를 확인하지 않았습니다.**
+글 하나 실행은 `403 consent_missing`으로 즉시 거부하는데, 여러 글을 처리하는 배치는 승인을 통과시킨 뒤
+글마다 같은 사유로 실패했습니다. 거부하려고 대기열을 소모하는 셈이라 `RunSession.approve`에서
+확인하도록 고쳤습니다.
+
+신규 테스트 45건: `test_journeys.py` 28건(무인 모드 gate 7건 — 신규 설치·스케줄만·동의만·저장 요구·
+순서 무관·되돌리기 2건, 세션 배치 여정 6건 — 동의 없는 거부·동의 후 통과·빈 대기열·이력 보존·
+취소 두 번·없는 배치, 글쓰기 여정 5건, 설정 왕복 5건 — 9종 kind·저장 시각 2건·재기동 보존·미지 kind,
+서비스 표면 3건 — health·`/app`·provider 목록의 key 미노출),
+`test_extension_boundary.py` 17건(TS 5종·허용 4종, Python 3종·유사 이름·docstring, 저장소 무위반·
+감시 범위·확장자).
 
 ## 결정 로그
 
@@ -1346,6 +1371,9 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-08-01 | focus 이동은 화면 전환에서만 수행 | 매 render마다 옮기면 사용자가 입력하는 중에 focus를 빼앗음 |
 | 2026-08-01 | 취소 버튼은 `취소 요청함`으로 표시 | 취소는 처리 중인 글이 끝난 뒤 반영되므로 즉시 멈춘 것처럼 보이면 거짓 |
 | 2026-08-01 | 중단 사유는 코드가 아니라 다음 행동으로 표시 | `login_required`가 아니라 `브라우저에서 로그인하세요`로 안내 |
+| 2026-08-01 | 세션 배치 승인 시점에 동의를 확인 | 확인하지 않으면 글마다 같은 사유로 실패해 거부하려고 대기열을 소모함 |
+| 2026-08-01 | extension 경계는 script + CI 단계로 강제 | 주석·문자열의 언급은 통과시키고 실제 import만 실패시킴 |
+| 2026-08-01 | 여정 테스트는 추측한 동작이 아니라 실제 동작을 검증 | 취소는 idempotent(200), provider 미설정 compose는 503이 정상 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |

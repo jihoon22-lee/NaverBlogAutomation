@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
 
+from naver_blog_assistant.application.automation.errors import EngagementNotAllowedError
 from naver_blog_assistant.application.automation.governor import (
     GovernorRefusedError,
     SafetyGovernor,
@@ -27,6 +28,7 @@ from naver_blog_assistant.domain.sessions import (
     SessionState,
     SessionTrigger,
 )
+from naver_blog_assistant.domain.settings import AppSettingKind
 
 logger = logging.getLogger("naver_blog_assistant.api")
 KEEPALIVE_SECONDS = 15.0
@@ -86,6 +88,7 @@ class RunSession:
         sessions: SessionStore,
         queue: QueueReader,
         runner: PostRunner,
+        read_setting: Callable[[AppSettingKind], Any] | None = None,
         governor: SafetyGovernor | None = None,
         pause: Callable[[float], Any] | None = None,
         keepalive_seconds: float = KEEPALIVE_SECONDS,
@@ -98,6 +101,7 @@ class RunSession:
         self._sessions = sessions
         self._queue = queue
         self._runner = runner
+        self._read_setting = read_setting
         self._governor = governor
         self._pause = pause
         self._keepalive_seconds = keepalive_seconds
@@ -117,7 +121,15 @@ class RunSession:
         max_posts: int,
         sources: Sequence[DiscoverySource],
     ) -> AutomationSession:
-        """Persist one pending session for this approval."""
+        """Persist one pending session for this approval.
+
+        The consent is checked here rather than only per post. Without it every post in the batch
+        would fail one by one with the same refusal, which spends the queue to say no.
+        """
+        if self._read_setting is not None:
+            consent = self._read_setting(AppSettingKind.AUTOMATION_CONSENT).payload
+            if consent.get("accepted") is not True:
+                raise EngagementNotAllowedError("consent_missing")
         return self._sessions.create(
             trigger=trigger,
             approved_steps=approved_steps,

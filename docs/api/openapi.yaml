@@ -879,6 +879,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/SessionResponse"}
+        "403":
+          description: The automation consent is missing.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
         "409": {$ref: "#/components/responses/SessionAlreadyRunning"}
         "422": {$ref: "#/components/responses/ValidationError"}
     get:

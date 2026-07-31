@@ -872,6 +872,7 @@ def create_app(
     )
     session_batches = RunSession(
         sessions=session_repository,
+        read_setting=lambda kind: read_setting.execute(kind),
         governor=safety_governor,
         queue=_SessionQueue(discovery),
         runner=SessionPostRunner(

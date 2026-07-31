@@ -53,6 +53,10 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         automation_profile_dir=str(tmp_path / "profile"),
     )
     with TestClient(create_app(settings)) as test_client:
+        test_client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": True, "consent_version": 1}},
+        )
         yield test_client
 
 
@@ -157,6 +161,27 @@ class TestRepository:
 
 
 class TestApi:
+    def test_an_approval_without_consent_is_refused(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": False, "consent_version": 1}},
+        )
+
+        response = client.post(SESSIONS, json=approval())
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "consent_missing"
+
+    def test_a_refused_approval_creates_no_session(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": False, "consent_version": 1}},
+        )
+
+        client.post(SESSIONS, json=approval())
+
+        assert client.get(SESSIONS).json()["items"] == []
+
     def test_an_approval_is_accepted(self, client: TestClient) -> None:
         response = client.post(SESSIONS, json=approval())
 
@@ -254,7 +279,11 @@ class TestScheduleStatus:
         assert body["blocking_reason"] == "not_scheduled"
         assert body["max_posts"] >= 1
 
-    def test_consent_alone_does_not_enable_it(self, client: TestClient) -> None:
+    def test_a_schedule_without_consent_stays_off(self, client: TestClient) -> None:
+        client.put(
+            "/api/v1/settings/automation_consent",
+            json={"payload": {"accepted": False, "consent_version": 1}},
+        )
         client.put(
             "/api/v1/settings/schedule_policy",
             json={"payload": {"mode": "schedule", "hour": 9, "minute": 0, "max_posts": 3}},
