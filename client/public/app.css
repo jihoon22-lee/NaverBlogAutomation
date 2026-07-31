@@ -106,3 +106,29 @@ button:disabled {
 .session-detail {
   margin: 0.5rem 0 0;
 }
+
+#workspace-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+#workspace-nav button {
+  background: none;
+  border: 1px solid #c9c9c9;
+  border-radius: 999px;
+  color: #333;
+  padding: 0.35rem 0.9rem;
+}
+
+#workspace-nav button[aria-current="page"] {
+  background: #03c75a;
+  border-color: #03c75a;
+  color: #fff;
+  font-weight: 600;
+}
+
+#workspace-status:focus {
+  outline: 2px solid #03c75a;
+  outline-offset: 2px;
+}
