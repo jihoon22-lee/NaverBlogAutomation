@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from datetime import datetime
 from difflib import SequenceMatcher
 from itertools import combinations
@@ -34,6 +35,7 @@ from naver_blog_assistant.domain import (
     ImportedDiscoveryPost,
     NeighborBlog,
     PersonalizationMode,
+    ProviderAvailability,
     Recommendation,
     Relationship,
     ReviewStatus,
@@ -565,6 +567,7 @@ class AppSettingResponse(StrictModel):
         "safety_policy",
         "schedule_policy",
         "browser_profile",
+        "llm_providers",
     ]
     schema_version: Annotated[int, Field(ge=1)]
     payload: dict[str, Any]
@@ -585,6 +588,33 @@ class AutomationRunRequest(StrictModel):
 
     discovery_post_id: UUID
     recommendation_id: UUID
+
+
+class LlmProviderResponse(StrictModel):
+    """One provider and whether this process can call it. Never includes credentials."""
+
+    provider: Literal["openai", "gemini", "anthropic"]
+    configured: bool
+    model: str
+
+
+class LlmProvidersResponse(StrictModel):
+    """Every known provider in declaration order."""
+
+    items: list[LlmProviderResponse]
+
+    @classmethod
+    def from_domain(cls, availability: Sequence[ProviderAvailability]) -> Self:
+        return cls(
+            items=[
+                LlmProviderResponse(
+                    provider=entry.provider.value,
+                    configured=entry.configured,
+                    model=entry.model,
+                )
+                for entry in availability
+            ]
+        )
 
 
 class CommentGenerationRequest(StrictModel):

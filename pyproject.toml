@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.18.5,<2",
+    "anthropic>=0.40,<1",
     "fastapi>=0.139.1,<1",
+    "google-genai>=1.0,<2",
     "openai>=2.45,<3",
     "patchright==1.61.2",
     "pydantic>=2.13,<3",

@@ -172,7 +172,7 @@ src/naver_blog_assistant/
 │   └── database/
 │       ├── app_settings_repository.py
 │       ├── automation_session_repository.py
-│       └── migrations/versions/{0010..0016}_*.py
+│       └── migrations/versions/{0010..0017}_*.py
 client/                               # 신규 npm 프로젝트
 ├── package.json, biome.json, tsconfig.json, vitest.config.ts
 ├── scripts/build.mjs                 # app·page 두 entrypoint
@@ -241,7 +241,13 @@ client/src/
 | `payload_json` | 검증된 값만 |
 | `updated_at` | ISO-8601 UTC |
 
-**migration 0011 `llm_generation_attempts`**
+**migration 0011 설정 kind 확장**
+
+`app_settings.kind`에는 CHECK 제약이 있고 SQLite는 CHECK를 제자리에서 바꿀 수 없으므로, 새 kind를
+허용하려면 table을 다시 만들고 기존 행을 옮겨야 합니다. 저장된 payload는 바뀌지 않습니다.
+`llm_providers`를 추가하며 이 사실을 확인했습니다.
+
+**migration 0012 `llm_generation_attempts`**
 
 | 컬럼 | 설명 |
 | --- | --- |
@@ -252,13 +258,13 @@ client/src/
 | `retry_after` | nullable. 429 응답의 `Retry-After` 초 |
 | `created_at` | ISO-8601 UTC |
 
-**migration 0012 내 블로그 카테고리와 참고 글**
+**migration 0013 내 블로그 카테고리와 참고 글**
 
 `blog_categories`: `category_no`(PK), `name`, `post_count`, `synced_at`.
 `blog_reference_posts`: `category_no`, `source_url`, `title`, `published_at`, `excerpt_hash`,
 `synced_at`. 본문은 저장하지 않고 요청 시점에만 추출해 메모리에 둡니다.
 
-**migration 0013 글 초안**
+**migration 0014 글 초안**
 
 `post_drafts`: `id`, `title`, `category_no`, `status`(`collecting`/`composed`/`refining`/`tagged`/
 `staging`/`staged`/`abandoned`), `use_image_vision`, `created_at`, `updated_at`.
@@ -274,27 +280,27 @@ client/src/
 `post_draft_tags`: `draft_id`, `tag`, `ordinal`, `source`(`generated`/`user`), `selected`. 정규화(공백
 제거, 중복 제거, 길이 제한)는 domain layer가 단독 소유합니다.
 
-**migration 0014 `publish_runs`**
+**migration 0015 `publish_runs`**
 
 `engagement_runs`와 같은 단계 상태 패턴을 씁니다. `id`, `draft_id`, `revision_id`, `state`,
 단계별 상태(`title`, `body`, `images`, `tags`, `save`), `result_code`, `created_at`, `finished_at`.
 forward-only 전이와 `BEGIN IMMEDIATE`, unique 제약을 그대로 따릅니다.
 
-**migration 0015 `automation_sessions`와 `engagement_runs` 확장**
+**migration 0016 `automation_sessions`와 `engagement_runs` 확장**
 
 `automation_sessions`: `id`, `trigger`(`manual`/`session`/`schedule`),
 `state`(`pending`/`running`/`completed`/`aborted`/`cancelled`), `approved_steps_json`, `max_posts`,
 `source_filter_json`, `processed_count`, `created_at`, `started_at`, `finished_at`, `abort_reason`.
 `engagement_runs`에 nullable `session_id`와 `trigger` 추가하고 기존 행은 `manual`로 backfill합니다.
 
-**migration 0016 `automation_activity_ledger`**
+**migration 0017 `automation_activity_ledger`**
 
 `(date, action)` 복합 PK와 `count`. discovery의 date idempotency ledger와 같은 패턴입니다.
 
-**신규 설정 kind (migration 불필요)**
+**신규 설정 kind**
 
-`app_settings`가 kind 기반이므로 table 변경 없이 `AppSettingKind` enum,
-`SETTING_SCHEMA_VERSIONS`, `_VALIDATORS`, `DEFAULT_SETTING_PAYLOADS`에만 추가합니다.
+`AppSettingKind` enum, `SETTING_SCHEMA_VERSIONS`, `_VALIDATORS`, `DEFAULT_SETTING_PAYLOADS`,
+`schema.py`의 `APP_SETTING_KINDS`에 추가하고 CHECK 제약을 넓히는 migration을 함께 넣습니다.
 
 | kind | payload |
 | --- | --- |
@@ -636,7 +642,7 @@ stateDiagram-v2
 | 7 | 7 | `feat(client): add comment generation and review workspace` | 완료 |
 | 8 | 8 | `feat(automation): execute one approved engagement run` | 완료 |
 | 9 | 9 | `feat(client): add single post engagement run workspace` | 완료 |
-| 10 | 10 | `feat(llm): add multi provider structured completion port` | 대기 |
+| 10 | 10 | `feat(llm): add multi provider structured completion port` | 완료 |
 | 11 | 11 | `feat(llm): add provider fan-out and call budget` | 대기 |
 | 12 | 12 | `feat(blog): collect own blog categories and reference posts` | 대기 |
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 대기 |
@@ -883,7 +889,7 @@ Vitest **310 passed**, coverage statements 94.36% / branches 88.13%(게이트 80
 `run-api.test.ts` 12건(요청 본문, 경로, 계약 위반 7종), `comment-run.test.ts` 5건(승인 전 panel 숨김,
 클릭 한 번으로 실행, 대기열 id 없으면 실행 금지, 스트림 결과 렌더링, 다음 글에서 초기화).
 
-### [ ] Task 10 — LLM provider 추상화 (PR 10)
+### [x] Task 10 — LLM provider 추상화 (PR 10)
 
 목표: `ports/llm.py`와 `infrastructure/llm/`을 만들고 OpenAI를 새 추상화 위로 옮기며 Gemini·Claude
 adapter를 추가합니다. 기존 댓글 생성 동작은 바뀌지 않습니다.
@@ -898,11 +904,30 @@ adapter를 추가합니다. 기존 댓글 생성 동작은 바뀌지 않습니�
 
 Demo: 설정에서 provider·model을 고르면 같은 글에 대해 provider별 댓글이 생성됩니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-07-31): `ruff format --check` 152 files, `ruff check`·`ty check` All checks
+passed, `uv run pytest` **963 passed / 7 skipped**, total coverage 90.78%. wheel smoke 통과
+(migration head `20260731_0011`).
+
+신규 모듈: `domain/llm.py`(`LlmProvider`, `ModelSelection`, `ProviderAvailability`),
+`ports/llm.py`(`StructuredCompletion`), `infrastructure/llm/`(`errors.py`, `openai_client.py`,
+`gemini_client.py`, `anthropic_client.py`, `fake_client.py`, `registry.py`),
+`infrastructure/generators/comment_prompt.py`와 `provider_comment.py`,
+`api/routers/llm.py`. `generators/openai.py`는 329줄에서 59줄 adapter로 줄었습니다.
+
+신규 테스트 81건: `test_llm_adapters.py` 42건(provider별 오류 매핑 전 항목을 `httpx.MockTransport`와
+stub SDK로 검증), `test_llm_registry.py` 34건(`ModelSelection` 검증, 설정 payload 검증 8종, registry
+구성·캐시·미구성 거부, provider 중립 generator), `test_llm_providers_api.py` 5건(declaration 순서,
+구성 상태만 노출, key 미노출, 설정 round-trip, 알 수 없는 provider 거부).
+
+회귀: 기존 `test_openai_generator.py` 30건이 리팩터링된 adapter에서 그대로 통과합니다.
+
+Demo 실행 결과: `GET /api/v1/llm/providers` → `openai`·`gemini`·`anthropic` 세 항목과 각
+`configured` 값, 응답 본문에 key 문자열이 없음. `PUT /api/v1/settings/llm_providers`로 default
+provider와 model을 저장하고 재조회에서 동일한 값을 확인.
 
 ### [ ] Task 11 — 다중 provider 동시 호출과 예산 (PR 11)
 
-목표: migration 0011 `llm_generation_attempts`와 `llm_budget` 설정을 추가하고 댓글 생성을 여러
+목표: migration 0012 `llm_generation_attempts`와 `llm_budget` 설정을 추가하고 댓글 생성을 여러
 provider에 병렬 요청해 provider별 결과를 함께 보여줍니다.
 
 테스트 요건: 부분 실패, 전부 실패, provider별 idempotency key 파생과 replay, 같은 요청 반복, 예산
@@ -915,7 +940,7 @@ Demo: 글 하나에 OpenAI·Gemini·Claude 댓글이 나란히 표시되고 하�
 
 ### [ ] Task 12 — 내 블로그 카테고리·참고 글 수집 (PR 12)
 
-목표: migration 0012와 함께 browser session으로 내 블로그 카테고리와 카테고리별 글 목록을 읽어
+목표: migration 0013과 함께 browser session으로 내 블로그 카테고리와 카테고리별 글 목록을 읽어
 캐시하고, 유사 카테고리 순위를 결정적으로 계산합니다.
 
 테스트 요건: 카테고리 없음, 단일 카테고리, 비공개 카테고리, 목록 빈 경우, 페이지 구조 변형, 유사도
@@ -928,7 +953,7 @@ Demo: 카테고리 목록과 선택한 카테고리의 최근 글, 유사 카테
 
 ### [ ] Task 13 — 초안·이미지 저장과 본문 생성 (PR 13)
 
-목표: migration 0013과 함께 초안 등록, 이미지 업로드, 참고 글을 근거로 한 본문 생성(fan-out 지원)을
+목표: migration 0014와 함께 초안 등록, 이미지 업로드, 참고 글을 근거로 한 본문 생성(fan-out 지원)을
 구현합니다.
 
 테스트 요건: MIME allowlist 위반, 크기·개수 상한, 파일명 정규화와 traversal 시도, 이미지 순서 변경·
@@ -955,7 +980,7 @@ Demo: 같은 글을 세 번 다듬고 태그를 두 번 재생성해도 이전 �
 
 ### [ ] Task 15 — 임시저장 자동화 (PR 15)
 
-목표: migration 0014 `publish_runs`와 함께 에디터 자동 입력과 임시저장을 단계 상태 기계로 실행하고
+목표: migration 0015 `publish_runs`와 함께 에디터 자동 입력과 임시저장을 단계 상태 기계로 실행하고
 SSE로 진행을 전송합니다. `PageHandle`에 `set_input_files`를 추가합니다.
 
 테스트 요건: 복구 popup 있음·없음·판별 불가, 제목·본문·이미지·태그 단계별 실패, 이미지 업로드 지연과
@@ -980,7 +1005,7 @@ Demo: 웹앱만으로 초안에서 임시저장까지 한 흐름으로 진행합
 
 ### [ ] Task 17 — 세션 단위 승인 배치 (PR 17)
 
-목표: migration 0015로 `automation_sessions`와 `engagement_runs.session_id`·`trigger`를 추가하고
+목표: migration 0016으로 `automation_sessions`와 `engagement_runs.session_id`·`trigger`를 추가하고
 승인 1회로 대기열 N개를 순차 처리하며 언제든 취소할 수 있게 합니다.
 
 테스트 요건: 순차 처리, 중간 취소, 부분 실패 후 요약, 동시 세션 거부, `max_posts` 경계, 대기열
@@ -992,7 +1017,7 @@ Demo: 대기열 5개를 한 번 승인해 순차 처리하고 3번째에서 취�
 
 ### [ ] Task 18 — safety governor (PR 18)
 
-목표: migration 0016 `automation_activity_ledger`와 함께 일일 상한, 최소 간격과 jitter, 본문 길이
+목표: migration 0017 `automation_activity_ledger`와 함께 일일 상한, 최소 간격과 jitter, 본문 길이
 비례 체류·스크롤, 허용 시간대, 연속 실패 차단, 간헐적 skip을 구현하고 중단 사유를 기존 SMTP
 digest로 알립니다.
 
@@ -1093,7 +1118,11 @@ Demo: CI 전 job green. 문서만 보고 fresh 환경에서 웹앱 세팅과 글
 | 2026-07-31 | 본문은 HTML 대신 block 배열로 저장 | 에디터 순차 입력과 대응, diff 표시와 이식성 확보 |
 | 2026-07-31 | 이미지 vision 전송은 draft 옵션이며 기본 off | 비용·프라이버시 예측 가능성 우선 |
 | 2026-07-31 | 글쓰기 기능을 세션 배치·governor보다 먼저 | 임시저장 경계는 남의 계정에 작용하지 않아 안전 |
-| 2026-07-31 | 새 설정은 `app_settings` kind 추가로 처리 | kind 기반 table이라 migration 불필요 |
+| 2026-07-31 | 새 설정 kind는 CHECK 제약을 다시 만드는 migration과 함께 추가 | SQLite는 CHECK를 제자리에서 바꿀 수 없어 table 재작성이 필요함 |
+| 2026-07-31 | `OpenAICommentGenerator`는 이름을 유지하고 내부만 새 추상화로 교체 | 기존 30건 테스트와 factory 배선을 그대로 두고 회귀를 확인 |
+| 2026-07-31 | Gemini·Anthropic 오류는 예외 타입명과 status로 매핑 | SDK가 예외 계층을 바꿔도 의미가 유지되고, 분류 불가는 indeterminate로 fail closed |
+| 2026-07-31 | Anthropic structured output은 강제 tool call로 받음 | 같은 Pydantic schema로 검증해 provider 간 출력 계약을 하나로 유지 |
+| 2026-07-31 | provider client는 registry가 selection별로 캐시 | key는 registry만 보유하고 호출부는 provider·model만 다룸 |
 | 2026-07-31 | 구 Task 9~12를 Task 17~19·21로 재번호 | 글쓰기·provider Task를 실행 순서대로 중간에 삽입 |
 | 2026-07-31 | 서로이웃 probe가 작성자 blog id를 보고하고 Python이 대기열 후보와 비교 | 다른 사람에게 신청하는 사고를 막되, id를 못 읽으면 차단하지 않고 기존 판정을 따름 |
 | 2026-07-31 | client가 종료 이벤트를 보면 `EventSource`를 직접 닫음 | 서버가 의도적으로 닫은 스트림에도 `EventSource`는 재연결을 시도함 |
