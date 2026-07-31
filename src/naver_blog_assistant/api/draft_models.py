@@ -201,3 +201,48 @@ class DraftListResponse(StrictDraftModel):
     @classmethod
     def from_domain(cls, drafts: tuple[PostDraft, ...]) -> Self:
         return cls(items=[DraftResponse.from_domain(draft) for draft in drafts])
+
+
+class PublishStepResponse(StrictDraftModel):
+    """One editor action and its recorded result."""
+
+    name: Literal["title", "body", "images", "tags", "save"]
+    position: Annotated[int, Field(ge=0, le=4)]
+    state: Literal["pending", "running", "succeeded", "skipped", "failed", "unconfirmed"]
+    result_code: str | None
+    updated_at: datetime | None
+
+
+class PublishRunResponse(StrictDraftModel):
+    """One staging run for one draft revision."""
+
+    id: UUID
+    draft_id: UUID
+    revision_id: UUID
+    state: Literal["running", "succeeded", "failed", "unconfirmed"]
+    result_code: str | None
+    steps: list[PublishStepResponse]
+    created_at: datetime | None
+    updated_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, run: Any) -> Self:
+        return cls(
+            id=run.id,
+            draft_id=run.draft_id,
+            revision_id=run.revision_id,
+            state=run.state.value,
+            result_code=run.result_code,
+            steps=[
+                PublishStepResponse(
+                    name=step.name.value,
+                    position=step.position,
+                    state=step.state.value,
+                    result_code=step.result_code,
+                    updated_at=step.updated_at,
+                )
+                for step in run.steps
+            ],
+            created_at=run.created_at,
+            updated_at=run.updated_at,
+        )

@@ -81,6 +81,12 @@ class PageHandle(Protocol):
         """Choose one option in a native select control."""
         ...
 
+    async def set_input_files(
+        self, selector: str, paths: Sequence[str], *, timeout_seconds: float | None = None
+    ) -> None:
+        """Attach local files to one file input without opening a native dialog."""
+        ...
+
     async def scroll_by(self, pixels: int) -> None:
         """Scroll the document, mimicking the reading motion before an action."""
         ...

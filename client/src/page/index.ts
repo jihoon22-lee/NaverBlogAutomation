@@ -15,6 +15,13 @@ import {
   diagnoseCommentPage,
   probeComment,
 } from "./comment";
+import {
+  type EditorProbe,
+  type EditorSaveProbe,
+  probeEditor,
+  probeEditorSave,
+  readEditorText,
+} from "./editor";
 import { type LikeProbe, probeLike, probeLikeOption } from "./like";
 import {
   type BlogCategoryListProbe,
@@ -34,7 +41,7 @@ import {
 } from "./mutual-neighbor";
 
 export const PAGE_BUNDLE_NAMESPACE = "__nbaPage";
-export const PAGE_BUNDLE_VERSION = 2;
+export const PAGE_BUNDLE_VERSION = 3;
 
 export interface PageBundle {
   captchaVisible(): boolean;
@@ -43,9 +50,12 @@ export interface PageBundle {
   countMatchingComments(expectedValue: string): number;
   diagnoseCommentPage(): CommentPageDiagnosis;
   probeCategoryPostList(): BlogPostListProbe;
+  probeEditor(): EditorProbe;
+  probeEditorSave(): EditorSaveProbe;
   probeComment(expectedValue: string): CommentProbe;
   probeLike(): LikeProbe;
   probeMyBlogCategories(): BlogCategoryListProbe;
+  readEditorText(selector: string): string;
   probeLikeOption(): string | null;
   probeNeighborApplication(expectedMessage: string): NeighborApplicationProbe;
   probeNeighborConfirmation(): NeighborConfirmationProbe;
@@ -64,6 +74,8 @@ export function createPageBundle(): PageBundle {
     diagnoseCommentPage,
     probeCategoryPostList,
     probeComment,
+    probeEditor,
+    probeEditorSave,
     probeLike,
     probeLikeOption,
     probeMyBlogCategories,
@@ -71,6 +83,7 @@ export function createPageBundle(): PageBundle {
     probeNeighborConfirmation,
     probeNeighborOption,
     probeNeighborRelationship,
+    readEditorText,
     version: PAGE_BUNDLE_VERSION,
   };
 }

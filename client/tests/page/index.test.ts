@@ -25,6 +25,8 @@ describe("createPageBundle", () => {
         "diagnoseCommentPage",
         "probeCategoryPostList",
         "probeComment",
+        "probeEditor",
+        "probeEditorSave",
         "probeLike",
         "probeLikeOption",
         "probeMyBlogCategories",
@@ -32,6 +34,7 @@ describe("createPageBundle", () => {
         "probeNeighborConfirmation",
         "probeNeighborOption",
         "probeNeighborRelationship",
+        "readEditorText",
         "version",
       ].sort(),
     );

@@ -79,6 +79,7 @@ from naver_blog_assistant.api.routers import (
     register_engagement_routes,
     register_llm_routes,
     register_settings_routes,
+    register_staging_routes,
 )
 from naver_blog_assistant.application import (
     ClearPersonalizationExamples,
@@ -107,6 +108,8 @@ from naver_blog_assistant.application.automation import (
     ExtractArticle,
     GenerationKeyRegistry,
     PlanGeneration,
+    StagePost,
+    StagePostService,
 )
 from naver_blog_assistant.application.discovery import (
     SmtpDigestSender,
@@ -123,6 +126,7 @@ from naver_blog_assistant.application.llm import CallBudget, FanOutGeneration
 from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
 from naver_blog_assistant.application.writing import ComposePost, ReferenceBody
 from naver_blog_assistant.domain import (
+    AppSettingKind,
     CandidateSelectionError,
     CapturedPost,
     DiscoverySource,
@@ -158,6 +162,9 @@ from naver_blog_assistant.infrastructure.database.llm_attempt_repository import 
 )
 from naver_blog_assistant.infrastructure.database.post_draft_repository import (
     SqlitePostDraftRepository,
+)
+from naver_blog_assistant.infrastructure.database.publish_run_repository import (
+    SqlitePublishRunRepository,
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
@@ -694,6 +701,7 @@ def create_app(
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
             await engagement_runs_service.shutdown()
+            await staging_service.shutdown()
             provider_registry.close()
             await browser_sessions.shutdown()
             close = getattr(selected_generator, "close", None)
@@ -760,6 +768,11 @@ def create_app(
     )
     blog_catalog = CollectReferencePosts(browser_sessions, SqliteBlogCatalogRepository(engine))
 
+    def _body_tag_cap() -> int:
+        """Return the configured cap for tags inserted into the body."""
+        payload = read_setting.execute(AppSettingKind.WRITING_PROFILE).payload
+        return int(payload["body_tag_cap"])
+
     def _reference_bodies(category_no: int | None, limit: int) -> tuple[ReferenceBody, ...]:
         """Return cached reference titles for one category; bodies are read at request time."""
         if category_no is None or limit < 1:
@@ -774,8 +787,17 @@ def create_app(
         return discovery.get_automatic_settings().own_blog_id.strip()
 
     draft_repository = SqlitePostDraftRepository(engine)
+    publish_run_repository = SqlitePublishRunRepository(engine)
     draft_image_store = DraftImageStore(_media_root(settings))
     compose_post = ComposePost(draft_repository)
+    staging_service = StagePostService(
+        runs=publish_run_repository,
+        drafts=draft_repository,
+        stage=StagePost(browser_sessions),
+        owner_blog_id=_owner_blog_id,
+        media_root=_media_root(settings),
+        body_tag_cap=_body_tag_cap,
+    )
     attempt_repository = SqliteLlmAttemptRepository(engine)
     call_budget = CallBudget(read_setting=read_setting, attempts=attempt_repository)
     fanout_generation = _configured_fanout(
@@ -814,6 +836,11 @@ def create_app(
         app,
         catalog=blog_catalog,
         owner_blog_id=_owner_blog_id,
+        problem_metadata=_problem_metadata,
+    )
+    register_staging_routes(
+        app,
+        staging=staging_service,
         problem_metadata=_problem_metadata,
     )
     register_draft_routes(

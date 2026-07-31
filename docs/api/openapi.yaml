@@ -781,6 +781,37 @@ paths:
         "422": {$ref: "#/components/responses/DraftNotUsable"}
         "502": {$ref: "#/components/responses/FanoutAllFailed"}
         "503": {$ref: "#/components/responses/FanoutUnavailable"}
+  /api/v1/drafts/{draft_id}/stage:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: stagePostDraft
+      tags: [Writing]
+      summary: Fill the editor and save the draft, stopping before publishing
+      description: Publishing stays manual; the run finishes at the saved draft.
+      responses:
+        "202":
+          description: The persisted staging run.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PublishRunResponse"}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/DraftNotUsable"}
+  /api/v1/drafts/{draft_id}/stage/events:
+    parameters:
+        - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: streamStagingEvents
+      tags: [Writing]
+      summary: Follow one staging run step by step
+      responses:
+        "200":
+          description: Server-sent step progress for one staging run.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "404": {$ref: "#/components/responses/DraftNotFound"}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/drafts/{draft_id}/tags:
     parameters:
         - {name: draft_id, in: path, required: true, schema: {type: string, format: uuid}}
@@ -1395,6 +1426,35 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    PublishStepResponse:
+      type: object
+      additionalProperties: false
+      required: [name, position, state, result_code, updated_at]
+      properties:
+        name: {type: string, enum: [title, body, images, tags, save]}
+        position: {type: integer, minimum: 0, maximum: 4}
+        state:
+          type: string
+          enum: [pending, running, succeeded, skipped, failed, unconfirmed]
+        result_code: {type: string, nullable: true}
+        updated_at: {type: string, format: date-time, nullable: true}
+    PublishRunResponse:
+      type: object
+      additionalProperties: false
+      required: [id, draft_id, revision_id, state, result_code, steps, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        draft_id: {type: string, format: uuid}
+        revision_id: {type: string, format: uuid}
+        state: {type: string, enum: [running, succeeded, failed, unconfirmed]}
+        result_code: {type: string, nullable: true}
+        steps:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: {$ref: "#/components/schemas/PublishStepResponse"}
+        created_at: {type: string, format: date-time, nullable: true}
+        updated_at: {type: string, format: date-time, nullable: true}
     DraftBodyRequest:
       type: object
       additionalProperties: false
