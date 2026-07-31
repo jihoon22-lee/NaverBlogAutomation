@@ -568,6 +568,7 @@ class AppSettingResponse(StrictModel):
         "schedule_policy",
         "browser_profile",
         "llm_providers",
+        "llm_budget",
     ]
     schema_version: Annotated[int, Field(ge=1)]
     payload: dict[str, Any]
