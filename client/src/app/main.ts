@@ -8,6 +8,7 @@
 import type { ArticleExtraction } from "./api/types";
 import { CommentController } from "./controllers/comment";
 import { TodayController } from "./controllers/today";
+import { WritingController } from "./controllers/writing";
 
 export const APP_ROOT_ID = "workspace";
 
@@ -15,7 +16,9 @@ export interface Workspace {
   comment: CommentController;
   openComment(extraction: ArticleExtraction, discoveryPostId: string): void;
   showToday(): void;
+  showWriting(): void;
   today: TodayController;
+  writing: WritingController;
 }
 
 /** Compose the Today and Comment controllers over one root element. */
@@ -31,8 +34,14 @@ export function createWorkspace(root: Element): Workspace {
     onExtracted: (extraction, discoveryPostId) =>
       workspace.openComment?.(extraction, discoveryPostId),
   });
+  const writing = new WritingController(root);
   workspace.comment = comment;
   workspace.today = today;
+  workspace.writing = writing;
+  workspace.showWriting = () => {
+    writing.render();
+    void writing.load();
+  };
   workspace.openComment = (extraction: ArticleExtraction, discoveryPostId: string) => {
     comment.open(extraction, discoveryPostId);
     void comment.loadClosingPhrase();

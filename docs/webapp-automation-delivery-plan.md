@@ -648,7 +648,7 @@ stateDiagram-v2
 | 13 | 13 | `feat(writing): compose post drafts from seed text and images` | 완료 |
 | 14 | 14 | `feat(writing): add iterative refinement and tag generation` | 완료 |
 | 15 | 15 | `feat(automation): stage composed posts as naver drafts` | 완료 |
-| 16 | 16 | `feat(client): add post writing workspace` | 대기 |
+| 16 | 16 | `feat(client): add post writing workspace` | 완료 |
 | 17 | 17 | `feat(automation): add session-scoped engagement batches` | 대기 |
 | 18 | 18 | `feat(automation): enforce safety budgets and abort conditions` | 대기 |
 | 19 | 19 | `feat(automation): add opt-in unattended schedule mode` | 대기 |
@@ -1079,16 +1079,31 @@ captcha 우선 보고, 텍스트 읽기), `test_stage_post.py` 24건(단계 순�
 `test_staging_api.py` 22건(상태 기계 허용·금지 전이 10종, 저장소 재시작·중단 복구, 202 응답과 SSE,
 본문 없음·blog ID 없음 거부, run 없는 draft의 스트림 즉시 종료).
 
-### [ ] Task 16 — 글쓰기 작업 공간 SPA (PR 16)
+### [x] Task 16 — 글쓰기 작업 공간 SPA (PR 16)
 
 목표: 초안 입력부터 임시저장 결과까지의 화면을 SPA에 추가합니다.
 
-테스트 요건: 단계 전환, 이미지 미리보기와 순서 변경, provider 변형 비교 표시, 다듬기 이력, 태그 선택
+구현 지침: 화면 단계는 초안 status에서 파생하므로 새로 고쳐도 같은 자리로 돌아옵니다. 편집한 본문은
+문단 block으로 환원하고 image block은 순서를 유지한 채 보존합니다. 임시저장 진행은 SSE로 받고 종료
+이벤트에서 초안을 다시 읽습니다.
+
+테스트 요건: 단계 전환, 이미지 목록과 삭제, provider 선택과 미구성 표시, 다듬기 이력, 태그 선택
 UI, 실행 중 중복 조작 차단, 접근성, 오류 상태 표시.
 
 Demo: 웹앱만으로 초안에서 임시저장까지 한 흐름으로 진행합니다.
 
-상태: 대기.
+상태: 완료. 검증(2026-08-01): `npm --prefix client run check` → Biome format·lint, tsc,
+Vitest **385 passed**, coverage statements 89.69% / branches 81.7%(게이트 80%), build 성공.
+
+신규 모듈: `app/state/writing.ts`(단계 파생, 본문 text 환원, 태그 선택),
+`app/views/writing.ts`(초안 입력, 이미지, 생성 옵션, 본문 편집, 태그, 임시저장 진행),
+`app/controllers/writing.ts`(한 번의 클릭에 한 번의 서버 동작, SSE 구독).
+
+신규 테스트 46건: `writing-state.test.ts` 20건(단계 파생 4종, active revision 우선순위, 본문 text
+환원과 image block 보존, 태그 선택, 실행 가능 판정, `aria-live`, provider 미구성 시 비활성, 임시저장
+단계 표시), `writing-api.test.ts` 26건(snake_case 요청 본문, 설정한 옵션만 전송, multipart 업로드,
+계약 위반 6종, 제목 없는 초안 거부, 편집 저장 시 image block 유지, 태그 toggle·추가, SSE 종료 후
+재조회, 거부 메시지 매핑).
 
 ### [ ] Task 17 — 세션 단위 승인 배치 (PR 17)
 
