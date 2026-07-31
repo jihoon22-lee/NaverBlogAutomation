@@ -605,6 +605,19 @@ paths:
         "502": {$ref: "#/components/responses/BrowserOperationFailed"}
         "503": {$ref: "#/components/responses/BrowserUnavailable"}
         "504": {$ref: "#/components/responses/GenerationTimeout"}
+  /api/v1/llm/providers:
+    get:
+      operationId: listLlmProviders
+      tags: [Generation]
+      summary: Report which generation providers this process can call
+      description: Reports configuration state only. API keys never appear in a response.
+      responses:
+        "200":
+          description: Every known provider in declaration order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmProvidersResponse"
   /api/v1/settings/{kind}:
     parameters:
       - name: kind
@@ -620,6 +633,7 @@ paths:
             - safety_policy
             - schedule_policy
             - browser_profile
+            - llm_providers
     get:
       operationId: getAppSetting
       tags: [Settings]
@@ -1094,6 +1108,22 @@ components:
         payload:
           type: object
           description: Kind-specific settings values validated by the service.
+    LlmProviderResponse:
+      type: object
+      additionalProperties: false
+      required: [provider, configured, model]
+      properties:
+        provider: {type: string, enum: [openai, gemini, anthropic]}
+        configured: {type: boolean}
+        model: {type: string, minLength: 1, maxLength: 100}
+    LlmProvidersResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/LlmProviderResponse"}
     AppSettingResponse:
       type: object
       additionalProperties: false
@@ -1109,6 +1139,7 @@ components:
             - safety_policy
             - schedule_policy
             - browser_profile
+            - llm_providers
         schema_version:
           type: integer
           minimum: 1

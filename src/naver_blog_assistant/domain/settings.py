@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
 
+from naver_blog_assistant.domain.llm import DEFAULT_MODELS, LlmProvider, ModelSelection
 from naver_blog_assistant.domain.models import (
     CommentLength,
     CommentMood,
@@ -36,6 +37,7 @@ class AppSettingKind(StrEnum):
     SAFETY_POLICY = "safety_policy"
     SCHEDULE_POLICY = "schedule_policy"
     BROWSER_PROFILE = "browser_profile"
+    LLM_PROVIDERS = "llm_providers"
 
 
 SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
@@ -46,6 +48,7 @@ SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
     AppSettingKind.SAFETY_POLICY: 1,
     AppSettingKind.SCHEDULE_POLICY: 1,
     AppSettingKind.BROWSER_PROFILE: 1,
+    AppSettingKind.LLM_PROVIDERS: 1,
 }
 
 
@@ -229,6 +232,34 @@ def _browser_profile(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _llm_providers(payload: dict[str, Any]) -> dict[str, Any]:
+    _require_exact_keys(payload, frozenset({"default_provider", "models"}))
+    try:
+        default = LlmProvider(payload["default_provider"])
+    except (TypeError, ValueError) as error:
+        raise DomainValidationError("default_provider is not a known provider") from error
+    models = payload["models"]
+    if not isinstance(models, dict) or not models:
+        raise DomainValidationError("models must be a non-empty object")
+    normalized: dict[str, str] = {}
+    for name, model in models.items():
+        try:
+            provider = LlmProvider(name)
+        except (TypeError, ValueError) as error:
+            raise DomainValidationError(f"{name} is not a known provider") from error
+        selection = ModelSelection(provider=provider, model=_model_name(model))
+        normalized[provider.value] = selection.model
+    if default.value not in normalized:
+        raise DomainValidationError("default_provider must appear in models")
+    return {"default_provider": default.value, "models": dict(sorted(normalized.items()))}
+
+
+def _model_name(value: Any) -> str:
+    if not isinstance(value, str):
+        raise DomainValidationError("model must be a string")
+    return value.strip()
+
+
 def _positive_int(value: Any, *, field: str, maximum: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise DomainValidationError(f"{field} must be an integer")
@@ -251,6 +282,7 @@ _VALIDATORS: Final[dict[AppSettingKind, Any]] = {
     AppSettingKind.SAFETY_POLICY: _safety_policy,
     AppSettingKind.SCHEDULE_POLICY: _schedule_policy,
     AppSettingKind.BROWSER_PROFILE: _browser_profile,
+    AppSettingKind.LLM_PROVIDERS: _llm_providers,
 }
 
 DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
@@ -275,6 +307,10 @@ DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
     },
     AppSettingKind.SCHEDULE_POLICY: {"mode": "manual", "hour": 10, "minute": 0, "max_posts": 5},
     AppSettingKind.BROWSER_PROFILE: {"headless": False, "channel": "chrome"},
+    AppSettingKind.LLM_PROVIDERS: {
+        "default_provider": LlmProvider.OPENAI.value,
+        "models": {provider.value: model for provider, model in DEFAULT_MODELS.items()},
+    },
 }
 
 

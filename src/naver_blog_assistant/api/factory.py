@@ -75,6 +75,7 @@ from naver_blog_assistant.api.routers import (
     register_automation_session_routes,
     register_comment_routes,
     register_engagement_routes,
+    register_llm_routes,
     register_settings_routes,
 )
 from naver_blog_assistant.application import (
@@ -130,6 +131,7 @@ from naver_blog_assistant.domain import (
     ReviewTransitionError,
     SavedSearch,
 )
+from naver_blog_assistant.domain.llm import LlmProvider
 from naver_blog_assistant.infrastructure.browser import (
     SUPPORTED_DRIVERS,
     create_browser_driver,
@@ -145,6 +147,7 @@ from naver_blog_assistant.infrastructure.database.app_settings_repository import
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.generators import DeterministicFakeGenerator
+from naver_blog_assistant.infrastructure.llm import ProviderRegistry
 from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedError
 from naver_blog_assistant.ports.browser import BrowserDriver
 
@@ -269,6 +272,10 @@ class ApiSettings:
     digest_email_to: str = ""
     naver_search_client_id: str = field(default="", repr=False)
     naver_search_client_secret: str = field(default="", repr=False)
+    gemini_api_key: str = field(default="", repr=False)
+    gemini_model: str = "gemini-3.6-flash"
+    anthropic_api_key: str = field(default="", repr=False)
+    anthropic_model: str = "claude-sonnet-5-20260514"
     automation_driver: str = "patchright"
     automation_headless: bool = False
     automation_profile_dir: str = ""
@@ -393,6 +400,10 @@ class ApiSettings:
             digest_email_to=os.getenv("DIGEST_EMAIL_TO", "").strip(),
             naver_search_client_id=os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip(),
             naver_search_client_secret=os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip(),
+            gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip(),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+            anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-20260514").strip(),
             automation_driver=os.getenv("AUTOMATION_DRIVER", "patchright").strip().lower(),
             automation_headless=_environment_bool("AUTOMATION_HEADLESS", "false"),
             automation_profile_dir=os.getenv("AUTOMATION_PROFILE_DIR", "").strip(),
@@ -414,6 +425,7 @@ def create_app(
     repository = SqliteRepository(engine)
     discovery = SqliteDiscoveryRepository(engine)
     engagements = SqliteEngagementRepository(engine)
+    provider_registry = _configured_registry(settings)
     selected_generator = generator or _configured_generator(settings)
     browser_sessions = BrowserSessionManager(
         browser_driver or create_browser_driver(settings.automation_driver),
@@ -662,6 +674,7 @@ def create_app(
             if pending_generations:
                 await asyncio.gather(*pending_generations, return_exceptions=True)
             await engagement_runs_service.shutdown()
+            provider_registry.close()
             await browser_sessions.shutdown()
             close = getattr(selected_generator, "close", None)
             if close is not None:
@@ -737,6 +750,11 @@ def create_app(
     register_engagement_routes(
         app,
         runs=engagement_runs_service,
+        problem_metadata=_problem_metadata,
+    )
+    register_llm_routes(
+        app,
+        availability=provider_registry.availability,
         problem_metadata=_problem_metadata,
     )
     register_settings_routes(
@@ -1534,6 +1552,22 @@ def _configured_generator(settings: ApiSettings) -> CommentGenerator:
         reasoning_effort=settings.openai_reasoning_effort,
         timeout_seconds=settings.openai_timeout_seconds,
         max_output_tokens=settings.openai_max_output_tokens,
+    )
+
+
+def _configured_registry(settings: ApiSettings) -> ProviderRegistry:
+    """Build the provider registry from process configuration only."""
+    return ProviderRegistry(
+        api_keys={
+            LlmProvider.OPENAI: settings.openai_api_key,
+            LlmProvider.GEMINI: settings.gemini_api_key,
+            LlmProvider.ANTHROPIC: settings.anthropic_api_key,
+        },
+        models={
+            LlmProvider.OPENAI: settings.openai_model,
+            LlmProvider.GEMINI: settings.gemini_model,
+            LlmProvider.ANTHROPIC: settings.anthropic_model,
+        },
     )
 
 

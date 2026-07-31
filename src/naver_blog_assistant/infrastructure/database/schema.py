@@ -312,6 +312,7 @@ APP_SETTING_KINDS = (
     "safety_policy",
     "schedule_policy",
     "browser_profile",
+    "llm_providers",
 )
 
 app_settings = Table(
