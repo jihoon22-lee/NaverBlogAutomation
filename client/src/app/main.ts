@@ -13,7 +13,7 @@ export const APP_ROOT_ID = "workspace";
 
 export interface Workspace {
   comment: CommentController;
-  openComment(extraction: ArticleExtraction): void;
+  openComment(extraction: ArticleExtraction, discoveryPostId: string): void;
   showToday(): void;
   today: TodayController;
 }
@@ -28,12 +28,13 @@ export function createWorkspace(root: Element): Workspace {
     onBack: () => workspace.showToday?.(),
   });
   const today = new TodayController(root, {
-    onExtracted: (extraction) => workspace.openComment?.(extraction),
+    onExtracted: (extraction, discoveryPostId) =>
+      workspace.openComment?.(extraction, discoveryPostId),
   });
   workspace.comment = comment;
   workspace.today = today;
-  workspace.openComment = (extraction: ArticleExtraction) => {
-    comment.open(extraction);
+  workspace.openComment = (extraction: ArticleExtraction, discoveryPostId: string) => {
+    comment.open(extraction, discoveryPostId);
     void comment.loadClosingPhrase();
   };
   workspace.showToday = () => {

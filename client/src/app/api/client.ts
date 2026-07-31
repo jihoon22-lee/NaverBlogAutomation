@@ -21,6 +21,11 @@ import type {
   DiscoveryPost,
   DiscoverySource,
   DiscoveryState,
+  EngagementRun,
+  EngagementRunState,
+  EngagementStep,
+  EngagementStepName,
+  EngagementStepState,
   ProblemDetails,
   ServiceStatus,
 } from "./types";
@@ -37,6 +42,17 @@ const QUALITY_WARNINGS = new Set([
   "candidate_roles_blurred",
   "candidates_too_similar",
 ]);
+const STEP_NAMES = new Set<EngagementStepName>(["like", "comment", "mutual_neighbor"]);
+const STEP_STATES = new Set<EngagementStepState>([
+  "pending",
+  "running",
+  "succeeded",
+  "skipped",
+  "failed",
+  "unconfirmed",
+]);
+const RUN_STATES = new Set<EngagementRunState>(["running", "succeeded", "failed", "unconfirmed"]);
+const RESULT_CODE = /^[a-z][a-z0-9_]{0,63}$/u;
 const PROBLEM_CODE = /^[a-z][a-z0-9_]*$/u;
 
 type Fetch = typeof fetch;
@@ -155,6 +171,38 @@ export class LocalApiClient {
 
   async saveAppSetting(kind: string, payload: Record<string, unknown>): Promise<AppSettingRecord> {
     return readAppSetting(await this.#request("PUT", `/api/v1/settings/${kind}`, { payload }));
+  }
+
+  /** Approve exactly one queued post for execution. The service answers before the run finishes. */
+  async startEngagementRun(
+    discoveryPostId: string,
+    recommendationId: string,
+  ): Promise<EngagementRun> {
+    const body = await this.#request("POST", "/api/v1/automation/engagement-runs", {
+      discovery_post_id: discoveryPostId,
+      recommendation_id: recommendationId,
+    });
+    return readEngagementRun(body);
+  }
+
+  async engagementRun(id: string): Promise<EngagementRun> {
+    return readEngagementRun(await this.#request("GET", `/api/v1/engagement-runs/${id}`));
+  }
+
+  /** Return the URL of one run's progress stream. */
+  engagementRunEventsUrl(id: string): string {
+    return `${this.#base}/api/v1/automation/engagement-runs/${id}/events`;
+  }
+
+  /** Record only the steps a user confirms were completed by hand. */
+  async completeEngagementManually(
+    id: string,
+    completedSteps: EngagementStepName[],
+  ): Promise<EngagementRun> {
+    const body = await this.#request("POST", `/api/v1/engagement-runs/${id}/manual-completion`, {
+      completed_steps: completedSteps,
+    });
+    return readEngagementRun(body);
   }
 
   async #request(method: string, path: string, payload?: unknown): Promise<unknown> {
@@ -408,5 +456,45 @@ export function readAppSetting(body: unknown): AppSettingRecord {
       body.updated_at === null || body.updated_at === undefined
         ? null
         : readString(body.updated_at, "updated_at"),
+  };
+}
+
+export function readEngagementRun(body: unknown): EngagementRun {
+  if (!isRecord(body)) throw contractError("run");
+  const source = body.source;
+  const state = body.state;
+  if (!SOURCES.has(source as DiscoverySource)) throw contractError("source");
+  if (!RUN_STATES.has(state as EngagementRunState)) throw contractError("state");
+  const steps = body.steps;
+  if (!Array.isArray(steps) || steps.length < 2 || steps.length > 3) throw contractError("steps");
+  return {
+    id: readString(body.id, "id"),
+    approvalId: readString(body.approval_id, "approval_id"),
+    discoveryPostId: readString(body.discovery_post_id, "discovery_post_id"),
+    recommendationId: readString(body.recommendation_id, "recommendation_id"),
+    source: source as DiscoverySource,
+    state: state as EngagementRunState,
+    steps: steps.map(readEngagementStep),
+    createdAt: readString(body.created_at, "created_at"),
+    updatedAt: readString(body.updated_at, "updated_at"),
+  };
+}
+
+function readEngagementStep(value: unknown): EngagementStep {
+  if (!isRecord(value)) throw contractError("step");
+  const name = value.name;
+  const state = value.state;
+  if (!STEP_NAMES.has(name as EngagementStepName)) throw contractError("step name");
+  if (!STEP_STATES.has(state as EngagementStepState)) throw contractError("step state");
+  const resultCode = readNullableString(value.result_code ?? null, "result_code");
+  if (resultCode !== null && !RESULT_CODE.test(resultCode)) throw contractError("result_code");
+  const position = readCount(value.position, "position");
+  if (position > 2) throw contractError("position");
+  return {
+    name: name as EngagementStepName,
+    position,
+    state: state as EngagementStepState,
+    resultCode,
+    updatedAt: readString(value.updated_at, "updated_at"),
   };
 }
