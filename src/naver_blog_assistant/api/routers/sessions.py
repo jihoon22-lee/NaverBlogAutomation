@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from naver_blog_assistant.api.errors import ApiError
 from naver_blog_assistant.api.session_models import (
+    ScheduleStatusResponse,
     SessionApprovalRequest,
     SessionListResponse,
     SessionResponse,
@@ -34,6 +35,8 @@ def register_session_routes(
     *,
     sessions: RunSession,
     store: Any,
+    schedule: Any,
+    read_setting: Any,
     problem_metadata: Callable[..., dict[str, Any]],
 ) -> None:
     """Add the session batch endpoints to ``app``."""
@@ -73,6 +76,25 @@ def register_session_routes(
             ) from error
         sessions.start_background(session.id)
         return SessionResponse.from_domain(session)
+
+    @app.get(
+        "/api/v1/automation/schedule",
+        response_model=ScheduleStatusResponse,
+        tags=["Automation"],
+        operation_id="getAutomationSchedule",
+    )
+    async def get_schedule() -> ScheduleStatusResponse:
+        from naver_blog_assistant.domain import AppSettingKind  # noqa: PLC0415
+
+        payload = read_setting.execute(AppSettingKind.SCHEDULE_POLICY).payload
+        return ScheduleStatusResponse(
+            mode=payload["mode"],
+            hour=int(payload["hour"]),
+            minute=int(payload["minute"]),
+            max_posts=int(payload["max_posts"]),
+            enabled=schedule.enabled(),
+            blocking_reason=None if schedule.enabled() else _schedule_reason(schedule),
+        )
 
     @app.get(
         "/api/v1/automation/sessions",
@@ -139,6 +161,12 @@ def register_session_routes(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+
+def _schedule_reason(schedule: Any) -> str:
+    """Report why unattended mode cannot run, without exposing internals."""
+    reason = schedule._blocking_reason()  # noqa: SLF001 - the gate is internal to the use case
+    return "ready" if reason is None else reason
 
 
 def _session(store: Any, session_id: UUID) -> Any:

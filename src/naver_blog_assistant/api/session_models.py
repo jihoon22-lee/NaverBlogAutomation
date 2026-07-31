@@ -76,3 +76,14 @@ class SessionListResponse(StrictSessionModel):
     @classmethod
     def from_domain(cls, sessions: tuple[AutomationSession, ...]) -> Self:
         return cls(items=[SessionResponse.from_domain(session) for session in sessions])
+
+
+class ScheduleStatusResponse(StrictSessionModel):
+    """Whether unattended mode can run, and what blocks it."""
+
+    mode: Literal["manual", "session", "schedule"]
+    hour: Annotated[int, Field(ge=0, le=23)]
+    minute: Annotated[int, Field(ge=0, le=59)]
+    max_posts: Annotated[int, Field(ge=1)]
+    enabled: bool
+    blocking_reason: str | None

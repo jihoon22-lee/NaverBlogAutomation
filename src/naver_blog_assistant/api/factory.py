@@ -111,6 +111,7 @@ from naver_blog_assistant.application.automation import (
     PlanGeneration,
     RunSession,
     SafetyGovernor,
+    ScheduleSessions,
     SessionPostRunner,
     StagePost,
     StagePostService,
@@ -680,9 +681,26 @@ def create_app(
             try:
                 await run_automatic_discovery_if_due()
                 await run_daily_digest_if_due()
+                await run_scheduled_session_if_due()
             except Exception:
                 logger.exception("discovery_scheduler_failed")
             await asyncio.sleep(60)
+
+    async def run_scheduled_session_if_due() -> None:
+        """Start one unattended session when every gate allows it."""
+        decision = await unattended_schedule.run_if_due()
+        if decision.reason is not None and decision.reason not in {"not_scheduled", "not_due"}:
+            logger.info("schedule_session_skipped reason=%s", decision.reason)
+
+    async def notify_schedule(reason: str) -> None:
+        """Send one unattended-mode notice through the configured digest sender."""
+        if not _smtp_configured(settings):
+            return
+        await asyncio.to_thread(
+            _smtp_sender(settings).send,
+            subject="무인 실행이 중단되었습니다",
+            body=f"무인 실행을 시작하지 못했습니다. 사유: {reason}",
+        )
 
     def _track_generation(task: asyncio.Task[GenerationResult]) -> None:
         pending_generations.add(task)
@@ -866,10 +884,20 @@ def create_app(
         ),
     )
 
+    unattended_schedule = ScheduleSessions(
+        read_setting=read_setting,
+        store=session_repository,
+        sessions=session_batches,
+        browser=browser_sessions,
+        notify=notify_schedule,
+    )
+
     register_session_routes(
         app,
         sessions=session_batches,
         store=session_repository,
+        schedule=unattended_schedule,
+        read_setting=read_setting,
         problem_metadata=_problem_metadata,
     )
     register_staging_routes(

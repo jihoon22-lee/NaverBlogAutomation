@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -124,6 +124,18 @@ class SqliteSessionRepository:
                 .limit(max(1, limit))
             ).all()
         return tuple(_session(row) for row in rows)
+
+    def created_on(self, day: date, trigger: SessionTrigger) -> bool:
+        """Report whether a session with this trigger was already created on ``day``."""
+        prefix = f"{day.isoformat()}%"
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(automation_sessions.c.id).where(
+                    automation_sessions.c.trigger == trigger.value,
+                    automation_sessions.c.created_at.like(prefix),
+                )
+            ).first()
+        return row is not None
 
     def transition(
         self,
