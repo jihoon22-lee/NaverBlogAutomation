@@ -485,7 +485,7 @@ jobs:
         continue-on-error: true
         run: |
           npm ci --prefix client
-          npm --prefix client run build:page
+          npm --prefix client run build
           uv sync --frozen
 
       - name: Install the automation browser
