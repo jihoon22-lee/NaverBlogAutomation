@@ -34,7 +34,9 @@ async function flush(): Promise<void> {
 function installWorkspaceApi(
   options: {
     accessMode?: "lan" | "local";
+    lanAddressMissing?: boolean;
     pairFails?: boolean;
+    revokeFails?: boolean;
     pairedDevices?: {
       id: string;
       device_name: string;
@@ -44,7 +46,7 @@ function installWorkspaceApi(
     }[];
   } = {},
 ) {
-  const handler = vi.fn(async (input: RequestInfo | URL) => {
+  const handler = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/remote/pairing-code")) {
       return response({ code: "123456", expires_at: "2026-08-01T01:00:00Z" });
@@ -73,6 +75,18 @@ function installWorkspaceApi(
       });
     }
     if (url.includes("/remote/devices")) {
+      if (init?.method === "DELETE" && options.revokeFails === true) {
+        return response(
+          {
+            type: "about:blank",
+            title: "Revoke failed",
+            status: 409,
+            detail: "이미 해제된 기기입니다.",
+            code: "remote_device_not_found",
+          },
+          409,
+        );
+      }
       return response({ items: options.pairedDevices ?? [] });
     }
     if (url.includes("/api/v1/status")) {
@@ -89,7 +103,10 @@ function installWorkspaceApi(
       return response({
         access_mode: options.accessMode ?? "local",
         web_app_assets_ready: true,
-        lan_addresses: options.accessMode === "lan" ? ["192.168.0.10"] : [],
+        lan_addresses:
+          options.accessMode === "lan" && options.lanAddressMissing !== true
+            ? ["192.168.0.10"]
+            : [],
         browser_state: "ready",
         browser_login: "authenticated",
         own_blog_configured: true,
@@ -263,6 +280,28 @@ describe("createWorkspace", () => {
     );
   });
 
+  it("explains local-only pairing and returns to Today after a successful tablet pairing", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `
+      <nav id="workspace-nav"><button type="button" id="remote-pairing-code-button"></button></nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+
+    workspace.showRemotePairingCode();
+    await flush();
+    expect(root.textContent).toContain("태블릿 연결은 아직 켜지지 않았습니다.");
+
+    workspace.showRemotePairing();
+    (document.getElementById("remote-pairing-code") as HTMLInputElement).value = "123456";
+    (document.getElementById("remote-pair-button") as HTMLButtonElement).click();
+    await flush();
+
+    expect(root.querySelector(".remote-pairing-panel")).toBeNull();
+    expect(document.getElementById("workspace-nav")?.hidden).toBe(false);
+  });
+
   it("shows, copies, and revokes a LAN pairing code from the desktop workspace", async () => {
     const handler = installWorkspaceApi({
       accessMode: "lan",
@@ -312,6 +351,69 @@ describe("createWorkspace", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(root.textContent).toContain("아직 연결된 기기가 없습니다.");
+  });
+
+  it("keeps a paired device visible when revocation is rejected", async () => {
+    installWorkspaceApi({
+      accessMode: "lan",
+      revokeFails: true,
+      pairedDevices: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          device_name: "iPad",
+          last_seen_at: "2026-08-01T00:00:00Z",
+          created_at: "2026-08-01T00:00:00Z",
+          expires_at: "2026-08-01T01:00:00Z",
+        },
+      ],
+    });
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+    workspace.showRemotePairingCode();
+    await flush();
+
+    (root.querySelector("button:last-child") as HTMLButtonElement).click();
+    await flush();
+
+    expect(root.textContent).toContain("이미 해제된 기기입니다.");
+    expect(root.textContent).toContain("연결 해제");
+  });
+
+  it("copies a LAN pairing code through the Clipboard API when the browser permits it", async () => {
+    installWorkspaceApi({ accessMode: "lan" });
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+    workspace.showRemotePairingCode();
+    await flush();
+
+    (
+      Array.from(root.querySelectorAll("button")).find(
+        (button) => button.textContent === "코드 복사",
+      ) as HTMLButtonElement
+    ).click();
+    await flush();
+
+    expect(writeText).toHaveBeenCalledWith("123456");
+    expect(root.textContent).toContain("코드를 복사했습니다.");
+  });
+
+  it("gives a recoverable explanation when LAN mode has no usable address", async () => {
+    installWorkspaceApi({ accessMode: "lan", lanAddressMissing: true });
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+
+    workspace.showRemotePairingCode();
+    await flush();
+
+    expect(root.textContent).toContain("태블릿 연결을 완료하지 못했습니다.");
   });
 });
 
