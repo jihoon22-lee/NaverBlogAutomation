@@ -59,6 +59,33 @@ class SafetyPolicy:
     max_consecutive_failures: int
 
 
+@dataclass(frozen=True, slots=True)
+class SafetyActionStatus:
+    """Current count and remaining daily capacity for one browser action."""
+
+    action: EngagementStepName
+    cap: int
+    used: int
+
+    @property
+    def remaining(self) -> int:
+        return max(self.cap - self.used, 0)
+
+
+@dataclass(frozen=True, slots=True)
+class SafetyStatus:
+    """The batch-safe summary a UI can show without exposing settings internals."""
+
+    local_date: date
+    allowed_now: bool
+    blocking_reason: str | None
+    allowed_hours: tuple[int, ...]
+    min_interval_seconds: int
+    consecutive_failures: int
+    max_consecutive_failures: int
+    actions: tuple[SafetyActionStatus, ...]
+
+
 class SafetyGovernor:
     """Gate every external action behind the configured limits."""
 
@@ -97,6 +124,38 @@ class SafetyGovernor:
     def today(self) -> date:
         """Return the local date the caps are counted against."""
         return self._clock().astimezone(self._zone).date()
+
+    def status(self) -> SafetyStatus:
+        """Return current caps and the most immediate reason a new batch cannot start."""
+        policy = self.policy()
+        local = self._clock().astimezone(self._zone)
+        actions = tuple(
+            SafetyActionStatus(
+                action=action,
+                cap=policy.daily_caps[action],
+                used=self._ledger.count(local.date(), action),
+            )
+            for action in EngagementStepName
+        )
+        reason: str | None = None
+        if local.hour not in policy.allowed_hours:
+            reason = "outside_allowed_hours"
+        elif self._consecutive_failures >= policy.max_consecutive_failures:
+            reason = "consecutive_failures"
+        # One exhausted action should not prevent a batch that deliberately excludes it.
+        # The client compares the selected steps with their individual remaining caps.
+        elif all(action.remaining == 0 for action in actions):
+            reason = "daily_cap_reached"
+        return SafetyStatus(
+            local_date=local.date(),
+            allowed_now=reason is None,
+            blocking_reason=reason,
+            allowed_hours=policy.allowed_hours,
+            min_interval_seconds=policy.min_interval_seconds,
+            consecutive_failures=self._consecutive_failures,
+            max_consecutive_failures=policy.max_consecutive_failures,
+            actions=actions,
+        )
 
     def check(self, actions: tuple[EngagementStepName, ...]) -> SafetyPolicy:
         """Raise when the next post would break a limit; otherwise return the policy."""

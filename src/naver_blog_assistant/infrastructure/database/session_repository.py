@@ -23,7 +23,10 @@ from naver_blog_assistant.domain.sessions import (
     SessionTrigger,
     assert_batch_transition,
 )
-from naver_blog_assistant.infrastructure.database.schema import automation_sessions
+from naver_blog_assistant.infrastructure.database.schema import (
+    automation_session_posts,
+    automation_sessions,
+)
 
 
 class SessionNotFoundError(LookupError):
@@ -55,6 +58,7 @@ class SqliteSessionRepository:
         approved_steps: Sequence[EngagementStepName],
         max_posts: int,
         sources: Sequence[DiscoverySource],
+        post_ids: Sequence[UUID] = (),
     ) -> AutomationSession:
         """Insert one pending session, refusing a second active one."""
         active = self.active()
@@ -67,6 +71,7 @@ class SqliteSessionRepository:
             approved_steps=tuple(approved_steps),
             max_posts=max_posts,
             sources=tuple(sources),
+            post_ids=tuple(post_ids),
         )
         now = datetime.now(UTC)
         with self._engine.begin() as connection:
@@ -89,6 +94,19 @@ class SqliteSessionRepository:
                     abort_reason=None,
                 )
             )
+            if session.post_ids:
+                connection.execute(
+                    automation_session_posts.insert(),
+                    [
+                        {
+                            "session_id": str(session.id),
+                            "post_id": str(post_id),
+                            "position": position,
+                            "created_at": now.isoformat(),
+                        }
+                        for position, post_id in enumerate(session.post_ids)
+                    ],
+                )
         return self.get(session.id)
 
     def get(self, session_id: UUID) -> AutomationSession:
@@ -99,7 +117,17 @@ class SqliteSessionRepository:
             ).one_or_none()
         if row is None:
             raise SessionNotFoundError(session_id)
-        return _session(row)
+        return _session(row, post_ids=self.post_ids(session_id))
+
+    def post_ids(self, session_id: UUID) -> tuple[UUID, ...]:
+        """Return the approval-time post snapshot in its immutable execution order."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(automation_session_posts.c.post_id)
+                .where(automation_session_posts.c.session_id == str(session_id))
+                .order_by(automation_session_posts.c.position)
+            ).scalars()
+            return tuple(UUID(value) for value in rows)
 
     def active(self) -> AutomationSession | None:
         """Return the session that is still pending or running, if any."""
@@ -113,7 +141,7 @@ class SqliteSessionRepository:
                 )
                 .order_by(automation_sessions.c.created_at)
             ).first()
-        return None if row is None else _session(row)
+        return None if row is None else _session(row, post_ids=self.post_ids(UUID(row.id)))
 
     def recent(self, *, limit: int = 20) -> tuple[AutomationSession, ...]:
         """Return the newest sessions, newest first."""
@@ -123,7 +151,18 @@ class SqliteSessionRepository:
                 .order_by(automation_sessions.c.created_at.desc())
                 .limit(max(1, limit))
             ).all()
-        return tuple(_session(row) for row in rows)
+        return tuple(_session(row, post_ids=self.post_ids(UUID(row.id))) for row in rows)
+
+    def abort_active_for_restart(self) -> AutomationSession | None:
+        """Fail closed when a prior process stopped before a batch reached a terminal state."""
+        active = self.active()
+        if active is None:
+            return None
+        return self.transition(
+            active.id,
+            SessionState.ABORTED,
+            abort_reason="process_restarted",
+        )
 
     def created_on(self, day: date, trigger: SessionTrigger) -> bool:
         """Report whether a session with this trigger was already created on ``day``."""
@@ -175,7 +214,7 @@ class SqliteSessionRepository:
         return self.get(session_id)
 
 
-def _session(row: Any) -> AutomationSession:
+def _session(row: Any, *, post_ids: tuple[UUID, ...]) -> AutomationSession:
     steps = json.loads(row.approved_steps_json)
     sources = json.loads(row.source_filter_json)
     return AutomationSession(
@@ -185,6 +224,7 @@ def _session(row: Any) -> AutomationSession:
         approved_steps=tuple(EngagementStepName(step) for step in steps),
         max_posts=int(row.max_posts),
         sources=tuple(DiscoverySource(source) for source in sources),
+        post_ids=post_ids,
         processed_count=int(row.processed_count),
         created_at=_moment(row.created_at),
         started_at=_moment(row.started_at),

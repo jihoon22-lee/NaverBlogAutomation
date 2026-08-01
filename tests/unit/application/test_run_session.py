@@ -52,6 +52,7 @@ class _Sessions:
 
     def __init__(self) -> None:
         self.sessions: dict[UUID, AutomationSession] = {}
+        self.snapshots: dict[UUID, tuple[UUID, ...]] = {}
 
     def create(self, **kwargs: Any) -> AutomationSession:
         session = AutomationSession(
@@ -61,15 +62,20 @@ class _Sessions:
             approved_steps=tuple(kwargs["approved_steps"]),
             max_posts=kwargs["max_posts"],
             sources=tuple(kwargs["sources"]),
+            post_ids=tuple(kwargs["post_ids"]),
             created_at=NOW,
         )
         self.sessions[session.id] = session
+        self.snapshots[session.id] = session.post_ids
         return session
 
     def get(self, session_id: UUID) -> AutomationSession:
         if session_id not in self.sessions:
             raise LookupError(session_id)
         return self.sessions[session_id]
+
+    def post_ids(self, session_id: UUID) -> tuple[UUID, ...]:
+        return self.snapshots[session_id]
 
     def transition(
         self, session_id: UUID, state: SessionState, *, abort_reason: str | None = None
@@ -83,6 +89,7 @@ class _Sessions:
             approved_steps=current.approved_steps,
             max_posts=current.max_posts,
             sources=current.sources,
+            post_ids=current.post_ids,
             processed_count=current.processed_count,
             created_at=current.created_at,
             abort_reason=abort_reason,
@@ -99,6 +106,7 @@ class _Sessions:
             approved_steps=current.approved_steps,
             max_posts=current.max_posts,
             sources=current.sources,
+            post_ids=current.post_ids,
             processed_count=current.processed_count + 1,
             created_at=current.created_at,
             abort_reason=current.abort_reason,
@@ -113,6 +121,9 @@ class _Queue:
 
     def list_queue(self, source: DiscoverySource) -> list[DiscoveredPost]:
         return [entry for entry in self.posts if entry.source is source]
+
+    def get_post(self, post_id: UUID) -> DiscoveredPost | None:
+        return next((entry for entry in self.posts if entry.id == post_id), None)
 
 
 class _Runner:
@@ -228,6 +239,19 @@ class TestDomain:
                 abort_reason="captcha_required",
             )
 
+    def test_a_process_restart_is_a_known_abort_reason(self) -> None:
+        session = AutomationSession(
+            id=uuid4(),
+            trigger=SessionTrigger.SESSION,
+            state=SessionState.ABORTED,
+            approved_steps=(EngagementStepName.LIKE,),
+            max_posts=1,
+            sources=(DiscoverySource.NEIGHBOR,),
+            abort_reason="process_restarted",
+        )
+
+        assert session.abort_reason == "process_restarted"
+
     def test_remaining_never_goes_negative(self) -> None:
         session = AutomationSession(
             id=uuid4(),
@@ -262,6 +286,44 @@ class TestBatch:
 
         assert len(runner.seen) == 2
         assert store.get(session.id).processed_count == 2
+
+    def test_it_uses_the_approval_time_snapshot_when_the_queue_changes(self) -> None:
+        entries = [post(index) for index in range(1, 4)]
+        sessions, _store, runner = batch(entries)
+        session = approve(sessions, max_posts=2)
+        expected = [entries[0].id, entries[1].id]
+        entries.insert(0, post(4))  # Emulate a later discovery sync over the shared fake queue.
+
+        run(sessions, session.id)
+
+        assert runner.seen == expected
+
+    def test_it_runs_explicitly_selected_posts_in_the_user_order(self) -> None:
+        entries = [post(index) for index in range(1, 4)]
+        sessions, _store, runner = batch(entries)
+        session = sessions.approve(
+            trigger=SessionTrigger.SESSION,
+            approved_steps=[EngagementStepName.LIKE, EngagementStepName.COMMENT],
+            max_posts=2,
+            sources=[DiscoverySource.NEIGHBOR],
+            post_ids=[entries[2].id, entries[0].id],
+        )
+
+        run(sessions, session.id)
+
+        assert runner.seen == [entries[2].id, entries[0].id]
+
+    def test_it_refuses_an_explicit_post_that_is_no_longer_queued(self) -> None:
+        sessions, _store, _runner = batch([post(1)])
+
+        with pytest.raises(ValueError, match="still be queued"):
+            sessions.approve(
+                trigger=SessionTrigger.SESSION,
+                approved_steps=[EngagementStepName.LIKE],
+                max_posts=1,
+                sources=[DiscoverySource.NEIGHBOR],
+                post_ids=[post(2).id],
+            )
 
     def test_cancelling_stops_before_the_next_post(self) -> None:
         posts = [post(index) for index in range(1, 4)]

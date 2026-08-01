@@ -223,7 +223,7 @@ automation browser와 provider key는 계속 PC에만 둡니다. 태블릿은 PC
 | 준비 상태 | `GET /api/v1/app/readiness` — API, client asset, browser/login, blog ID, provider, consent, safety policy의 redacted 상태와 stable blocker code |
 | discovery 표시 맥락 | 기존 `GET /api/v1/discovery/queue` 계약은 extension 호환성을 위해 유지하고, 웹앱은 `GET /api/v1/app/discovery/queue`에서 이웃명 또는 저장 검색어를 `source_label`로 받음 |
 | 댓글 AI 다듬기 | `POST /api/v1/recommendations/{id}/refine` — 현재 댓글, preset 또는 자유 지시, provider 선택을 받고 refined text와 provider/model 반환 |
-| 안전 현황 | `GET /api/v1/automation/safety-status` — 로컬 날짜, 현재 허용 시간 여부, 단계별 cap·사용·잔여 수 반환 |
+| 안전 현황 | `GET /api/v1/automation/safety-status` — 로컬 날짜, 현재 허용 시간 여부, 단계별 cap·사용·잔여 수와 글 사이 최소 간격 반환 |
 | 선택 batch | `POST /api/v1/automation/sessions`에 optional `post_ids` 추가. 없으면 기존 source/max 동작, 있으면 순서가 있는 1~50개 고유 queued post만 허용 |
 | 재시작 복구 | session abort reason에 `process_restarted` 추가. startup에서 남은 pending/running session을 aborted로 전환 |
 | 이미지 편집 | `PATCH /api/v1/drafts/{draft_id}/images/{image_id}` — alt text와 새 ordinal을 함께 검증하고 한 transaction에서 순서 재정렬 |
@@ -272,7 +272,7 @@ PR 수는 줄이되 각 PR이 독립적으로 검증 가능한 큰 사용자 가
 
 ### PR 2 — 핵심 일상 여정 통합
 
-상태: 구현·검증 진행 중
+상태: 완료·병합 (2026-08-01, PR #85)
 
 - hash route·전역 상태·onboarding, 개선된 discovery inbox와 직접 URL 진입.
 - 댓글 기본 자동 생성, provider 비교, AI 빠른 다듬기, 승인+실행 한 번의 최종 동작.

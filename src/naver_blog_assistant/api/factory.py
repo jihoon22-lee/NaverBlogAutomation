@@ -859,6 +859,8 @@ def create_app(
     draft_repository = SqlitePostDraftRepository(engine)
     publish_run_repository = SqlitePublishRunRepository(engine)
     session_repository = SqliteSessionRepository(engine)
+    if run_migrations:
+        session_repository.abort_active_for_restart()
     draft_image_store = DraftImageStore(_media_root(settings))
     compose_post = ComposePost(draft_repository)
     staging_service = StagePostService(
@@ -947,6 +949,7 @@ def create_app(
         sessions=session_batches,
         store=session_repository,
         schedule=unattended_schedule,
+        safety=safety_governor,
         read_setting=read_setting,
         problem_metadata=_problem_metadata,
     )
@@ -1856,6 +1859,10 @@ class _SessionQueue:
             for post in self._discovery.list_posts(source)
             if post.state is DiscoveryState.QUEUED
         ]
+
+    def get_post(self, post_id: UUID) -> Any | None:
+        """Look up a post from a previously persisted session snapshot."""
+        return self._discovery.get_post(post_id)
 
 
 def _media_root(settings: ApiSettings) -> Path:

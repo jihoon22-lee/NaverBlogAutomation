@@ -11,9 +11,11 @@ import type { RunStreamFactory } from "../api/run-stream";
 import { TERMINAL_SESSION_EVENTS, sessionEventSourceStream } from "../api/session-stream";
 import type {
   AutomationSession,
+  DiscoveryPost,
   DiscoverySource,
   EngagementStepName,
   ScheduleStatus,
+  SafetyStatus,
 } from "../api/types";
 import { renderSession } from "../views/session";
 
@@ -40,6 +42,10 @@ export interface SessionState {
   current: AutomationSession | null;
   recent: AutomationSession[];
   schedule: ScheduleStatus | null;
+  safety: SafetyStatus | null;
+  queue: DiscoveryPost[];
+  queueLoaded: boolean;
+  selectedPostIds: string[];
   approvedSteps: EngagementStepName[];
   sources: DiscoverySource[];
   maxPosts: number;
@@ -51,7 +57,8 @@ export interface SessionState {
 type SessionApi = Pick<
   LocalApiClient,
   "approveSession" | "sessions" | "session" | "cancelSession" | "sessionEventsUrl" | "schedule"
->;
+> &
+  Partial<Pick<LocalApiClient, "discoveryQueue" | "safetyStatus">>;
 
 export interface SessionControllerOptions {
   api?: SessionApi;
@@ -66,6 +73,10 @@ export function initialSessionState(): SessionState {
     current: null,
     recent: [],
     schedule: null,
+    safety: null,
+    queue: [],
+    queueLoaded: false,
+    selectedPostIds: [],
     approvedSteps: ["like", "comment"],
     sources: ["neighbor"],
     maxPosts: 3,
@@ -118,6 +129,14 @@ export class SessionController {
         this.setMaxPosts(value);
         this.render();
       },
+      onSourcesChange: (sources) => {
+        this.setSources(sources);
+        this.render();
+      },
+      onTogglePost: (postId) => {
+        this.togglePost(postId);
+        this.render();
+      },
     });
   }
 
@@ -126,9 +145,11 @@ export class SessionController {
     if (isSessionBusy(this.#state)) return;
     this.#patch({ phase: "loading", error: null });
     try {
-      const [recent, schedule, selected] = await Promise.all([
+      const [recent, schedule, queue, safety, selected] = await Promise.all([
         this.#api.sessions(10),
         this.#api.schedule(),
+        this.#api.discoveryQueue?.() ?? Promise.resolve([]),
+        this.#api.safetyStatus?.() ?? Promise.resolve(null),
         options.sessionId === undefined
           ? Promise.resolve(null)
           : this.#api.session(options.sessionId),
@@ -141,6 +162,12 @@ export class SessionController {
         phase: current !== null && !isTerminal(current) ? "running" : "ready",
         recent,
         schedule,
+        queue: queue.filter((post) => post.state === "queued"),
+        queueLoaded: this.#api.discoveryQueue !== undefined,
+        safety,
+        selectedPostIds: this.#state.selectedPostIds.filter((postId) =>
+          queue.some((post) => post.id === postId && post.state === "queued"),
+        ),
         current,
       });
       if (current !== null && !isTerminal(current)) this.#subscribe(current.id);
@@ -161,8 +188,28 @@ export class SessionController {
 
   /** Choose how many posts one approval may cover. */
   setMaxPosts(value: number): void {
-    if (!Number.isInteger(value) || value < 1) return;
+    if (!Number.isInteger(value) || value < 1 || value > 50) return;
     this.#patch({ maxPosts: value });
+  }
+
+  /** Choose the source defaults used when no exact queue card is selected. */
+  setSources(sources: DiscoverySource[]): void {
+    if (sources.length === 0 || sources.length > 2 || new Set(sources).size !== sources.length) {
+      return;
+    }
+    this.#patch({ sources });
+  }
+
+  /** Toggle one queued post while retaining the user's selection order. */
+  togglePost(postId: string): void {
+    if (!this.#state.queue.some((post) => post.id === postId)) return;
+    const selected = this.#state.selectedPostIds;
+    if (!selected.includes(postId) && selected.length >= 50) return;
+    this.#patch({
+      selectedPostIds: selected.includes(postId)
+        ? selected.filter((id) => id !== postId)
+        : [...selected, postId],
+    });
   }
 
   /** Approve one batch and follow its progress. */
@@ -175,12 +222,23 @@ export class SessionController {
       cancelRequested: false,
     });
     try {
+      const safety = this.#api.safetyStatus === undefined ? null : await this.#api.safetyStatus();
+      if (safety !== null && !canStartScope(this.#state, safety)) {
+        this.#patch({
+          phase: "ready",
+          safety,
+          error: safetyMessage(this.#state, safety),
+        });
+        return;
+      }
+      const postIds = selectedPostIds(this.#state);
       const session = await this.#api.approveSession({
         approvedSteps: this.#state.approvedSteps,
-        maxPosts: this.#state.maxPosts,
-        sources: this.#state.sources,
+        maxPosts: postIds === undefined ? this.#state.maxPosts : postIds.length,
+        sources: selectedSources(this.#state),
+        ...(postIds === undefined ? {} : { postIds }),
       });
-      this.#patch({ phase: "running", current: session });
+      this.#patch({ phase: "running", current: session, safety });
       this.#subscribe(session.id);
     } catch (error) {
       this.#fail(error);
@@ -308,4 +366,60 @@ function message(error: unknown): string {
     return REFUSALS[code] ?? error.message;
   }
   return "알 수 없는 오류가 발생했습니다. 로컬 서비스가 실행 중인지 확인하세요.";
+}
+
+/** Describe the exact post count and per-step action count that one approval covers. */
+export function scopePreview(state: SessionState): {
+  actionCounts: Map<EngagementStepName, number>;
+  postCount: number;
+} {
+  const selected = selectedPostIds(state);
+  const matching = state.queue.filter((post) => state.sources.includes(post.source));
+  const postCount =
+    selected?.length ??
+    (state.queueLoaded ? Math.min(state.maxPosts, matching.length) : state.maxPosts);
+  return {
+    postCount,
+    actionCounts: new Map(state.approvedSteps.map((step) => [step, postCount])),
+  };
+}
+
+/** Return whether current caps and time rules permit the displayed batch scope. */
+export function canStartScope(state: SessionState, safety: SafetyStatus | null): boolean {
+  const scope = scopePreview(state);
+  if (scope.postCount < 1 || scope.postCount > 50) return false;
+  if (safety === null || !safety.allowedNow) return safety === null;
+  return [...scope.actionCounts].every(([step, count]) => {
+    const action = safety.actions.find((candidate) => candidate.name === step);
+    return action !== undefined && action.remaining >= count;
+  });
+}
+
+function selectedPostIds(state: SessionState): string[] | undefined {
+  return state.selectedPostIds.length === 0 ? undefined : state.selectedPostIds;
+}
+
+function selectedSources(state: SessionState): DiscoverySource[] {
+  const selected = selectedPostIds(state);
+  if (selected === undefined) return state.sources;
+  return [
+    ...new Set(
+      selected
+        .map((id) => state.queue.find((post) => post.id === id)?.source)
+        .filter((source): source is DiscoverySource => source !== undefined),
+    ),
+  ];
+}
+
+function safetyMessage(state: SessionState, safety: SafetyStatus): string {
+  if (!safety.allowedNow) {
+    return REFUSALS[safety.blockingReason ?? ""] ?? "현재 안전 정책상 배치를 시작할 수 없습니다.";
+  }
+  const blocked = [...scopePreview(state).actionCounts].find(([step, count]) => {
+    const action = safety.actions.find((candidate) => candidate.name === step);
+    return action === undefined || action.remaining < count;
+  });
+  return blocked === undefined
+    ? "현재 안전 정책상 배치를 시작할 수 없습니다."
+    : `${blocked[0] === "like" ? "공감" : blocked[0] === "comment" ? "댓글" : "서로이웃"} 잔여 상한이 선택한 글 수보다 적습니다.`;
 }

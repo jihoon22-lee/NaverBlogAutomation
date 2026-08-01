@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -26,6 +26,7 @@ class SessionApprovalRequest(StrictSessionModel):
     approved_steps: Annotated[list[StepName], Field(min_length=1, max_length=3)]
     sources: Annotated[list[SourceName], Field(min_length=1, max_length=2)]
     max_posts: Annotated[int, Field(ge=1, le=MAX_SESSION_POSTS)]
+    post_ids: Annotated[list[UUID], Field(max_length=MAX_SESSION_POSTS)] | None = None
 
     @model_validator(mode="after")
     def validate_unique(self) -> Self:
@@ -33,6 +34,11 @@ class SessionApprovalRequest(StrictSessionModel):
             raise ValueError("each step may appear at most once")
         if len(set(self.sources)) != len(self.sources):
             raise ValueError("each source may appear at most once")
+        if self.post_ids is not None:
+            if not self.post_ids:
+                raise ValueError("post_ids must not be empty when supplied")
+            if len(set(self.post_ids)) != len(self.post_ids):
+                raise ValueError("post_ids must be unique")
         return self
 
 
@@ -44,6 +50,7 @@ class SessionResponse(StrictSessionModel):
     state: Literal["pending", "running", "completed", "aborted", "cancelled"]
     approved_steps: list[str]
     sources: list[str]
+    post_ids: list[UUID]
     max_posts: Annotated[int, Field(ge=1)]
     processed_count: Annotated[int, Field(ge=0)]
     abort_reason: str | None
@@ -59,6 +66,7 @@ class SessionResponse(StrictSessionModel):
             state=session.state.value,
             approved_steps=[step.value for step in session.approved_steps],
             sources=[source.value for source in session.sources],
+            post_ids=list(session.post_ids),
             max_posts=session.max_posts,
             processed_count=session.processed_count,
             abort_reason=session.abort_reason,
@@ -87,3 +95,25 @@ class ScheduleStatusResponse(StrictSessionModel):
     max_posts: Annotated[int, Field(ge=1)]
     enabled: bool
     blocking_reason: str | None
+
+
+class SafetyActionStatusResponse(StrictSessionModel):
+    """One external action's current daily budget."""
+
+    name: StepName
+    cap: Annotated[int, Field(ge=0)]
+    used: Annotated[int, Field(ge=0)]
+    remaining: Annotated[int, Field(ge=0)]
+
+
+class SafetyStatusResponse(StrictSessionModel):
+    """Redacted safety limits used to preview a human-approved batch."""
+
+    local_date: date
+    allowed_now: bool
+    blocking_reason: str | None
+    allowed_hours: list[Annotated[int, Field(ge=0, le=23)]]
+    min_interval_seconds: Annotated[int, Field(ge=0)]
+    consecutive_failures: Annotated[int, Field(ge=0)]
+    max_consecutive_failures: Annotated[int, Field(ge=1)]
+    actions: list[SafetyActionStatusResponse]

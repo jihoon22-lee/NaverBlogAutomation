@@ -134,12 +134,15 @@ infrastructure/llm/
 ### 세션 배치 (`RunSession`, `SessionPostRunner`)
 
 **`RunSession`**은 하나의 승인으로 여러 글을 순서대로 처리하는 batch orchestrator입니다.
-각 글 사이에 `SafetyGovernor`가 판정을 수행합니다.
+승인 시점에 `automation_session_posts`에 대상 UUID와 순서를 snapshot으로 저장하고, 실행 중
+대기열이 바뀌어도 이 snapshot만 사용합니다. 각 글 사이에 `SafetyGovernor`가 판정을 수행합니다.
 
 - 사용자가 승인한 `max_posts`건까지 처리하며 하나도 초과하지 않습니다.
 - 취소 요청은 현재 글이 끝난 뒤 반영됩니다.
 - 진행 상태는 SSE event stream으로 client에 전달됩니다.
 - 종료된 세션은 새 승인 없이 재개되지 않습니다.
+- process가 다시 시작되면 이전 pending/running session은 `process_restarted` abort 상태가 됩니다.
+  브라우저의 실제 마지막 동작을 재추측하거나 자동 재개하지 않습니다.
 
 **`SessionPostRunner`**는 한 글에서 추출 → 댓글 생성 → 첫 후보 승인 → 교류 실행을
 순서대로 수행합니다. 각 실패는 result code로 기록되며 batch가 계속할지 중단할지를
@@ -159,6 +162,9 @@ infrastructure/llm/
 적용하며, 기사 길이에 비례하는 **dwell time**을 계산합니다.
 
 거부 시 `GovernorRefusedError`가 발생하며 session은 abort 상태로 전이합니다.
+`GET /api/v1/automation/safety-status`는 action별 cap·사용·잔여량과 현재 시간/실패 gate를
+반환합니다. 웹앱은 사용자가 선택한 단계와 대상 수만 이 상태에 대입해 시작 전 범위를 표시하며,
+서버는 각 글을 실행하기 직전에 같은 governor를 다시 확인합니다.
 
 ### 무인 스케줄 (`ScheduleSessions`)
 

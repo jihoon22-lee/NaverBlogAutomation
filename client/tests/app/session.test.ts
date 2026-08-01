@@ -3,7 +3,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RunStreamFactory, RunStreamHandlers } from "../../src/app/api/run-stream";
-import type { AutomationSession, ScheduleStatus } from "../../src/app/api/types";
+import type {
+  AutomationSession,
+  DiscoveryPost,
+  SafetyStatus,
+  ScheduleStatus,
+} from "../../src/app/api/types";
 import { SessionController } from "../../src/app/controllers/session";
 
 const SESSION: AutomationSession = {
@@ -12,6 +17,7 @@ const SESSION: AutomationSession = {
   state: "running",
   approvedSteps: ["like", "comment"],
   sources: ["neighbor"],
+  postIds: [],
   maxPosts: 3,
   processedCount: 0,
   abortReason: null,
@@ -29,6 +35,34 @@ const SCHEDULE: ScheduleStatus = {
   blockingReason: "not_scheduled",
 };
 
+const SAFETY: SafetyStatus = {
+  localDate: "2026-08-01",
+  allowedNow: true,
+  blockingReason: null,
+  allowedHours: [9, 10, 11],
+  minIntervalSeconds: 60,
+  consecutiveFailures: 0,
+  maxConsecutiveFailures: 3,
+  actions: [
+    { name: "like", cap: 5, used: 0, remaining: 5 },
+    { name: "comment", cap: 5, used: 0, remaining: 5 },
+    { name: "mutual_neighbor", cap: 3, used: 0, remaining: 3 },
+  ],
+};
+
+const QUEUED_POST: DiscoveryPost = {
+  id: "22222222-2222-4222-8222-222222222222",
+  source: "neighbor",
+  state: "queued",
+  sourceUrl: "https://example.test/post",
+  title: "테스트 글",
+  publisherName: "테스트 이웃",
+  publisherBlogId: "tester",
+  publishedAt: null,
+  createdAt: "2026-08-01T00:00:00Z",
+  updatedAt: "2026-08-01T00:00:00Z",
+};
+
 interface Harness {
   root: Element;
   controller: SessionController;
@@ -39,6 +73,8 @@ interface Harness {
     cancelSession: ReturnType<typeof vi.fn>;
     sessionEventsUrl: ReturnType<typeof vi.fn>;
     schedule: ReturnType<typeof vi.fn>;
+    discoveryQueue?: ReturnType<typeof vi.fn>;
+    safetyStatus?: ReturnType<typeof vi.fn>;
   };
   emit(event: string, payload: Record<string, unknown>): void;
   fail(): void;
@@ -151,6 +187,46 @@ describe("session scope", () => {
     controller.render();
 
     expect(text(root)).toContain("취소는 지금 처리 중인 글이 끝난 뒤에 반영됩니다");
+  });
+
+  it("retains direct selection order and uses it as the approval snapshot", async () => {
+    const second = {
+      ...QUEUED_POST,
+      id: "33333333-3333-4333-8333-333333333333",
+      title: "두 번째 글",
+    };
+    const { controller, api } = harness({
+      discoveryQueue: vi.fn(async () => [QUEUED_POST, second]),
+      safetyStatus: vi.fn(async () => SAFETY),
+    });
+    await controller.load();
+    controller.togglePost(second.id);
+    controller.togglePost(QUEUED_POST.id);
+
+    await controller.start();
+
+    expect(api.approveSession).toHaveBeenCalledWith({
+      approvedSteps: ["like", "comment"],
+      maxPosts: 2,
+      sources: ["neighbor"],
+      postIds: [second.id, QUEUED_POST.id],
+    });
+  });
+
+  it("prevents a scope that exceeds a selected action's remaining cap", async () => {
+    const { root, controller, api } = harness({
+      discoveryQueue: vi.fn(async () => [QUEUED_POST]),
+      safetyStatus: vi.fn(async () => ({
+        ...SAFETY,
+        actions: [{ ...SAFETY.actions[0], remaining: 0 }, ...SAFETY.actions.slice(1)],
+      })),
+    });
+    await controller.load();
+    controller.render();
+
+    expect(root.querySelector<HTMLButtonElement>("#start-session-button")?.disabled).toBe(true);
+    await controller.start();
+    expect(api.approveSession).not.toHaveBeenCalled();
   });
 });
 
@@ -426,6 +502,7 @@ function snapshot(): Record<string, unknown> {
     state: "running",
     approved_steps: ["like", "comment"],
     sources: ["neighbor"],
+    post_ids: [],
     max_posts: 3,
     processed_count: 1,
     abort_reason: null,

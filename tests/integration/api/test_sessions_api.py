@@ -159,6 +159,51 @@ class TestRepository:
     def test_no_active_session_reports_none(self, repository: SqliteSessionRepository) -> None:
         assert repository.active() is None
 
+    def test_a_restart_aborts_an_active_session_without_resuming_it(
+        self, repository: SqliteSessionRepository
+    ) -> None:
+        created = create(repository)
+
+        recovered = repository.abort_active_for_restart()
+
+        assert recovered is not None
+        assert recovered.id == created.id
+        assert recovered.state is SessionState.ABORTED
+        assert recovered.abort_reason == "process_restarted"
+        assert repository.active() is None
+
+
+def test_application_startup_aborts_a_session_left_active_by_a_previous_process(
+    tmp_path: Path,
+) -> None:
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{tmp_path / 'restart.db'}",
+        generator_mode="fake",
+        app_environment="test",
+        automation_driver="fake",
+        automation_headless=True,
+        automation_profile_dir=str(tmp_path / "profile"),
+    )
+    with TestClient(create_app(settings)):
+        pass
+
+    engine = create_sqlite_engine(settings.database_url)
+    repository = SqliteSessionRepository(engine)
+    created = create(repository)
+    engine.dispose()
+
+    with TestClient(create_app(settings)):
+        pass
+
+    engine = create_sqlite_engine(settings.database_url)
+    try:
+        restored = SqliteSessionRepository(engine).get(created.id)
+    finally:
+        engine.dispose()
+    assert restored.state is SessionState.ABORTED
+    assert restored.abort_reason == "process_restarted"
+
 
 class TestApi:
     def test_an_approval_without_consent_is_refused(self, client: TestClient) -> None:
@@ -190,6 +235,55 @@ class TestApi:
         assert body["trigger"] == "session"
         assert body["approved_steps"] == ["like", "comment"]
         assert body["processed_count"] == 0
+        assert body["post_ids"] == []
+
+    def test_selected_posts_are_snapshotted_in_the_requested_order(
+        self, client: TestClient
+    ) -> None:
+        neighbor = client.post(
+            "/api/v1/discovery/neighbors",
+            json={
+                "name": "테스트 이웃",
+                "blog_url": "https://blog.naver.com/session-neighbor",
+                "blog_id": "session-neighbor",
+            },
+        ).json()
+        imported = client.post(
+            "/api/v1/discovery/import",
+            json={
+                "source": "neighbor",
+                "neighbor_id": neighbor["id"],
+                "posts": [
+                    {
+                        "source_url": "https://blog.naver.com/session-neighbor/1",
+                        "title": "첫 번째 글",
+                    },
+                    {
+                        "source_url": "https://blog.naver.com/session-neighbor/2",
+                        "title": "두 번째 글",
+                    },
+                ],
+            },
+        )
+        assert imported.status_code == 200
+        queue = client.get("/api/v1/discovery/queue", params={"source": "neighbor"}).json()["items"]
+        selected_ids = [queue[1]["id"], queue[0]["id"]]
+
+        response = client.post(
+            SESSIONS,
+            json=approval(max_posts=2, post_ids=selected_ids),
+        )
+
+        assert response.status_code == 202, response.text
+        assert response.json()["post_ids"] == selected_ids
+
+    def test_selected_post_count_must_match_the_approved_scope(self, client: TestClient) -> None:
+        response = client.post(
+            SESSIONS,
+            json=approval(max_posts=2, post_ids=["11111111-1111-4111-8111-111111111111"]),
+        )
+
+        assert response.status_code == 422
 
     def test_a_finished_session_frees_the_slot(self, client: TestClient) -> None:
         first = client.post(SESSIONS, json=approval())
@@ -326,6 +420,22 @@ class TestScheduleStatus:
 
         assert body["enabled"] is True
         assert body["blocking_reason"] is None
+
+
+class TestSafetyStatus:
+    def test_it_returns_redacted_current_daily_limits(self, client: TestClient) -> None:
+        response = client.get("/api/v1/automation/safety-status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["local_date"]) == 10
+        assert body["min_interval_seconds"] >= 0
+        assert {item["name"] for item in body["actions"]} == {
+            "like",
+            "comment",
+            "mutual_neighbor",
+        }
+        assert all(item["remaining"] == item["cap"] - item["used"] for item in body["actions"])
 
 
 class TestCreatedOn:
