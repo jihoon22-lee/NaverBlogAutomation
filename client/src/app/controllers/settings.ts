@@ -7,13 +7,24 @@
  */
 
 import { ApiError, LocalApiClient } from "../api/client";
-import type { AutoDiscoverySettings, DiscoverySyncResult, SavedSearch } from "../api/types";
+import type {
+  AutoDiscoverySettings,
+  DigestSettings,
+  DiscoveryNeighbor,
+  DiscoverySearchRefresh,
+  DiscoverySyncResult,
+  SavedSearch,
+} from "../api/types";
 import { renderSettings } from "../views/settings";
 
 const REFUSALS: Record<string, string> = {
   own_blog_id_missing: "내 블로그 ID를 먼저 저장하세요.",
   search_provider_unavailable:
     "검색 API key가 설정되지 않아 검색 후보를 가져올 수 없습니다. 이웃 새 글은 계속 수집합니다.",
+  discovery_search_not_configured:
+    "검색 API key가 설정되지 않았습니다. 설정 후 검색어를 다시 갱신하세요.",
+  discovery_search_unavailable:
+    "신규 이웃 검색 결과를 가져오지 못했습니다. 잠시 후 다시 시도하세요.",
   invalid_blog_id: "블로그 ID 형식을 확인하세요.",
   search_limit_reached: "저장한 검색어가 상한에 도달했습니다. 쓰지 않는 검색어를 지우세요.",
 };
@@ -22,9 +33,14 @@ export interface SettingsState {
   phase: "idle" | "loading" | "ready" | "saving" | "syncing" | "failed";
   settings: AutoDiscoverySettings | null;
   searches: SavedSearch[];
+  neighbors: DiscoveryNeighbor[];
+  digest: DigestSettings | null;
   lastSync: DiscoverySyncResult | null;
+  lastSearchRefresh: { searchId: string; result: DiscoverySearchRefresh } | null;
   form: { ownBlogId: string; enabled: boolean; hour: number; minute: number };
   newQuery: string;
+  neighborForm: { name: string; blogId: string; blogUrl: string };
+  digestForm: { timezone: string; hour: number; minute: number; emailEnabled: boolean };
   error: string | null;
   notice: string | null;
 }
@@ -37,6 +53,11 @@ type SettingsApi = Pick<
   | "savedSearches"
   | "saveSearch"
   | "deleteSearch"
+  | "discoveryNeighbors"
+  | "saveDiscoveryNeighbor"
+  | "refreshSavedSearch"
+  | "digestSettings"
+  | "saveDigestSettings"
 >;
 
 export interface SettingsControllerOptions {
@@ -50,9 +71,14 @@ export function initialSettingsState(): SettingsState {
     phase: "idle",
     settings: null,
     searches: [],
+    neighbors: [],
+    digest: null,
     lastSync: null,
+    lastSearchRefresh: null,
     form: { ownBlogId: "", enabled: false, hour: 9, minute: 0 },
     newQuery: "",
+    neighborForm: { name: "", blogId: "", blogUrl: "" },
+    digestForm: { timezone: "Asia/Seoul", hour: 9, minute: 0, emailEnabled: false },
     error: null,
     notice: null,
   };
@@ -90,13 +116,29 @@ export class SettingsController {
       onSync: () => void this.sync(),
       onRefresh: () => void this.load(),
       onFieldChange: (patch) => {
-        this.#patch({ form: { ...this.#state.form, ...patch } });
+        this.#state = { ...this.#state, form: { ...this.#state.form, ...patch } };
       },
       onQueryChange: (value) => {
         this.#state = { ...this.#state, newQuery: value };
       },
       onAddSearch: () => void this.addSearch(),
       onDeleteSearch: (id) => void this.deleteSearch(id),
+      onRefreshSearch: (id) => void this.refreshSearch(id),
+      onNeighborFieldChange: (patch) => {
+        this.#state = {
+          ...this.#state,
+          neighborForm: { ...this.#state.neighborForm, ...patch },
+        };
+      },
+      onSaveNeighbor: () => void this.saveNeighbor(),
+      onToggleNeighbor: (id) => void this.toggleNeighbor(id),
+      onDigestFieldChange: (patch) => {
+        this.#state = {
+          ...this.#state,
+          digestForm: { ...this.#state.digestForm, ...patch },
+        };
+      },
+      onSaveDigest: () => void this.saveDigest(),
     });
   }
 
@@ -105,19 +147,29 @@ export class SettingsController {
     if (isSettingsBusy(this.#state)) return;
     this.#patch({ phase: "loading", error: null, notice: null });
     try {
-      const [settings, searches] = await Promise.all([
+      const [settings, searches, neighbors, digest] = await Promise.all([
         this.#api.autoDiscoverySettings(),
         this.#searchesOrEmpty(),
+        this.#api.discoveryNeighbors(),
+        this.#api.digestSettings(),
       ]);
       this.#patch({
         phase: "ready",
         settings,
         searches,
+        neighbors,
+        digest,
         form: {
           ownBlogId: settings.ownBlogId,
           enabled: settings.enabled,
           hour: settings.hour,
           minute: settings.minute,
+        },
+        digestForm: {
+          timezone: digest.timezone,
+          hour: digest.hour,
+          minute: digest.minute,
+          emailEnabled: digest.emailEnabled,
         },
       });
     } catch (error) {
@@ -139,6 +191,7 @@ export class SettingsController {
         enabled: this.#state.form.enabled,
         hour: this.#state.form.hour,
         minute: this.#state.form.minute,
+        timezone: this.#state.settings?.timezone ?? "Asia/Seoul",
       });
       this.#patch({ phase: "ready", settings, notice: "자동 탐색 설정을 저장했습니다." });
     } catch (error) {
@@ -197,6 +250,95 @@ export class SettingsController {
     }
   }
 
+  /** Refresh one search profile without collecting every configured source. */
+  async refreshSearch(id: string): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    this.#patch({ phase: "syncing", error: null, notice: null });
+    try {
+      const result = await this.#api.refreshSavedSearch(id);
+      this.#patch({
+        phase: "ready",
+        lastSearchRefresh: { searchId: id, result },
+        notice: `검색 후보 ${result.importedCount}건을 확인했습니다.`,
+      });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  /** Save a manually entered neighbour, or update an existing URL through the API upsert. */
+  async saveNeighbor(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const { name, blogId, blogUrl } = this.#state.neighborForm;
+    if (!name.trim() || !blogId.trim() || !blogUrl.trim()) {
+      this.#patch({ error: "이웃 이름, 블로그 ID, 공개 URL을 모두 입력하세요.", notice: null });
+      return;
+    }
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const saved = await this.#api.saveDiscoveryNeighbor({
+        name: name.trim(),
+        blogId: blogId.trim(),
+        blogUrl: blogUrl.trim(),
+      });
+      this.#patch({
+        phase: "ready",
+        neighbors: upsertNeighbor(this.#state.neighbors, saved),
+        neighborForm: { name: "", blogId: "", blogUrl: "" },
+        notice: `이웃 "${saved.name}"을 저장했습니다.`,
+      });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  /** Keep the stored address and identity while changing only collection availability. */
+  async toggleNeighbor(id: string): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const neighbor = this.#state.neighbors.find((item) => item.id === id);
+    if (neighbor === undefined) return;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const saved = await this.#api.saveDiscoveryNeighbor({
+        name: neighbor.name,
+        blogId: neighbor.blogId,
+        blogUrl: neighbor.blogUrl,
+        enabled: !neighbor.enabled,
+      });
+      this.#patch({
+        phase: "ready",
+        neighbors: upsertNeighbor(this.#state.neighbors, saved),
+        notice: saved.enabled
+          ? `이웃 "${saved.name}" 수집을 다시 켰습니다.`
+          : `이웃 "${saved.name}" 수집을 멈췄습니다.`,
+      });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  /** Persist the local digest time and optional email preference. */
+  async saveDigest(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const digest = await this.#api.saveDigestSettings(this.#state.digestForm);
+      this.#patch({
+        phase: "ready",
+        digest,
+        digestForm: {
+          timezone: digest.timezone,
+          hour: digest.hour,
+          minute: digest.minute,
+          emailEnabled: digest.emailEnabled,
+        },
+        notice: "이메일 요약 설정을 저장했습니다.",
+      });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
   /** Treat an unavailable search provider as an empty list rather than a screen-wide failure. */
   async #searchesOrEmpty(): Promise<SavedSearch[]> {
     try {
@@ -214,6 +356,15 @@ export class SettingsController {
     this.#state = { ...this.#state, ...changes };
     for (const listener of this.#listeners) listener();
   }
+}
+
+function upsertNeighbor(
+  neighbors: DiscoveryNeighbor[],
+  saved: DiscoveryNeighbor,
+): DiscoveryNeighbor[] {
+  const index = neighbors.findIndex((neighbor) => neighbor.id === saved.id);
+  const next = index < 0 ? [...neighbors, saved] : neighbors.toSpliced(index, 1, saved);
+  return next.toSorted((left, right) => left.name.localeCompare(right.name, "ko-KR"));
 }
 
 function message(error: unknown): string {

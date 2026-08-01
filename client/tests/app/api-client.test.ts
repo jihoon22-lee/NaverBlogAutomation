@@ -1,6 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError, LocalApiClient } from "../../src/app/api/client";
+import {
+  ApiError,
+  LocalApiClient,
+  readAppSetting,
+  readArticleExtraction,
+  readAutoDiscoverySettings,
+  readAutomationSession,
+  readBlogCategory,
+  readBrowserSession,
+  readCommentGeneration,
+  readDigestSettings,
+  readDiscoveryNeighbor,
+  readDiscoveryQueue,
+  readDiscoverySearchRefresh,
+  readDiscoverySyncResult,
+  readEngagementRun,
+  readLlmProvider,
+  readPostDraft,
+  readPublishRun,
+  readRecommendation,
+  readSavedSearch,
+  readScheduleStatus,
+  readServiceStatus,
+} from "../../src/app/api/client";
 
 const STATUS = {
   status: "ready",
@@ -46,6 +69,69 @@ const EXTRACTION = {
   preview: "합성 본문",
 };
 
+const NEIGHBOR = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "합성 이웃",
+  blog_url: "https://blog.naver.com/neighbor",
+  blog_id: "neighbor",
+  enabled: true,
+  feed_status: "ready",
+  last_checked_at: "2026-08-01T00:00:00Z",
+  created_at: "2026-08-01T00:00:00Z",
+};
+
+const DIGEST_SETTINGS = {
+  timezone: "Asia/Seoul",
+  hour: 8,
+  minute: 30,
+  email_enabled: true,
+  smtp_configured: false,
+};
+
+const SEARCH_REFRESH = {
+  imported_count: 4,
+  provider: "naver_open_api",
+  detail: "공식 네이버 검색 API에서 검색 후보 4개를 확인했습니다.",
+};
+
+const AUTOMATIC_DISCOVERY = {
+  own_blog_id: "example",
+  enabled: true,
+  timezone: "Asia/Seoul",
+  hour: 9,
+  minute: 30,
+  last_synced_at: null,
+  last_status: "success",
+  last_detail: "",
+};
+
+const SAVED_SEARCH = {
+  id: "22222222-2222-4222-8222-222222222222",
+  query: "전시 후기",
+  excluded_terms: [],
+  freshness_days: 14,
+  enabled: true,
+  created_at: "2026-08-01T00:00:00Z",
+};
+
+const DISCOVERY_SYNC = {
+  neighbors_added: 1,
+  neighbor_posts_added: 2,
+  search_posts_added: 3,
+  search_provider: "naver_open_api",
+  status: "success",
+  detail: "완료",
+};
+
+const SCHEDULE = {
+  mode: "schedule",
+  hour: 9,
+  minute: 30,
+  max_posts: 3,
+  enabled: true,
+  blocking_reason: null,
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -56,6 +142,35 @@ function jsonResponse(body: unknown, status = 200): Response {
 function clientWith(handler: typeof fetch): LocalApiClient {
   return new LocalApiClient({ fetch: handler });
 }
+
+describe("response shape guards", () => {
+  const decoders: [string, (value: unknown) => unknown][] = [
+    ["service status", readServiceStatus],
+    ["discovery queue", readDiscoveryQueue],
+    ["browser session", readBrowserSession],
+    ["article extraction", readArticleExtraction],
+    ["recommendation", readRecommendation],
+    ["comment generation", readCommentGeneration],
+    ["app setting", readAppSetting],
+    ["engagement run", readEngagementRun],
+    ["automation session", readAutomationSession],
+    ["automatic discovery settings", readAutoDiscoverySettings],
+    ["discovery synchronization", readDiscoverySyncResult],
+    ["saved search", readSavedSearch],
+    ["neighbor", readDiscoveryNeighbor],
+    ["search refresh", readDiscoverySearchRefresh],
+    ["digest settings", readDigestSettings],
+    ["schedule", readScheduleStatus],
+    ["provider", readLlmProvider],
+    ["blog category", readBlogCategory],
+    ["post draft", readPostDraft],
+    ["publish run", readPublishRun],
+  ];
+
+  it.each(decoders)("rejects a non-object %s response", (_name, read) => {
+    expect(() => read(null)).toThrow(/계약/u);
+  });
+});
 
 describe("status", () => {
   it("maps the service status into camel case", async () => {
@@ -159,6 +274,149 @@ describe("discoveryQueue", () => {
     const posts = await client.discoveryQueue();
 
     expect(posts[0]?.publisherName).toBeNull();
+  });
+});
+
+describe("discovery settings transport", () => {
+  it("maps neighbours and their RSS status", async () => {
+    const client = clientWith(vi.fn(async () => jsonResponse({ items: [NEIGHBOR] })) as never);
+
+    const neighbors = await client.discoveryNeighbors();
+
+    expect(neighbors).toEqual([
+      {
+        id: NEIGHBOR.id,
+        name: "합성 이웃",
+        blogUrl: NEIGHBOR.blog_url,
+        blogId: NEIGHBOR.blog_id,
+        enabled: true,
+        feedStatus: "ready",
+        lastCheckedAt: NEIGHBOR.last_checked_at,
+        createdAt: NEIGHBOR.created_at,
+      },
+    ]);
+  });
+
+  it("rejects an unknown neighbour RSS status", async () => {
+    const client = clientWith(
+      vi.fn(async () => jsonResponse({ items: [{ ...NEIGHBOR, feed_status: "stale" }] })) as never,
+    );
+
+    await expect(client.discoveryNeighbors()).rejects.toThrow(/feed_status/u);
+  });
+
+  it("sends an upsert-shaped neighbour request", async () => {
+    const handler = vi.fn(async () => jsonResponse(NEIGHBOR, 201));
+    const client = clientWith(handler as never);
+
+    await client.saveDiscoveryNeighbor({
+      name: NEIGHBOR.name,
+      blogUrl: NEIGHBOR.blog_url,
+      blogId: NEIGHBOR.blog_id,
+      enabled: false,
+    });
+
+    expect(handler).toHaveBeenCalledWith(
+      "/api/v1/discovery/neighbors",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: NEIGHBOR.name,
+          blog_url: NEIGHBOR.blog_url,
+          blog_id: NEIGHBOR.blog_id,
+          enabled: false,
+        }),
+      }),
+    );
+  });
+
+  it("refreshes one search and keeps its detailed result", async () => {
+    const handler = vi.fn(async () => jsonResponse(SEARCH_REFRESH));
+    const client = clientWith(handler as never);
+
+    const result = await client.refreshSavedSearch("search-id");
+
+    expect(result.importedCount).toBe(4);
+    expect(result.detail).toContain("검색 후보");
+    expect(handler).toHaveBeenCalledWith(
+      "/api/v1/discovery/searches/search-id/refresh",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("maps and saves digest settings without requiring SMTP", async () => {
+    const handler = vi.fn(async () => jsonResponse(DIGEST_SETTINGS));
+    const client = clientWith(handler as never);
+
+    const current = await client.digestSettings();
+    await client.saveDigestSettings({
+      timezone: current.timezone,
+      hour: current.hour,
+      minute: current.minute,
+      emailEnabled: current.emailEnabled,
+    });
+
+    expect(current.smtpConfigured).toBe(false);
+    expect(handler.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      "/api/v1/discovery/digest-settings",
+      "/api/v1/discovery/digest-settings",
+    ]);
+    expect((handler.mock.calls[1] as unknown[] | undefined)?.[1]).toMatchObject({
+      method: "PUT",
+      body: JSON.stringify({
+        timezone: "Asia/Seoul",
+        hour: 8,
+        minute: 30,
+        email_enabled: true,
+      }),
+    });
+  });
+
+  it("rejects a digest schedule outside a day", async () => {
+    const client = clientWith(
+      vi.fn(async () => jsonResponse({ ...DIGEST_SETTINGS, hour: 24 })) as never,
+    );
+
+    await expect(client.digestSettings()).rejects.toThrow(/digest time/u);
+  });
+
+  it("uses nullable defaults for incomplete optional timestamps", () => {
+    expect(
+      readDiscoveryNeighbor({ ...NEIGHBOR, last_checked_at: undefined }).lastCheckedAt,
+    ).toBeNull();
+    expect(
+      readAutoDiscoverySettings({ ...AUTOMATIC_DISCOVERY, last_synced_at: undefined }).lastSyncedAt,
+    ).toBeNull();
+  });
+
+  it.each([
+    ["saved search terms", () => readSavedSearch({ ...SAVED_SEARCH, excluded_terms: "no" })],
+    ["saved search freshness", () => readSavedSearch({ ...SAVED_SEARCH, freshness_days: 91 })],
+    [
+      "automatic discovery status",
+      () => readAutoDiscoverySettings({ ...AUTOMATIC_DISCOVERY, last_status: "later" }),
+    ],
+    [
+      "automatic discovery time",
+      () => readAutoDiscoverySettings({ ...AUTOMATIC_DISCOVERY, hour: 24 }),
+    ],
+    [
+      "synchronization provider",
+      () => readDiscoverySyncResult({ ...DISCOVERY_SYNC, search_provider: "html" }),
+    ],
+    [
+      "synchronization status",
+      () => readDiscoverySyncResult({ ...DISCOVERY_SYNC, status: "pending" }),
+    ],
+    [
+      "search refresh provider",
+      () => readDiscoverySearchRefresh({ ...SEARCH_REFRESH, provider: "cache" }),
+    ],
+    ["digest minute", () => readDigestSettings({ ...DIGEST_SETTINGS, minute: 60 })],
+    ["schedule mode", () => readScheduleStatus({ ...SCHEDULE, mode: "later" })],
+    ["schedule time", () => readScheduleStatus({ ...SCHEDULE, minute: 60 })],
+  ])("rejects invalid %s fields", (_field, read) => {
+    expect(read).toThrow(/계약/u);
   });
 });
 

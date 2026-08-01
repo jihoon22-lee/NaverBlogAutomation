@@ -30,6 +30,9 @@ import type {
   EngagementStep,
   EngagementStepName,
   DiscoverySyncResult,
+  DiscoveryNeighbor,
+  DiscoverySearchRefresh,
+  DigestSettings,
   SavedSearch,
   ScheduleStatus,
   SessionState,
@@ -70,6 +73,7 @@ const RUN_STATES = new Set<EngagementRunState>(["running", "succeeded", "failed"
 const SESSION_TRIGGERS = new Set<SessionTrigger>(["manual", "session", "schedule"]);
 const SYNC_HISTORY = new Set(["never", "success", "partial", "failed"]);
 const SYNC_STATES = new Set(["success", "partial", "failed"]);
+const NEIGHBOR_FEED_STATUSES = new Set(["ready", "unavailable", "unknown"]);
 const BATCH_STATES = new Set<SessionState>([
   "pending",
   "running",
@@ -275,6 +279,52 @@ export class LocalApiClient {
 
   async deleteSearch(id: string): Promise<void> {
     await this.#request("DELETE", `/api/v1/discovery/searches/${id}`);
+  }
+
+  async discoveryNeighbors(): Promise<DiscoveryNeighbor[]> {
+    const body = await this.#request("GET", "/api/v1/discovery/neighbors");
+    return readItems(body, readDiscoveryNeighbor);
+  }
+
+  async saveDiscoveryNeighbor(neighbor: {
+    name: string;
+    blogUrl: string;
+    blogId: string;
+    enabled?: boolean;
+  }): Promise<DiscoveryNeighbor> {
+    const body = await this.#request("POST", "/api/v1/discovery/neighbors", {
+      name: neighbor.name,
+      blog_url: neighbor.blogUrl,
+      blog_id: neighbor.blogId,
+      enabled: neighbor.enabled ?? true,
+    });
+    return readDiscoveryNeighbor(body);
+  }
+
+  async refreshSavedSearch(id: string): Promise<DiscoverySearchRefresh> {
+    return readDiscoverySearchRefresh(
+      await this.#request("POST", `/api/v1/discovery/searches/${id}/refresh`),
+    );
+  }
+
+  async digestSettings(): Promise<DigestSettings> {
+    return readDigestSettings(await this.#request("GET", "/api/v1/discovery/digest-settings"));
+  }
+
+  async saveDigestSettings(settings: {
+    timezone: string;
+    hour: number;
+    minute: number;
+    emailEnabled: boolean;
+  }): Promise<DigestSettings> {
+    return readDigestSettings(
+      await this.#request("PUT", "/api/v1/discovery/digest-settings", {
+        timezone: settings.timezone,
+        hour: settings.hour,
+        minute: settings.minute,
+        email_enabled: settings.emailEnabled,
+      }),
+    );
   }
 
   async appSetting(kind: string): Promise<AppSettingRecord> {
@@ -862,6 +912,47 @@ export function readSavedSearch(value: unknown): SavedSearch {
     freshnessDays: freshness,
     enabled: readBoolean(value.enabled, "enabled"),
     createdAt: readString(value.created_at, "created_at"),
+  };
+}
+
+export function readDiscoveryNeighbor(value: unknown): DiscoveryNeighbor {
+  if (!isRecord(value)) throw contractError("neighbor");
+  const feedStatus = value.feed_status;
+  if (!NEIGHBOR_FEED_STATUSES.has(feedStatus as string)) throw contractError("feed_status");
+  return {
+    id: readString(value.id, "neighbor id"),
+    name: readString(value.name, "neighbor name"),
+    blogUrl: readString(value.blog_url, "neighbor blog_url"),
+    blogId: readString(value.blog_id, "neighbor blog_id"),
+    enabled: readBoolean(value.enabled, "neighbor enabled"),
+    feedStatus: feedStatus as DiscoveryNeighbor["feedStatus"],
+    lastCheckedAt: readNullableString(value.last_checked_at ?? null, "last_checked_at"),
+    createdAt: readString(value.created_at, "neighbor created_at"),
+  };
+}
+
+export function readDiscoverySearchRefresh(body: unknown): DiscoverySearchRefresh {
+  if (!isRecord(body) || body.provider !== "naver_open_api") {
+    throw contractError("search refresh");
+  }
+  return {
+    importedCount: readCount(body.imported_count, "imported_count"),
+    provider: "naver_open_api",
+    detail: readText(body.detail, "detail"),
+  };
+}
+
+export function readDigestSettings(body: unknown): DigestSettings {
+  if (!isRecord(body)) throw contractError("digest settings");
+  const hour = readCount(body.hour, "digest hour");
+  const minute = readCount(body.minute, "digest minute");
+  if (hour > 23 || minute > 59) throw contractError("digest time");
+  return {
+    timezone: readString(body.timezone, "digest timezone"),
+    hour,
+    minute,
+    emailEnabled: readBoolean(body.email_enabled, "email_enabled"),
+    smtpConfigured: readBoolean(body.smtp_configured, "smtp_configured"),
   };
 }
 

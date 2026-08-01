@@ -224,6 +224,17 @@ describe("progress", () => {
     expect(controller.state.completedPosts).toEqual([]);
   });
 
+  it("records a post with no optional state or result codes", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("post_completed", { post_id: "a" });
+
+    expect(controller.state.completedPosts).toEqual([
+      { postId: "a", state: "unknown", resultCodes: [] },
+    ]);
+  });
+
   it("closes the stream on a terminal event", async () => {
     const { controller, emit, closed } = harness();
     await controller.start();
@@ -267,6 +278,25 @@ describe("progress", () => {
     await Promise.resolve();
     expect(api.session).toHaveBeenCalledWith(SESSION.id);
   });
+
+  it("keeps the current snapshot for an incomplete session stream event", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("session_progress", { id: SESSION.id });
+
+    expect(controller.state.current?.state).toBe("running");
+    expect(controller.state.current?.processedCount).toBe(0);
+  });
+
+  it("ignores an incomplete session stream event", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("session_progress", {});
+
+    expect(controller.state.current?.id).toBe(SESSION.id);
+  });
 });
 
 describe("cancelling", () => {
@@ -295,6 +325,20 @@ describe("cancelling", () => {
     await controller.cancel();
 
     expect(api.cancelSession).not.toHaveBeenCalled();
+  });
+
+  it("restores the cancellation control after a failed request", async () => {
+    const { controller } = harness({
+      cancelSession: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    await controller.start();
+
+    await controller.cancel();
+
+    expect(controller.state.cancelRequested).toBe(false);
+    expect(controller.state.phase).toBe("failed");
   });
 });
 
@@ -363,6 +407,15 @@ describe("loading", () => {
     controller.render();
 
     expect(text(root)).toContain("로컬 서비스가 실행 중인지 확인하세요");
+  });
+
+  it("does not load again while a batch is active", async () => {
+    const { controller, api } = harness();
+    await controller.start();
+
+    await controller.load();
+
+    expect(api.sessions).not.toHaveBeenCalled();
   });
 });
 

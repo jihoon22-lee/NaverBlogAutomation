@@ -325,3 +325,31 @@ export interface SavedSearch {
   enabled: boolean;
   createdAt: string;
 }
+
+/** One public blog whose RSS feed can supply neighbour posts. */
+export interface DiscoveryNeighbor {
+  id: string;
+  name: string;
+  blogUrl: string;
+  blogId: string;
+  enabled: boolean;
+  feedStatus: "ready" | "unavailable" | "unknown";
+  lastCheckedAt: string | null;
+  createdAt: string;
+}
+
+/** The result of refreshing one saved search through Naver's documented API. */
+export interface DiscoverySearchRefresh {
+  importedCount: number;
+  provider: "naver_open_api";
+  detail: string;
+}
+
+/** When the local service refreshes neighbours and optionally sends an email digest. */
+export interface DigestSettings {
+  timezone: string;
+  hour: number;
+  minute: number;
+  emailEnabled: boolean;
+  smtpConfigured: boolean;
+}
