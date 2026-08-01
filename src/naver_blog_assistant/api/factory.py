@@ -72,6 +72,8 @@ from naver_blog_assistant.api.models import (
     SavedSearchRequest,
     SavedSearchResponse,
     ServiceStatusResponse,
+    WebAppDiscoveryPostResponse,
+    WebAppDiscoveryQueueResponse,
 )
 from naver_blog_assistant.api.rate_limit import LocalRateLimiter
 from naver_blog_assistant.api.routers import (
@@ -142,6 +144,7 @@ from naver_blog_assistant.domain import (
     AppSettingKind,
     CandidateSelectionError,
     CapturedPost,
+    DiscoveredPost,
     DiscoverySource,
     DiscoveryState,
     DomainValidationError,
@@ -1606,16 +1609,9 @@ def create_app(
             ) from error
         return DiscoveryImportResponse(imported_count=count)
 
-    @app.get(
-        "/api/v1/discovery/queue",
-        response_model=DiscoveryQueueResponse,
-        responses={422: _problem_metadata("Discovery source is invalid.")},
-        tags=["Discovery"],
-        operation_id="listDiscoveryQueue",
-    )
-    def list_discovery_queue(
-        source: Annotated[Literal["neighbor", "search"], Query()],
-    ) -> DiscoveryQueueResponse:
+    def visible_discovery_posts(
+        source: Literal["neighbor", "search"],
+    ) -> tuple[tuple[DiscoveredPost, ...], dict[UUID, str]]:
         posts = discovery.list_posts(DiscoverySource(source))
         labels: dict[UUID, str] = {}
         if source == "neighbor":
@@ -1629,9 +1625,37 @@ def create_app(
                     visible_posts.append(post)
             posts = tuple(visible_posts)
             labels = {search.id: search.query for search in searches.values()}
+        return posts, labels
+
+    @app.get(
+        "/api/v1/discovery/queue",
+        response_model=DiscoveryQueueResponse,
+        responses={422: _problem_metadata("Discovery source is invalid.")},
+        tags=["Discovery"],
+        operation_id="listDiscoveryQueue",
+    )
+    def list_discovery_queue(
+        source: Annotated[Literal["neighbor", "search"], Query()],
+    ) -> DiscoveryQueueResponse:
+        posts, _ = visible_discovery_posts(source)
         return DiscoveryQueueResponse(
+            items=[DiscoveryPostResponse.from_domain(item) for item in posts]
+        )
+
+    @app.get(
+        "/api/v1/app/discovery/queue",
+        response_model=WebAppDiscoveryQueueResponse,
+        responses={422: _problem_metadata("Discovery source is invalid.")},
+        tags=["Web app"],
+        operation_id="listWebAppDiscoveryQueue",
+    )
+    def list_web_app_discovery_queue(
+        source: Annotated[Literal["neighbor", "search"], Query()],
+    ) -> WebAppDiscoveryQueueResponse:
+        posts, labels = visible_discovery_posts(source)
+        return WebAppDiscoveryQueueResponse(
             items=[
-                DiscoveryPostResponse.from_domain(
+                WebAppDiscoveryPostResponse.from_domain(
                     item,
                     source_label=(
                         labels.get(item.neighbor_id)

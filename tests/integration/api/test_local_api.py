@@ -522,22 +522,24 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
         },
     ).json() == {"imported_count": 0}
 
-    neighbor_queue = client.get("/api/v1/discovery/queue?source=neighbor")
+    neighbor_queue = client.get("/api/v1/app/discovery/queue?source=neighbor")
     assert neighbor_queue.status_code == 200
     assert neighbor_queue.json()["items"][0]["title"] == "이웃의 새 글"
     assert neighbor_queue.json()["items"][0]["source_label"] == "테스트 이웃"
     post_id = neighbor_queue.json()["items"][0]["id"]
+    legacy_neighbor_queue = client.get("/api/v1/discovery/queue?source=neighbor")
+    assert "source_label" not in legacy_neighbor_queue.json()["items"][0]
     assert (
         client.patch(f"/api/v1/discovery/queue/{post_id}", json={"state": "opened"}).json()["state"]
         == "opened"
     )
-    search_item = client.get("/api/v1/discovery/queue?source=search").json()["items"][0]
+    search_item = client.get("/api/v1/app/discovery/queue?source=search").json()["items"][0]
     assert search_item["publisher_name"] == "새 블로거"
     assert search_item["source_label"] == "전시 후기"
     deleted_search = client.delete(f"/api/v1/discovery/searches/{search_id}")
     assert deleted_search.status_code == 204
     assert client.get("/api/v1/discovery/searches").json()["items"] == []
-    retained_candidates = client.get("/api/v1/discovery/queue?source=search").json()["items"]
+    retained_candidates = client.get("/api/v1/app/discovery/queue?source=search").json()["items"]
     assert retained_candidates == []
 
     assert client.get("/api/v1/discovery/digest-settings").json() == {

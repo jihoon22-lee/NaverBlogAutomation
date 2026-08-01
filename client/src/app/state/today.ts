@@ -106,7 +106,11 @@ export function withFilters(
 export function withPostState(state: TodayState, post: DiscoveryPost): TodayState {
   return {
     ...state,
-    posts: state.posts.map((item) => (item.id === post.id ? post : item)),
+    posts: state.posts.map((item) =>
+      item.id === post.id
+        ? { ...post, sourceLabel: post.sourceLabel ?? item.sourceLabel ?? null }
+        : item,
+    ),
   };
 }
 

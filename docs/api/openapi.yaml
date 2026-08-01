@@ -440,6 +440,13 @@ paths:
       responses:
         "200": {description: Queue items for one discovery source.}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/app/discovery/queue:
+    get:
+      operationId: listWebAppDiscoveryQueue
+      tags: [Web app]
+      responses:
+        "200": {description: Queue items for one discovery source, with web-app presentation context.}
+        "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/discovery/queue/{post_id}:
     patch:
       operationId: updateDiscoveryPostState

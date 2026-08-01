@@ -221,7 +221,7 @@ automation browser와 provider key는 계속 PC에만 둡니다. 태블릿은 PC
 | 변경 | 계약 |
 | --- | --- |
 | 준비 상태 | `GET /api/v1/app/readiness` — API, client asset, browser/login, blog ID, provider, consent, safety policy의 redacted 상태와 stable blocker code |
-| discovery 표시 맥락 | `DiscoveryPostResponse.source_label` nullable 추가 — 이웃명 또는 저장 검색어를 repository join으로 계산 |
+| discovery 표시 맥락 | 기존 `GET /api/v1/discovery/queue` 계약은 extension 호환성을 위해 유지하고, 웹앱은 `GET /api/v1/app/discovery/queue`에서 이웃명 또는 저장 검색어를 `source_label`로 받음 |
 | 댓글 AI 다듬기 | `POST /api/v1/recommendations/{id}/refine` — 현재 댓글, preset 또는 자유 지시, provider 선택을 받고 refined text와 provider/model 반환 |
 | 안전 현황 | `GET /api/v1/automation/safety-status` — 로컬 날짜, 현재 허용 시간 여부, 단계별 cap·사용·잔여 수 반환 |
 | 선택 batch | `POST /api/v1/automation/sessions`에 optional `post_ids` 추가. 없으면 기존 source/max 동작, 있으면 순서가 있는 1~50개 고유 queued post만 허용 |

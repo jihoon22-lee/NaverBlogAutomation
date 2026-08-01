@@ -212,7 +212,7 @@ export class LocalApiClient {
   }
 
   async discoveryQueueFor(source: DiscoverySource): Promise<DiscoveryPost[]> {
-    const body = await this.#request("GET", `/api/v1/discovery/queue?source=${source}`);
+    const body = await this.#request("GET", `/api/v1/app/discovery/queue?source=${source}`);
     return readDiscoveryQueue(body);
   }
 

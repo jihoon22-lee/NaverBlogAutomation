@@ -395,12 +395,42 @@ class DiscoveryPostResponse(StrictModel):
     title: ShortText
     publisher_name: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None
     publisher_blog_id: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None
-    source_label: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
     published_at: datetime | None
     neighbor_id: UUID | None
     search_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, post: DiscoveredPost) -> Self:
+        return cls(
+            id=post.id,
+            source=post.source.value,
+            state=post.state.value,
+            source_url=post.source_url,
+            title=post.title,
+            publisher_name=post.publisher_name,
+            publisher_blog_id=post.publisher_blog_id,
+            published_at=post.published_at,
+            neighbor_id=post.neighbor_id,
+            search_id=post.search_id,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+        )
+
+
+class DiscoveryQueueResponse(StrictModel):
+    items: list[DiscoveryPostResponse]
+
+
+class WebAppDiscoveryPostResponse(DiscoveryPostResponse):
+    """Queue item enriched for the separately deployed web application.
+
+    The browser extension validates the original discovery response strictly, so its public
+    contract must not gain web-only presentation fields.
+    """
+
+    source_label: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
 
     @classmethod
     def from_domain(cls, post: DiscoveredPost, *, source_label: str | None = None) -> Self:
@@ -412,17 +442,17 @@ class DiscoveryPostResponse(StrictModel):
             title=post.title,
             publisher_name=post.publisher_name,
             publisher_blog_id=post.publisher_blog_id,
-            source_label=source_label,
             published_at=post.published_at,
             neighbor_id=post.neighbor_id,
             search_id=post.search_id,
             created_at=post.created_at,
             updated_at=post.updated_at,
+            source_label=source_label,
         )
 
 
-class DiscoveryQueueResponse(StrictModel):
-    items: list[DiscoveryPostResponse]
+class WebAppDiscoveryQueueResponse(StrictModel):
+    items: list[WebAppDiscoveryPostResponse]
 
 
 class DiscoveryPostStateRequest(StrictModel):
