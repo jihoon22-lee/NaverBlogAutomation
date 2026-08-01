@@ -62,9 +62,42 @@ function api(overrides: Record<string, unknown> = {}) {
   return {
     appSetting: vi.fn(async () => setting("")),
     generateComment: vi.fn(async () => generation()),
+    generateCommentFanout: vi.fn(async () => ({
+      attempt: 1,
+      extraction: EXTRACTION,
+      items: [
+        {
+          provider: "openai" as const,
+          model: "gpt-test",
+          status: "succeeded" as const,
+          resultCode: null,
+          replayed: false,
+          retryAfter: null,
+          recommendation: recommendation(),
+        },
+        {
+          provider: "gemini" as const,
+          model: "gemini-test",
+          status: "failed" as const,
+          resultCode: "generation_refused",
+          replayed: false,
+          retryAfter: null,
+          recommendation: null,
+        },
+      ],
+    })),
+    llmProviders: vi.fn(async () => [
+      { provider: "openai" as const, configured: true, model: "gpt-test" },
+    ]),
+    recommendation: vi.fn(async () => recommendation()),
     reviewRecommendation: vi.fn(async () =>
       recommendation({ reviewStatus: "approved", version: 2 }),
     ),
+    refineRecommendation: vi.fn(async () => ({
+      text: "더 자연스러운 댓글",
+      provider: "openai" as const,
+      model: "gpt-test",
+    })),
     ...overrides,
   };
 }
@@ -113,6 +146,31 @@ describe("preview", () => {
     expect(controller.state.closingPhrase).toBe("감사합니다");
   });
 
+  it("shows the saved mutual-neighbour message before the search-result final action", async () => {
+    const controller = new CommentController(root(), {
+      api: api({
+        appSetting: vi.fn(async (kind: string) =>
+          kind === "neighbor_message"
+            ? {
+                kind,
+                schemaVersion: 1,
+                payload: { message: "좋은 이웃이 되고 싶어요." },
+                updatedAt: null,
+              }
+            : setting(""),
+        ),
+      }) as never,
+    });
+    controller.open(EXTRACTION, "post-1", "search");
+    await controller.loadClosingPhrase();
+    await controller.generate();
+
+    expect(text(".mutual-neighbor-message")).toContain("좋은 이웃이 되고 싶어요.");
+    expect(document.getElementById("execute-comment-button")?.textContent).toContain(
+      "서로이웃 신청",
+    );
+  });
+
   it("falls back to an empty phrase when settings cannot be read", async () => {
     const controller = new CommentController(root(), {
       api: api({
@@ -140,6 +198,55 @@ describe("generation", () => {
       "따뜻한 후보",
     );
     expect(text(".draft-count")).toContain("/ 500자");
+  });
+
+  it("updates the local route owner after generation and restores a saved recommendation", async () => {
+    const onRecommendationReady = vi.fn();
+    const controller = new CommentController(root(), {
+      api: api() as never,
+      onRecommendationReady,
+    });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+
+    await controller.generate();
+
+    expect(onRecommendationReady).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "post-1",
+      "neighbor",
+    );
+
+    await controller.restore("11111111-1111-4111-8111-111111111111", "post-1", "neighbor");
+
+    expect(controller.state.phase).toBe("review");
+    expect(controller.state.extraction?.preview).toBe("합성 요약");
+    expect(document.getElementById("execute-comment-button")).not.toBeNull();
+  });
+
+  it("compares configured providers only after the user requests the extra calls", async () => {
+    const client = api({
+      llmProviders: vi.fn(async () => [
+        { provider: "openai" as const, configured: true, model: "gpt-test" },
+        { provider: "gemini" as const, configured: true, model: "gemini-test" },
+      ]),
+    });
+    const controller = new CommentController(root(), { api: client as never });
+    controller.open(EXTRACTION);
+    await controller.loadClosingPhrase();
+
+    (document.getElementById("compare-providers-button") as HTMLButtonElement).click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.generateCommentFanout).toHaveBeenCalledWith(
+      EXTRACTION.sourceUrl,
+      [
+        { provider: "openai", model: "gpt-test" },
+        { provider: "gemini", model: "gemini-test" },
+      ],
+      {},
+    );
+    expect(text(".provider-comparison")).toContain("generation_refused");
   });
 
   it("sends only the options the user chose", async () => {
@@ -326,6 +433,57 @@ describe("candidate selection and editing", () => {
     editor.dispatchEvent(new Event("input"));
 
     expect(controller.state.draft).toBe("직접 다듬은 댓글");
+  });
+});
+
+describe("AI comment refinement", () => {
+  it("replaces the visible draft with one explicit quick refinement", async () => {
+    const client = api();
+    const controller = new CommentController(root(), { api: client as never });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+    await controller.generate();
+
+    await controller.refine("natural", "");
+
+    expect(controller.state.draft).toBe("더 자연스러운 댓글");
+    expect(client.refineRecommendation).toHaveBeenCalledWith(
+      recommendation().id,
+      expect.objectContaining({ currentComment: "따뜻한 후보", preset: "natural" }),
+    );
+    expect(text(".refinement-status")).toContain("다듬었습니다");
+  });
+
+  it("reuses the same refinement key after a timeout so the service can replay it", async () => {
+    const client = api({
+      refineRecommendation: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new ApiError("timeout", {
+            problem: {
+              code: "generation_timeout",
+              detail: "제한 시간 초과",
+              status: 504,
+              title: "Timeout",
+            },
+            status: 504,
+          }),
+        )
+        .mockResolvedValueOnce({ text: "재사용 결과", provider: "openai", model: "gpt-test" }),
+    });
+    const controller = new CommentController(root(), { api: client as never });
+    controller.open(EXTRACTION);
+    await controller.generate();
+
+    await controller.refine("natural", "");
+    await controller.refine("natural", "");
+
+    const calls = (client.refineRecommendation as { mock: { calls: unknown[][] } }).mock.calls;
+    const [first, second] = calls;
+    if (first === undefined || second === undefined) throw new Error("missing refinement calls");
+    expect((first[1] as { idempotencyKey: string }).idempotencyKey).toBe(
+      (second[1] as { idempotencyKey: string }).idempotencyKey,
+    );
+    expect(controller.state.draft).toBe("재사용 결과");
   });
 });
 

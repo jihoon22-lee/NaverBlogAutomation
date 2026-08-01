@@ -135,25 +135,24 @@ describe("comment workspace execution", () => {
     controller.render();
   }
 
-  it("hides the execution panel until the comment is approved", async () => {
-    controller.open(EXTRACTION, POST_ID);
+  it("shows one final action before approval and keeps retry separate after a refusal", async () => {
+    controller.open(EXTRACTION, POST_ID, "neighbor");
     await controller.generate();
 
+    expect(document.getElementById("execute-comment-button")).not.toBeNull();
     expect(document.getElementById("run-button")).toBeNull();
 
     await controller.approve();
     rerender();
 
-    expect(document.getElementById("run-button")).not.toBeNull();
+    expect(document.getElementById("run-button")).toBeNull();
   });
 
-  it("starts one run from a single click", async () => {
-    controller.open(EXTRACTION, POST_ID);
+  it("approves and starts one run from a single final click", async () => {
+    controller.open(EXTRACTION, POST_ID, "neighbor");
     await controller.generate();
-    await controller.approve();
-    rerender();
 
-    (document.getElementById("run-button") as HTMLButtonElement).click();
+    (document.getElementById("execute-comment-button") as HTMLButtonElement).click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -177,7 +176,7 @@ describe("comment workspace execution", () => {
   });
 
   it("renders streamed step results in the panel", async () => {
-    controller.open(EXTRACTION, POST_ID);
+    controller.open(EXTRACTION, POST_ID, "neighbor");
     await controller.generate();
     await controller.approve();
     await controller.startRun();
@@ -194,7 +193,7 @@ describe("comment workspace execution", () => {
   });
 
   it("forgets the previous run when another post opens", async () => {
-    controller.open(EXTRACTION, POST_ID);
+    controller.open(EXTRACTION, POST_ID, "neighbor");
     await controller.generate();
     await controller.approve();
     await controller.startRun();

@@ -160,6 +160,19 @@ describe("RunController", () => {
     expect(stream.urls).toEqual([`/api/v1/automation/engagement-runs/${RUN_ID}/events`]);
   });
 
+  it("refreshes the active run after a mobile browser resumes", async () => {
+    const client = api();
+    const controller = new RunController({ api: client, stream: stream.factory });
+    await controller.start(POST_ID, RECOMMENDATION_ID);
+
+    await controller.refresh();
+
+    expect(
+      (client as unknown as { engagementRun: { mock: { calls: unknown[][] } } }).engagementRun.mock
+        .calls,
+    ).toEqual([[RUN_ID]]);
+  });
+
   it("ignores a duplicate start while a run is in flight", async () => {
     const client = api();
     const controller = new RunController({ api: client, stream: stream.factory });
@@ -337,7 +350,7 @@ describe("run view", () => {
     expect(status?.getAttribute("role")).toBe("status");
   });
 
-  it("disables the run button while a run is in flight", () => {
+  it("does not offer a second start button while a run is in flight", () => {
     const element = renderRun(
       document,
       { ...initialRunState(), phase: "running" },
@@ -348,7 +361,7 @@ describe("run view", () => {
       },
     );
 
-    expect((element.querySelector("#run-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(element.querySelector("#run-button")).toBeNull();
   });
 
   it("explains a partial failure and offers only a manual record", () => {

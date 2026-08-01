@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DraftRevision, PostDraft, PublishRun } from "../../src/app/api/types";
 import {
@@ -16,7 +16,7 @@ import {
   withRun,
   withSeed,
 } from "../../src/app/state/writing";
-import { renderWriting } from "../../src/app/views/writing";
+import { renderWriting, wordDiff } from "../../src/app/views/writing";
 
 const IMAGE_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -90,8 +90,11 @@ function run(): PublishRun {
 
 const HANDLERS = {
   onAddTags: () => undefined,
+  onBodyChange: () => undefined,
   onCompose: () => undefined,
+  onCompleteWithAi: () => undefined,
   onCreateDraft: () => undefined,
+  onDeleteDraft: () => undefined,
   onDeleteImage: () => undefined,
   onGenerateTags: () => undefined,
   onOpenDraft: () => undefined,
@@ -101,6 +104,7 @@ const HANDLERS = {
   onSeedChange: () => undefined,
   onStage: () => undefined,
   onSyncCategories: () => undefined,
+  onTitleChange: () => undefined,
   onToggleTag: () => undefined,
   onUploadImage: () => undefined,
 };
@@ -211,6 +215,15 @@ describe("writing state", () => {
     expect(state.selectedCategoryNo).toBe(7);
     expect(state.options.length).toBe("long");
   });
+
+  it("marks added and removed words for revision review", () => {
+    expect(wordDiff("첫 문단", "첫 고친 문단")).toEqual(
+      expect.arrayContaining([
+        { kind: "same", text: "첫" },
+        { kind: "added", text: "고친" },
+      ]),
+    );
+  });
 });
 
 describe("writing view", () => {
@@ -294,5 +307,74 @@ describe("writing view", () => {
     const root = render(withFailure(withDraft(initialWritingState(), draft()), "실패했습니다."));
 
     expect(root.querySelector("#writing-status")?.textContent).toBe("실패했습니다.");
+  });
+
+  it("wires every available editing action to an explicit handler", () => {
+    const handlers = {
+      ...HANDLERS,
+      onAddTags: vi.fn(),
+      onBodyChange: vi.fn(),
+      onCompose: vi.fn(),
+      onCompleteWithAi: vi.fn(),
+      onCreateDraft: vi.fn(),
+      onDeleteDraft: vi.fn(),
+      onDeleteImage: vi.fn(),
+      onGenerateTags: vi.fn(),
+      onOpenDraft: vi.fn(),
+      onOptionChange: vi.fn(),
+      onRefine: vi.fn(),
+      onSaveBody: vi.fn(),
+      onSeedChange: vi.fn(),
+      onStage: vi.fn(),
+      onSyncCategories: vi.fn(),
+      onTitleChange: vi.fn(),
+      onToggleTag: vi.fn(),
+    };
+    const state = withLoaded(
+      withSeed(withDraft(initialWritingState(), draft()), { title: "새 제목", text: "메모" }),
+      {
+        categories: [{ categoryNo: 7, name: "전시 후기", postCount: 3, syncedAt: null }],
+        drafts: [draft()],
+        providers: [{ provider: "openai", configured: true, model: "gpt-test" }],
+      },
+    );
+    const root = document.createElement("main");
+    document.body.textContent = "";
+    document.body.append(root);
+    renderWriting(root, state, handlers);
+
+    for (const selector of [
+      "#sync-categories-button",
+      ".draft-item",
+      ".image-remove",
+      ".provider-choice",
+      '.option-choice[data-option="length"]',
+      "#compose-button",
+      "#save-body-button",
+      "#refine-button",
+      ".revision-item",
+      "#generate-tags-button",
+      ".tag-choice",
+      "#add-tags-button",
+      "#stage-button",
+      "#delete-draft-button",
+    ]) {
+      (root.querySelector(selector) as HTMLButtonElement).click();
+    }
+    const body = root.querySelector<HTMLTextAreaElement>("#body-text") as HTMLTextAreaElement;
+    body.value = "고친 본문";
+    body.dispatchEvent(new Event("input"));
+    const title = root.querySelector<HTMLInputElement>("#draft-title") as HTMLInputElement;
+    title.value = "고친 제목";
+    title.dispatchEvent(new Event("input"));
+    const seed = root.querySelector<HTMLTextAreaElement>("#seed-text") as HTMLTextAreaElement;
+    seed.value = "바꾼 메모";
+    seed.dispatchEvent(new Event("input"));
+
+    expect(handlers.onCompose).toHaveBeenCalledTimes(1);
+    expect(handlers.onBodyChange).toHaveBeenCalledWith("고친 본문");
+    expect(handlers.onTitleChange).toHaveBeenCalledWith("고친 제목");
+    expect(handlers.onStage).toHaveBeenCalledTimes(1);
+    expect(handlers.onDeleteDraft).toHaveBeenCalledTimes(1);
   });
 });

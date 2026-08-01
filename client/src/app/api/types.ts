@@ -62,6 +62,7 @@ export interface DiscoveryPost {
   title: string;
   publisherName: string | null;
   publisherBlogId: string | null;
+  sourceLabel?: string | null;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -152,6 +153,39 @@ export interface CommentGeneration {
   extraction: ArticleExtraction;
   recommendation: Recommendation;
   replayed: boolean;
+}
+
+export interface ProviderOutcome {
+  provider: LlmProviderName;
+  model: string;
+  status: "succeeded" | "failed" | "indeterminate";
+  resultCode: string | null;
+  replayed: boolean;
+  retryAfter: number | null;
+  recommendation: Recommendation | null;
+}
+
+export interface CommentFanout {
+  attempt: number;
+  extraction: ArticleExtraction;
+  items: ProviderOutcome[];
+}
+
+export interface CommentRefinement {
+  text: string;
+  provider: LlmProviderName;
+  model: string;
+}
+
+export interface RecommendationHistoryItem {
+  id: string;
+  sourceUrl: string;
+  title: string;
+  reviewStatus: ReviewStatus;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  personalizationEligible: boolean;
 }
 
 export interface AppSettingRecord {

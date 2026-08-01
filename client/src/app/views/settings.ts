@@ -22,6 +22,12 @@ export interface SettingsHandlers {
   onToggleNeighbor(id: string): void;
   onDigestFieldChange(patch: Partial<SettingsState["digestForm"]>): void;
   onSaveDigest(): void;
+  onCommentFieldChange(patch: Partial<SettingsState["commentForm"]>): void;
+  onAutomationFieldChange(patch: Partial<SettingsState["automationForm"]>): void;
+  onWritingFieldChange(patch: Partial<SettingsState["writingForm"]>): void;
+  onSaveCommentSettings(): void;
+  onSaveAutomationSettings(): void;
+  onSaveWritingSettings(): void;
 }
 
 const SYNC_STATUS_LABELS: Record<string, string> = {
@@ -57,6 +63,312 @@ export function renderSettings(
   root.append(renderSearchPanel(document, state, handlers));
   root.append(renderNeighborPanel(document, state, handlers));
   root.append(renderDigestPanel(document, state, handlers));
+  root.append(renderCommentSettings(document, state, handlers));
+  root.append(renderAutomationSettings(document, state, handlers));
+  root.append(renderWritingSettings(document, state, handlers));
+}
+
+function renderCommentSettings(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("section");
+  section.className = "comment-settings-panel";
+  section.append(heading(document, "댓글 · AI 기본값"));
+  section.append(
+    selectField(
+      document,
+      "comment-relationship",
+      "기본 관계",
+      state.commentForm.relationshipLevel,
+      [
+        ["new", "신규"],
+        ["polite", "정중"],
+        ["friendly", "친근"],
+        ["close", "친밀"],
+      ],
+      (value) =>
+        handlers.onCommentFieldChange({
+          relationshipLevel: value as SettingsState["commentForm"]["relationshipLevel"],
+        }),
+    ),
+    selectField(
+      document,
+      "comment-speech",
+      "기본 말투",
+      state.commentForm.speechStyle,
+      [
+        ["honorific", "존댓말"],
+        ["banmal", "반말"],
+      ],
+      (value) =>
+        handlers.onCommentFieldChange({
+          speechStyle: value as SettingsState["commentForm"]["speechStyle"],
+        }),
+    ),
+    selectField(
+      document,
+      "comment-length",
+      "기본 길이",
+      state.commentForm.commentLength,
+      [
+        ["short", "짧게"],
+        ["medium", "보통"],
+        ["long", "길게"],
+      ],
+      (value) =>
+        handlers.onCommentFieldChange({
+          commentLength: value as SettingsState["commentForm"]["commentLength"],
+        }),
+    ),
+    selectField(
+      document,
+      "comment-mood",
+      "기본 분위기",
+      state.commentForm.commentMood,
+      [
+        ["calm", "담담하게"],
+        ["warm", "따뜻하게"],
+        ["lively", "활기차게"],
+      ],
+      (value) =>
+        handlers.onCommentFieldChange({
+          commentMood: value as SettingsState["commentForm"]["commentMood"],
+        }),
+    ),
+    selectField(
+      document,
+      "comment-personalization",
+      "완료 댓글 개인화 사용",
+      state.commentForm.personalizationMode,
+      [
+        ["off", "사용 안 함"],
+        ["completed_examples", "완료 댓글 예시 사용"],
+      ],
+      (value) =>
+        handlers.onCommentFieldChange({
+          personalizationMode: value as SettingsState["commentForm"]["personalizationMode"],
+        }),
+    ),
+  );
+  section.append(
+    textField(document, "closing-phrase", "마무리 문구", state.commentForm.closingPhrase, (value) =>
+      handlers.onCommentFieldChange({ closingPhrase: value }),
+    ),
+    textField(
+      document,
+      "neighbor-message",
+      "서로이웃 기본 메시지",
+      state.commentForm.neighborMessage,
+      (value) => handlers.onCommentFieldChange({ neighborMessage: value }),
+    ),
+  );
+  section.append(
+    button(
+      document,
+      "save-comment-settings-button",
+      "댓글 기본값 저장",
+      handlers.onSaveCommentSettings,
+    ),
+  );
+  return section;
+}
+
+function renderAutomationSettings(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("section");
+  section.className = "automation-settings-panel";
+  section.append(heading(document, "자동 실행과 안전"));
+  const consent = document.createElement("label");
+  const input = document.createElement("input");
+  input.id = "automation-consent";
+  input.type = "checkbox";
+  input.checked = state.automationForm.accepted;
+  input.addEventListener("change", () =>
+    handlers.onAutomationFieldChange({ accepted: input.checked }),
+  );
+  consent.append(input, document.createTextNode("공감·댓글·서로이웃 신청 자동 실행에 동의합니다."));
+  section.append(consent);
+  section.append(
+    numberField(
+      document,
+      "daily-like-cap",
+      "일일 공감 상한",
+      state.automationForm.dailyLikeCap,
+      (value) => handlers.onAutomationFieldChange({ dailyLikeCap: value }),
+    ),
+    numberField(
+      document,
+      "daily-comment-cap",
+      "일일 댓글 상한",
+      state.automationForm.dailyCommentCap,
+      (value) => handlers.onAutomationFieldChange({ dailyCommentCap: value }),
+    ),
+    numberField(
+      document,
+      "daily-neighbor-cap",
+      "일일 서로이웃 상한",
+      state.automationForm.dailyNeighborCap,
+      (value) => handlers.onAutomationFieldChange({ dailyNeighborCap: value }),
+    ),
+    numberField(
+      document,
+      "min-interval-seconds",
+      "최소 간격(초)",
+      state.automationForm.minIntervalSeconds,
+      (value) => handlers.onAutomationFieldChange({ minIntervalSeconds: value }),
+    ),
+    numberField(
+      document,
+      "max-consecutive-failures",
+      "연속 실패 상한",
+      state.automationForm.maxConsecutiveFailures,
+      (value) => handlers.onAutomationFieldChange({ maxConsecutiveFailures: value }),
+    ),
+    allowedHoursField(document, state, handlers),
+    numberField(
+      document,
+      "automation-jitter-percent",
+      "간격 변동 비율(%)",
+      state.automationForm.jitterPercent,
+      (value) => handlers.onAutomationFieldChange({ jitterPercent: value }),
+      0,
+      90,
+    ),
+  );
+  section.append(
+    button(
+      document,
+      "save-automation-settings-button",
+      "안전 설정 저장",
+      handlers.onSaveAutomationSettings,
+    ),
+  );
+  return section;
+}
+
+function allowedHoursField(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const field = document.createElement("fieldset");
+  field.className = "allowed-hours-field";
+  const legend = document.createElement("legend");
+  legend.textContent = "자동 실행 허용 시간";
+  field.append(legend);
+  for (let hour = 0; hour < 24; hour += 1) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = state.automationForm.allowedHours.includes(hour);
+    input.setAttribute("aria-label", `${hour}시 허용`);
+    input.addEventListener("change", () => {
+      const selected = new Set(state.automationForm.allowedHours);
+      if (input.checked) selected.add(hour);
+      else selected.delete(hour);
+      handlers.onAutomationFieldChange({ allowedHours: [...selected].toSorted((a, b) => a - b) });
+    });
+    label.append(input, document.createTextNode(`${hour}시`));
+    field.append(label);
+  }
+  return field;
+}
+
+function renderWritingSettings(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("section");
+  section.className = "writing-settings-panel";
+  section.append(heading(document, "글쓰기 기본값"));
+  section.append(
+    selectField(
+      document,
+      "writing-length",
+      "기본 길이",
+      state.writingForm.targetLength,
+      [
+        ["short", "짧게"],
+        ["medium", "보통"],
+        ["long", "길게"],
+      ],
+      (value) =>
+        handlers.onWritingFieldChange({
+          targetLength: value as SettingsState["writingForm"]["targetLength"],
+        }),
+    ),
+    selectField(
+      document,
+      "writing-tone",
+      "기본 분위기",
+      state.writingForm.tone,
+      [
+        ["calm", "담담하게"],
+        ["warm", "따뜻하게"],
+        ["lively", "활기차게"],
+      ],
+      (value) =>
+        handlers.onWritingFieldChange({ tone: value as SettingsState["writingForm"]["tone"] }),
+    ),
+    selectField(
+      document,
+      "writing-structure",
+      "기본 구성",
+      state.writingForm.structure,
+      [
+        ["plain", "문단만"],
+        ["sectioned", "구역 나누기"],
+        ["story", "시간 순서"],
+      ],
+      (value) =>
+        handlers.onWritingFieldChange({
+          structure: value as SettingsState["writingForm"]["structure"],
+        }),
+    ),
+    numberField(
+      document,
+      "writing-reference-post-count",
+      "참고할 최근 글 수",
+      state.writingForm.referencePostCount,
+      (value) => handlers.onWritingFieldChange({ referencePostCount: value }),
+      1,
+      10,
+    ),
+    numberField(
+      document,
+      "writing-body-tag-cap",
+      "본문 태그 상한",
+      state.writingForm.bodyTagCap,
+      (value) => handlers.onWritingFieldChange({ bodyTagCap: value }),
+      1,
+      30,
+    ),
+  );
+  const vision = document.createElement("label");
+  const check = document.createElement("input");
+  check.id = "writing-image-vision";
+  check.type = "checkbox";
+  check.checked = state.writingForm.useImageVision;
+  check.addEventListener("change", () =>
+    handlers.onWritingFieldChange({ useImageVision: check.checked }),
+  );
+  vision.append(check, document.createTextNode("이미지 분석 사용"));
+  section.append(
+    vision,
+    button(
+      document,
+      "save-writing-settings-button",
+      "글쓰기 기본값 저장",
+      handlers.onSaveWritingSettings,
+    ),
+  );
+  return section;
 }
 
 function statusMessage(state: SettingsState): string {
@@ -454,4 +766,93 @@ function textInput(
   input.value = value;
   input.disabled = isSettingsBusy(state);
   return { label: fieldLabel, input };
+}
+
+function heading(document: Document, text: string): HTMLHeadingElement {
+  const element = document.createElement("h2");
+  element.textContent = text;
+  return element;
+}
+
+function button(
+  document: Document,
+  id: string,
+  text: string,
+  handler: () => void,
+): HTMLButtonElement {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.id = id;
+  element.textContent = text;
+  element.addEventListener("click", handler);
+  return element;
+}
+
+function textField(
+  document: Document,
+  id: string,
+  label: string,
+  value: string,
+  onChange: (value: string) => void,
+): Element {
+  const field = document.createElement("div");
+  const name = document.createElement("label");
+  name.htmlFor = id;
+  name.textContent = label;
+  const input = document.createElement("input");
+  input.id = id;
+  input.value = value;
+  input.addEventListener("input", () => onChange(input.value));
+  field.append(name, input);
+  return field;
+}
+
+function numberField(
+  document: Document,
+  id: string,
+  label: string,
+  value: number,
+  onChange: (value: number) => void,
+  min = 1,
+  max?: number,
+): Element {
+  const field = document.createElement("div");
+  const name = document.createElement("label");
+  name.htmlFor = id;
+  name.textContent = label;
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "number";
+  input.min = String(min);
+  if (max !== undefined) input.max = String(max);
+  input.value = String(value);
+  input.addEventListener("change", () => onChange(Number(input.value)));
+  field.append(name, input);
+  return field;
+}
+
+function selectField(
+  document: Document,
+  id: string,
+  label: string,
+  value: string,
+  values: readonly (readonly [string, string])[],
+  onChange: (value: string) => void,
+): Element {
+  const field = document.createElement("div");
+  const name = document.createElement("label");
+  name.htmlFor = id;
+  name.textContent = label;
+  const select = document.createElement("select");
+  select.id = id;
+  for (const [optionValue, text] of values) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = text;
+    option.selected = optionValue === value;
+    select.append(option);
+  }
+  select.addEventListener("change", () => onChange(select.value));
+  field.append(name, select);
+  return field;
 }

@@ -122,21 +122,28 @@ export class SessionController {
   }
 
   /** Load the recent batches and the unattended schedule status. */
-  async load(): Promise<void> {
+  async load(options: { sessionId?: string } = {}): Promise<void> {
     if (isSessionBusy(this.#state)) return;
     this.#patch({ phase: "loading", error: null });
     try {
-      const [recent, schedule] = await Promise.all([this.#api.sessions(10), this.#api.schedule()]);
+      const [recent, schedule, selected] = await Promise.all([
+        this.#api.sessions(10),
+        this.#api.schedule(),
+        options.sessionId === undefined
+          ? Promise.resolve(null)
+          : this.#api.session(options.sessionId),
+      ]);
       const running = recent.find(
         (entry) => entry.state === "running" || entry.state === "pending",
       );
+      const current = selected ?? running ?? null;
       this.#patch({
-        phase: running === undefined ? "ready" : "running",
+        phase: current !== null && !isTerminal(current) ? "running" : "ready",
         recent,
         schedule,
-        current: running ?? null,
+        current,
       });
-      if (running !== undefined) this.#subscribe(running.id);
+      if (current !== null && !isTerminal(current)) this.#subscribe(current.id);
     } catch (error) {
       this.#fail(error);
     }

@@ -8,6 +8,7 @@
 
 import { ApiError, LocalApiClient } from "../api/client";
 import type {
+  AppSettingRecord,
   AutoDiscoverySettings,
   DigestSettings,
   DiscoveryNeighbor,
@@ -41,6 +42,33 @@ export interface SettingsState {
   newQuery: string;
   neighborForm: { name: string; blogId: string; blogUrl: string };
   digestForm: { timezone: string; hour: number; minute: number; emailEnabled: boolean };
+  commentForm: {
+    closingPhrase: string;
+    commentLength: "short" | "medium" | "long";
+    commentMood: "calm" | "warm" | "lively";
+    neighborMessage: string;
+    personalizationMode: "off" | "completed_examples";
+    relationshipLevel: "new" | "polite" | "friendly" | "close";
+    speechStyle: "honorific" | "banmal";
+  };
+  automationForm: {
+    accepted: boolean;
+    dailyCommentCap: number;
+    dailyLikeCap: number;
+    dailyNeighborCap: number;
+    allowedHours: number[];
+    jitterPercent: number;
+    maxConsecutiveFailures: number;
+    minIntervalSeconds: number;
+  };
+  writingForm: {
+    structure: "plain" | "sectioned" | "story";
+    bodyTagCap: number;
+    referencePostCount: number;
+    targetLength: "short" | "medium" | "long";
+    tone: "calm" | "warm" | "lively";
+    useImageVision: boolean;
+  };
   error: string | null;
   notice: string | null;
 }
@@ -48,7 +76,9 @@ export interface SettingsState {
 type SettingsApi = Pick<
   LocalApiClient,
   | "autoDiscoverySettings"
+  | "appSetting"
   | "saveAutoDiscoverySettings"
+  | "saveAppSetting"
   | "syncDiscovery"
   | "savedSearches"
   | "saveSearch"
@@ -79,6 +109,33 @@ export function initialSettingsState(): SettingsState {
     newQuery: "",
     neighborForm: { name: "", blogId: "", blogUrl: "" },
     digestForm: { timezone: "Asia/Seoul", hour: 9, minute: 0, emailEnabled: false },
+    commentForm: {
+      closingPhrase: "",
+      commentLength: "medium",
+      commentMood: "warm",
+      neighborMessage: "",
+      personalizationMode: "off",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    },
+    automationForm: {
+      accepted: false,
+      dailyCommentCap: 20,
+      dailyLikeCap: 20,
+      dailyNeighborCap: 5,
+      allowedHours: Array.from({ length: 14 }, (_, index) => index + 9),
+      jitterPercent: 40,
+      maxConsecutiveFailures: 3,
+      minIntervalSeconds: 90,
+    },
+    writingForm: {
+      structure: "sectioned",
+      bodyTagCap: 10,
+      referencePostCount: 3,
+      targetLength: "medium",
+      tone: "warm",
+      useImageVision: false,
+    },
     error: null,
     notice: null,
   };
@@ -139,6 +196,21 @@ export class SettingsController {
         };
       },
       onSaveDigest: () => void this.saveDigest(),
+      onCommentFieldChange: (patch) => {
+        this.#state = { ...this.#state, commentForm: { ...this.#state.commentForm, ...patch } };
+      },
+      onAutomationFieldChange: (patch) => {
+        this.#state = {
+          ...this.#state,
+          automationForm: { ...this.#state.automationForm, ...patch },
+        };
+      },
+      onWritingFieldChange: (patch) => {
+        this.#state = { ...this.#state, writingForm: { ...this.#state.writingForm, ...patch } };
+      },
+      onSaveCommentSettings: () => void this.saveCommentSettings(),
+      onSaveAutomationSettings: () => void this.saveAutomationSettings(),
+      onSaveWritingSettings: () => void this.saveWritingSettings(),
     });
   }
 
@@ -147,11 +219,49 @@ export class SettingsController {
     if (isSettingsBusy(this.#state)) return;
     this.#patch({ phase: "loading", error: null, notice: null });
     try {
-      const [settings, searches, neighbors, digest] = await Promise.all([
+      const [
+        settings,
+        searches,
+        neighbors,
+        digest,
+        generation,
+        closing,
+        neighborMessage,
+        consent,
+        safety,
+        writing,
+      ] = await Promise.all([
         this.#api.autoDiscoverySettings(),
         this.#searchesOrEmpty(),
         this.#api.discoveryNeighbors(),
         this.#api.digestSettings(),
+        this.#settingOrDefault("generation_profile", {
+          relationship_level: "friendly",
+          speech_style: "honorific",
+          comment_length: "medium",
+          comment_mood: "warm",
+          personalization_mode: "off",
+        }),
+        this.#settingOrDefault("closing_phrase", { phrase: "" }),
+        this.#settingOrDefault("neighbor_message", { message: "" }),
+        this.#settingOrDefault("automation_consent", { accepted: false, consent_version: 1 }),
+        this.#settingOrDefault("safety_policy", {
+          daily_like_cap: 20,
+          daily_comment_cap: 20,
+          daily_neighbor_cap: 5,
+          min_interval_seconds: 90,
+          jitter_ratio: 0.4,
+          allowed_hours: Array.from({ length: 14 }, (_, index) => index + 9),
+          max_consecutive_failures: 3,
+        }),
+        this.#settingOrDefault("writing_profile", {
+          target_length: "medium",
+          tone: "warm",
+          structure: "sectioned",
+          reference_post_count: 3,
+          body_tag_cap: 10,
+          use_image_vision: false,
+        }),
       ]);
       this.#patch({
         phase: "ready",
@@ -171,6 +281,9 @@ export class SettingsController {
           minute: digest.minute,
           emailEnabled: digest.emailEnabled,
         },
+        commentForm: commentForm(generation, closing, neighborMessage),
+        automationForm: automationForm(consent, safety),
+        writingForm: writingForm(writing),
       });
     } catch (error) {
       this.#fail(error);
@@ -339,12 +452,90 @@ export class SettingsController {
     }
   }
 
+  async saveCommentSettings(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const form = this.#state.commentForm;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      await Promise.all([
+        this.#api.saveAppSetting("generation_profile", {
+          relationship_level: form.relationshipLevel,
+          speech_style: form.speechStyle,
+          comment_length: form.commentLength,
+          comment_mood: form.commentMood,
+          personalization_mode: form.personalizationMode,
+        }),
+        this.#api.saveAppSetting("closing_phrase", { phrase: form.closingPhrase }),
+        this.#api.saveAppSetting("neighbor_message", { message: form.neighborMessage }),
+      ]);
+      this.#patch({ phase: "ready", notice: "댓글과 AI 기본값을 저장했습니다." });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async saveAutomationSettings(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const form = this.#state.automationForm;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      await Promise.all([
+        this.#api.saveAppSetting("automation_consent", {
+          accepted: form.accepted,
+          consent_version: 1,
+        }),
+        this.#api.saveAppSetting("safety_policy", {
+          daily_like_cap: form.dailyLikeCap,
+          daily_comment_cap: form.dailyCommentCap,
+          daily_neighbor_cap: form.dailyNeighborCap,
+          min_interval_seconds: form.minIntervalSeconds,
+          jitter_ratio: form.jitterPercent / 100,
+          allowed_hours: form.allowedHours,
+          max_consecutive_failures: form.maxConsecutiveFailures,
+        }),
+      ]);
+      this.#patch({ phase: "ready", notice: "자동 실행 안전 설정을 저장했습니다." });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async saveWritingSettings(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const form = this.#state.writingForm;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      await this.#api.saveAppSetting("writing_profile", {
+        target_length: form.targetLength,
+        tone: form.tone,
+        structure: form.structure,
+        reference_post_count: form.referencePostCount,
+        body_tag_cap: form.bodyTagCap,
+        use_image_vision: form.useImageVision,
+      });
+      this.#patch({ phase: "ready", notice: "글쓰기 기본값을 저장했습니다." });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
   /** Treat an unavailable search provider as an empty list rather than a screen-wide failure. */
   async #searchesOrEmpty(): Promise<SavedSearch[]> {
     try {
       return await this.#api.savedSearches();
     } catch {
       return [];
+    }
+  }
+
+  async #settingOrDefault(
+    kind: string,
+    fallback: Record<string, unknown>,
+  ): Promise<AppSettingRecord> {
+    try {
+      return await this.#api.appSetting(kind);
+    } catch {
+      return { kind, schemaVersion: 1, payload: fallback, updatedAt: null };
     }
   }
 
@@ -356,6 +547,87 @@ export class SettingsController {
     this.#state = { ...this.#state, ...changes };
     for (const listener of this.#listeners) listener();
   }
+}
+
+function payload(record: AppSettingRecord): Record<string, unknown> {
+  return record.payload;
+}
+
+function commentForm(
+  generation: AppSettingRecord,
+  closing: AppSettingRecord,
+  neighborMessage: AppSettingRecord,
+): SettingsState["commentForm"] {
+  const profile = payload(generation);
+  return {
+    closingPhrase: stringValue(payload(closing).phrase),
+    commentLength: enumValue(profile.comment_length, ["short", "medium", "long"], "medium"),
+    commentMood: enumValue(profile.comment_mood, ["calm", "warm", "lively"], "warm"),
+    neighborMessage: stringValue(payload(neighborMessage).message),
+    personalizationMode: enumValue(
+      profile.personalization_mode,
+      ["off", "completed_examples"],
+      "off",
+    ),
+    relationshipLevel: enumValue(
+      profile.relationship_level,
+      ["new", "polite", "friendly", "close"],
+      "friendly",
+    ),
+    speechStyle: enumValue(profile.speech_style, ["honorific", "banmal"], "honorific"),
+  };
+}
+
+function automationForm(
+  consent: AppSettingRecord,
+  safety: AppSettingRecord,
+): SettingsState["automationForm"] {
+  const policy = payload(safety);
+  return {
+    accepted: payload(consent).accepted === true,
+    dailyCommentCap: numberValue(policy.daily_comment_cap, 20),
+    dailyLikeCap: numberValue(policy.daily_like_cap, 20),
+    dailyNeighborCap: numberValue(policy.daily_neighbor_cap, 5),
+    allowedHours: allowedHoursValue(policy.allowed_hours),
+    jitterPercent: Math.round(numberValue(policy.jitter_ratio, 0.4) * 100),
+    maxConsecutiveFailures: numberValue(policy.max_consecutive_failures, 3),
+    minIntervalSeconds: numberValue(policy.min_interval_seconds, 90),
+  };
+}
+
+function writingForm(record: AppSettingRecord): SettingsState["writingForm"] {
+  const profile = payload(record);
+  return {
+    bodyTagCap: numberValue(profile.body_tag_cap, 10),
+    referencePostCount: numberValue(profile.reference_post_count, 3),
+    structure: enumValue(profile.structure, ["plain", "sectioned", "story"], "sectioned"),
+    targetLength: enumValue(profile.target_length, ["short", "medium", "long"], "medium"),
+    tone: enumValue(profile.tone, ["calm", "warm", "lively"], "warm"),
+    useImageVision: profile.use_image_vision === true,
+  };
+}
+
+function allowedHoursValue(value: unknown): number[] {
+  const fallback = Array.from({ length: 14 }, (_, index) => index + 9);
+  if (!Array.isArray(value)) return fallback;
+  const hours = value.filter(
+    (hour): hour is number => typeof hour === "number" && Number.isInteger(hour),
+  );
+  return hours.length === 0
+    ? fallback
+    : [...new Set(hours)].toSorted((left, right) => left - right);
+}
+
+function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function upsertNeighbor(

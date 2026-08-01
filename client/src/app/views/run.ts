@@ -68,13 +68,15 @@ export function renderRun(document: Document, state: RunState, handlers: RunHand
   status.textContent = statusMessage(state);
   section.append(status);
 
-  const start = document.createElement("button");
-  start.type = "button";
-  start.id = "run-button";
-  start.textContent = state.phase === "idle" ? "공감·댓글 등록 계속하기" : "실행 중";
-  start.disabled = isBusy(state) || state.phase === "finished";
-  start.addEventListener("click", handlers.onStart);
-  section.append(start);
+  if (state.phase === "refused") {
+    const start = document.createElement("button");
+    start.type = "button";
+    start.id = "run-button";
+    start.textContent = "실행만 다시 시도";
+    start.disabled = isBusy(state);
+    start.addEventListener("click", handlers.onStart);
+    section.append(start);
+  }
 
   if (state.steps.length > 0) section.append(renderSteps(document, state));
   if (needsManualResolution(state)) section.append(renderManual(document, state, handlers));

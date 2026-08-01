@@ -254,6 +254,77 @@ describe("generateComment", () => {
   });
 });
 
+describe("generateCommentFanout", () => {
+  it("sends the selected providers once and preserves partial provider outcomes", async () => {
+    const handler = vi.fn(async () =>
+      jsonResponse({
+        attempt: 1,
+        extraction: EXTRACTION,
+        items: [
+          {
+            provider: "openai",
+            model: "gpt-test",
+            status: "succeeded",
+            result_code: null,
+            replayed: false,
+            retry_after: null,
+            recommendation: RECOMMENDATION,
+          },
+          {
+            provider: "gemini",
+            model: "gemini-test",
+            status: "failed",
+            result_code: "generation_refused",
+            replayed: false,
+            retry_after: null,
+            recommendation: null,
+          },
+        ],
+      }),
+    );
+    const client = clientWith(handler);
+
+    const result = await client.generateCommentFanout("https://blog.naver.com/example/1", [
+      { provider: "openai", model: "gpt-test" },
+      { provider: "gemini" },
+    ]);
+
+    expect(calls(handler)[0]).toBe("/api/v1/automation/comments/fanout");
+    expect(JSON.parse(String((calls(handler)[1] as { body: string }).body))).toMatchObject({
+      url: "https://blog.naver.com/example/1",
+      providers: [{ provider: "openai", model: "gpt-test" }, { provider: "gemini" }],
+    });
+    expect(result.items[0]?.recommendation?.title).toBe("합성 제목");
+    expect(result.items[1]?.resultCode).toBe("generation_refused");
+  });
+});
+
+describe("refineRecommendation", () => {
+  it("sends the visible comment, explicit provider, and idempotency key", async () => {
+    const handler = vi.fn(async () =>
+      jsonResponse({ text: "더 자연스러운 댓글입니다.", provider: "openai", model: "gpt-test" }),
+    );
+    const client = clientWith(handler);
+
+    const result = await client.refineRecommendation(RECOMMENDATION.id, {
+      currentComment: "기존 댓글",
+      preset: "natural",
+      provider: "openai",
+      idempotencyKey: "00000000-0000-4000-8000-000000000050",
+    });
+
+    expect(result.text).toBe("더 자연스러운 댓글입니다.");
+    expect(calls(handler)[0]).toBe(`/api/v1/recommendations/${RECOMMENDATION.id}/refine`);
+    expect(calls(handler)[1]).toMatchObject({
+      headers: expect.any(Headers),
+      method: "POST",
+    });
+    expect((calls(handler)[1] as { headers: Headers }).headers.get("Idempotency-Key")).toBe(
+      "00000000-0000-4000-8000-000000000050",
+    );
+  });
+});
+
 describe("reviewRecommendation", () => {
   it("patches only the provided fields", async () => {
     const handler = vi.fn(async () =>

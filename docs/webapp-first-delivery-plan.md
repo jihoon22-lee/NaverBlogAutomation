@@ -259,7 +259,7 @@ PR 수는 줄이되 각 PR이 독립적으로 검증 가능한 큰 사용자 가
 
 ### PR 1 — 웹앱 독립 실행과 배포 기반
 
-상태: 구현 및 로컬 검증 완료 (2026-08-01, PR 생성 준비)
+상태: 완료·병합 (2026-08-01, PR #84)
 
 - 새 plan 문서 확정, optional extension origin과 origin policy, 웹앱 기본 setup·start·readiness 검사.
 - client app wheel packaging, installed `/app` smoke, webapp-first CI·release와 legacy extension 선택 build.
@@ -271,6 +271,8 @@ PR 수는 줄이되 각 PR이 독립적으로 검증 가능한 큰 사용자 가
 있고 미pairing·foreign Origin·public client는 거부되며, 기존 extension env와 v0.5.6 회귀도 통과합니다.
 
 ### PR 2 — 핵심 일상 여정 통합
+
+상태: 구현·검증 진행 중
 
 - hash route·전역 상태·onboarding, 개선된 discovery inbox와 직접 URL 진입.
 - 댓글 기본 자동 생성, provider 비교, AI 빠른 다듬기, 승인+실행 한 번의 최종 동작.

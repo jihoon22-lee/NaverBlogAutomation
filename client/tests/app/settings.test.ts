@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  AppSettingRecord,
   AutoDiscoverySettings,
   DigestSettings,
   DiscoveryNeighbor,
@@ -11,7 +12,8 @@ import type {
   SavedSearch,
 } from "../../src/app/api/types";
 import { ApiError } from "../../src/app/api/client";
-import { SettingsController } from "../../src/app/controllers/settings";
+import { initialSettingsState, SettingsController } from "../../src/app/controllers/settings";
+import { renderSettings } from "../../src/app/views/settings";
 
 const SETTINGS: AutoDiscoverySettings = {
   ownBlogId: "example",
@@ -68,8 +70,10 @@ const SEARCH_REFRESH: DiscoverySearchRefresh = {
 };
 
 interface Api {
+  appSetting: ReturnType<typeof vi.fn>;
   autoDiscoverySettings: ReturnType<typeof vi.fn>;
   saveAutoDiscoverySettings: ReturnType<typeof vi.fn>;
+  saveAppSetting: ReturnType<typeof vi.fn>;
   syncDiscovery: ReturnType<typeof vi.fn>;
   savedSearches: ReturnType<typeof vi.fn>;
   saveSearch: ReturnType<typeof vi.fn>;
@@ -90,8 +94,46 @@ function harness(overrides: Partial<Api> = {}): {
   const root = document.getElementById("workspace");
   if (root === null) throw new Error("missing root");
   const api: Api = {
+    appSetting: vi.fn(async (kind: string): Promise<AppSettingRecord> => {
+      const payloads: Record<string, Record<string, unknown>> = {
+        automation_consent: { accepted: false, consent_version: 1 },
+        closing_phrase: { phrase: "" },
+        generation_profile: {
+          relationship_level: "friendly",
+          speech_style: "honorific",
+          comment_length: "medium",
+          comment_mood: "warm",
+          personalization_mode: "off",
+        },
+        neighbor_message: { message: "" },
+        safety_policy: {
+          daily_like_cap: 20,
+          daily_comment_cap: 20,
+          daily_neighbor_cap: 5,
+          min_interval_seconds: 90,
+          jitter_ratio: 0.4,
+          allowed_hours: [9, 11],
+          max_consecutive_failures: 3,
+        },
+        writing_profile: {
+          target_length: "medium",
+          tone: "warm",
+          structure: "sectioned",
+          reference_post_count: 3,
+          body_tag_cap: 10,
+          use_image_vision: false,
+        },
+      };
+      return { kind, schemaVersion: 1, payload: payloads[kind] ?? {}, updatedAt: null };
+    }),
     autoDiscoverySettings: vi.fn(async () => SETTINGS),
     saveAutoDiscoverySettings: vi.fn(async () => SETTINGS),
+    saveAppSetting: vi.fn(async () => ({
+      kind: "test",
+      schemaVersion: 1,
+      payload: {},
+      updatedAt: null,
+    })),
     syncDiscovery: vi.fn(async () => SYNC),
     savedSearches: vi.fn(async () => [] as SavedSearch[]),
     saveSearch: vi.fn(async () => SEARCH),
@@ -559,5 +601,136 @@ describe("email digest", () => {
     expect(api.refreshSavedSearch).not.toHaveBeenCalled();
     expect(api.saveDiscoveryNeighbor).not.toHaveBeenCalled();
     expect(api.saveDigestSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("comment, safety, and writing defaults", () => {
+  it("saves the visible personalization mode and neighbour message", async () => {
+    const { root, controller, api } = harness();
+    await controller.load();
+    controller.render();
+
+    const personalization = root.querySelector<HTMLSelectElement>("#comment-personalization");
+    if (personalization === null) throw new Error("missing personalization select");
+    personalization.value = "completed_examples";
+    personalization.dispatchEvent(new Event("change"));
+    type(root, "#neighbor-message", "안녕하세요. 서로이웃 신청드립니다.");
+    await controller.saveCommentSettings();
+
+    expect(api.saveAppSetting).toHaveBeenCalledWith(
+      "generation_profile",
+      expect.objectContaining({ personalization_mode: "completed_examples" }),
+    );
+    expect(api.saveAppSetting).toHaveBeenCalledWith("neighbor_message", {
+      message: "안녕하세요. 서로이웃 신청드립니다.",
+    });
+  });
+
+  it("preserves a non-contiguous allowed-hour policy when another safety value changes", async () => {
+    const { root, controller, api } = harness();
+    await controller.load();
+    controller.render();
+
+    const cap = root.querySelector<HTMLInputElement>("#daily-like-cap");
+    if (cap === null) throw new Error("missing daily like cap");
+    cap.value = "12";
+    cap.dispatchEvent(new Event("change"));
+    await controller.saveAutomationSettings();
+
+    expect(api.saveAppSetting).toHaveBeenCalledWith(
+      "safety_policy",
+      expect.objectContaining({ allowed_hours: [9, 11], daily_like_cap: 12 }),
+    );
+  });
+
+  it("saves reference and tag limits from the writing defaults", async () => {
+    const { root, controller, api } = harness();
+    await controller.load();
+    controller.render();
+
+    const references = root.querySelector<HTMLInputElement>("#writing-reference-post-count");
+    const tags = root.querySelector<HTMLInputElement>("#writing-body-tag-cap");
+    if (references === null || tags === null) throw new Error("missing writing limits");
+    references.value = "4";
+    references.dispatchEvent(new Event("change"));
+    tags.value = "12";
+    tags.dispatchEvent(new Event("change"));
+    await controller.saveWritingSettings();
+
+    expect(api.saveAppSetting).toHaveBeenCalledWith(
+      "writing_profile",
+      expect.objectContaining({ reference_post_count: 4, body_tag_cap: 12 }),
+    );
+  });
+
+  it("wires the complete visible settings form to explicit handlers", () => {
+    const root = document.createElement("main");
+    document.body.append(root);
+    const handlers = {
+      onAddSearch: vi.fn(),
+      onAutomationFieldChange: vi.fn(),
+      onCommentFieldChange: vi.fn(),
+      onDeleteSearch: vi.fn(),
+      onDigestFieldChange: vi.fn(),
+      onFieldChange: vi.fn(),
+      onNeighborFieldChange: vi.fn(),
+      onQueryChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onRefreshSearch: vi.fn(),
+      onSave: vi.fn(),
+      onSaveAutomationSettings: vi.fn(),
+      onSaveCommentSettings: vi.fn(),
+      onSaveDigest: vi.fn(),
+      onSaveNeighbor: vi.fn(),
+      onSaveWritingSettings: vi.fn(),
+      onSync: vi.fn(),
+      onToggleNeighbor: vi.fn(),
+      onWritingFieldChange: vi.fn(),
+    };
+    const state = {
+      ...initialSettingsState(),
+      digest: DIGEST,
+      neighbors: [NEIGHBOR],
+      searches: [SEARCH],
+      settings: SETTINGS,
+    };
+    renderSettings(root, state, handlers);
+
+    for (const selector of [
+      "#save-discovery-button",
+      "#refresh-settings-button",
+      "#sync-discovery-button",
+      "#add-search-button",
+      ".search-refresh",
+      ".search-remove",
+      "#save-neighbor-button",
+      ".neighbor-toggle",
+      "#save-digest-button",
+      "#save-comment-settings-button",
+      "#save-automation-settings-button",
+      "#save-writing-settings-button",
+    ]) {
+      (root.querySelector(selector) as HTMLButtonElement).click();
+    }
+    const ownBlog = root.querySelector<HTMLInputElement>("#own-blog-id") as HTMLInputElement;
+    ownBlog.value = "mine";
+    ownBlog.dispatchEvent(new Event("input"));
+    const query = root.querySelector<HTMLInputElement>("#new-search-query") as HTMLInputElement;
+    query.value = "기록";
+    query.dispatchEvent(new Event("input"));
+    const consent = root.querySelector<HTMLInputElement>("#automation-consent") as HTMLInputElement;
+    consent.checked = true;
+    consent.dispatchEvent(new Event("change"));
+    (root.querySelector('[aria-label="0시 허용"]') as HTMLInputElement).click();
+    const writingLength = root.querySelector<HTMLSelectElement>(
+      "#writing-length",
+    ) as HTMLSelectElement;
+    writingLength.value = "long";
+    writingLength.dispatchEvent(new Event("change"));
+
+    expect(handlers.onSave).toHaveBeenCalledTimes(1);
+    expect(handlers.onQueryChange).toHaveBeenCalledWith("기록");
+    expect(handlers.onAutomationFieldChange).toHaveBeenCalled();
+    expect(handlers.onWritingFieldChange).toHaveBeenCalledWith({ targetLength: "long" });
   });
 });

@@ -20,6 +20,7 @@ from naver_blog_assistant.application.generate_recommendation import (
 )
 from naver_blog_assistant.application.get_recommendation import GetRecommendation
 from naver_blog_assistant.application.list_recommendations import ListRecommendations
+from naver_blog_assistant.application.refine_comment import RefineComment, RefinedComment
 from naver_blog_assistant.application.review_recommendation import ReviewRecommendation
 
 __all__ = [
@@ -41,6 +42,8 @@ __all__ = [
     "RecommendationNotFoundError",
     "ReplayedGenerationFailure",
     "ReviewRecommendation",
+    "RefineComment",
+    "RefinedComment",
 ]
 from naver_blog_assistant.application.clear_personalization_examples import (
     ClearPersonalizationExamples,

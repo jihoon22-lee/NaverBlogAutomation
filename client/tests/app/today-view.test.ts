@@ -287,6 +287,21 @@ describe("selection and opening", () => {
     expect(extracted).toHaveLength(1);
   });
 
+  it("hands a selected discovery post to the combined generation path without a second extraction", async () => {
+    const client = api();
+    const opened = vi.fn();
+    const controller = new TodayController(mountRoot(), {
+      api: client as never,
+      onDiscoveryPostOpened: opened,
+    });
+    await controller.load();
+
+    await controller.openPost("2");
+
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ id: "2", source: "search" }));
+    expect(client.extractArticle).not.toHaveBeenCalled();
+  });
+
   it("blocks opening while the browser is stopped", async () => {
     const controller = new TodayController(mountRoot(), {
       api: api({ browserSession: vi.fn(async () => STOPPED_SESSION) }) as never,

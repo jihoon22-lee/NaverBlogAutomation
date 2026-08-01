@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { APP_ROOT_ID, createWorkspace, mount } from "../../src/app/main";
+import { APP_ROOT_ID, createWorkspace, mount, routeFromHash } from "../../src/app/main";
 
 const EXTRACTION = {
   sourceUrl: "https://blog.naver.com/example/1",
@@ -15,6 +15,127 @@ const EXTRACTION = {
 beforeEach(() => {
   document.body.innerHTML = "";
 });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function response(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/json" },
+    status,
+  });
+}
+
+async function flush(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve));
+}
+
+function installWorkspaceApi(
+  options: {
+    accessMode?: "lan" | "local";
+    pairFails?: boolean;
+    pairedDevices?: {
+      id: string;
+      device_name: string;
+      last_seen_at: string;
+      created_at: string;
+      expires_at: string;
+    }[];
+  } = {},
+) {
+  const handler = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/remote/pairing-code")) {
+      return response({ code: "123456", expires_at: "2026-08-01T01:00:00Z" });
+    }
+    if (url.includes("/remote/pair")) {
+      if (options.pairFails === true) {
+        return response(
+          {
+            type: "about:blank",
+            title: "Pairing failed",
+            status: 400,
+            detail: "일회용 코드가 만료되었습니다.",
+            code: "pairing_code_expired",
+          },
+          400,
+        );
+      }
+      return response({
+        device: {
+          id: "11111111-1111-4111-8111-111111111111",
+          device_name: "내 태블릿",
+          last_seen_at: "2026-08-01T00:00:00Z",
+          created_at: "2026-08-01T00:00:00Z",
+          expires_at: "2026-08-01T01:00:00Z",
+        },
+      });
+    }
+    if (url.includes("/remote/devices")) {
+      return response({ items: options.pairedDevices ?? [] });
+    }
+    if (url.includes("/api/v1/status")) {
+      return response({
+        status: "ready",
+        api_version: "v1",
+        app_environment: "test",
+        database: "ready",
+        generator_mode: "fake",
+        generator_model: "fake",
+      });
+    }
+    if (url.includes("/app/readiness")) {
+      return response({
+        access_mode: options.accessMode ?? "local",
+        web_app_assets_ready: true,
+        lan_addresses: options.accessMode === "lan" ? ["192.168.0.10"] : [],
+        browser_state: "ready",
+        browser_login: "authenticated",
+        own_blog_configured: true,
+        generation_available: false,
+        automation_consent: false,
+        safety_policy_configured: false,
+        blockers: ["llm_provider_missing"],
+      });
+    }
+    if (url.includes("/automation/session")) {
+      return response({
+        state: "ready",
+        login: "authenticated",
+        driver: "fake",
+        headless: true,
+        profile_dir: "profile",
+        open_pages: 1,
+        detail: null,
+      });
+    }
+    if (url.includes("/settings/") || url.includes("/app-settings/")) {
+      return response({ kind: "test", schema_version: 1, payload: {}, updated_at: null });
+    }
+    if (url.includes("/digest-settings")) {
+      return response({
+        timezone: "Asia/Seoul",
+        hour: 9,
+        minute: 0,
+        email_enabled: false,
+        smtp_configured: false,
+      });
+    }
+    if (url.includes("/automation/schedule")) {
+      return response({
+        mode: "manual",
+        hour: 10,
+        minute: 0,
+        max_posts: 5,
+        reason: "not_scheduled",
+      });
+    }
+    return response({ items: [] });
+  });
+  vi.stubGlobal("fetch", handler);
+  return handler;
+}
 
 describe("mount", () => {
   it("returns null when the workspace root is missing", () => {
@@ -59,6 +180,138 @@ describe("createWorkspace", () => {
 
     expect(document.getElementById("workspace-status")).not.toBeNull();
     expect(document.getElementById("comment-status")).toBeNull();
+  });
+
+  it("keeps every workspace route and mobile-resume screen reachable with the local API", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `
+      <nav id="workspace-nav">
+        <button type="button" data-section="today"></button>
+        <button type="button" data-section="session"></button>
+        <button type="button" data-section="writing"></button>
+        <button type="button" data-section="activity"></button>
+        <button type="button" data-section="settings"></button>
+        <button type="button" id="remote-pairing-code-button"></button>
+      </nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+
+    workspace.showToday();
+    await Promise.resolve();
+    workspace.showWriting();
+    await Promise.resolve();
+    workspace.showSession();
+    await Promise.resolve();
+    workspace.showActivity();
+    await Promise.resolve();
+    workspace.showSettings();
+    await Promise.resolve();
+    document.defaultView?.dispatchEvent(new Event("pageshow"));
+    document.defaultView?.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    expect(root.querySelector(".discovery-settings-panel")).not.toBeNull();
+    expect(document.defaultView?.location.hash).toBe("#settings");
+  });
+
+  it("follows shareable routes and refreshes their current screen after a tablet resumes", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+
+    for (const hash of [
+      "#writing/22222222-2222-4222-8222-222222222222",
+      "#session/33333333-3333-4333-8333-333333333333",
+      "#activity",
+      "#settings",
+      "#post/44444444-4444-4444-8444-444444444444",
+      "#comment/55555555-5555-4555-8555-555555555555?post=44444444-4444-4444-8444-444444444444&source=search",
+    ]) {
+      if (document.defaultView !== null) document.defaultView.location.hash = hash;
+      document.defaultView?.dispatchEvent(new HashChangeEvent("hashchange"));
+      await flush();
+    }
+    document.defaultView?.dispatchEvent(new Event("pageshow"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(document.defaultView?.location.hash).toContain("#comment/");
+    expect(workspace.comment.state.phase).not.toBe("generating");
+  });
+
+  it("pairs a tablet, and explains a rejected one-time code without leaving the pairing screen", async () => {
+    const handler = installWorkspaceApi({ pairFails: true });
+    document.body.innerHTML = `
+      <nav id="workspace-nav"></nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+    workspace.showRemotePairing();
+
+    (document.getElementById("remote-device-name") as HTMLInputElement).value = "갤럭시 탭";
+    (document.getElementById("remote-pairing-code") as HTMLInputElement).value = "123456";
+    (document.getElementById("remote-pair-button") as HTMLButtonElement).click();
+    await flush();
+
+    expect(root.textContent).toContain("일회용 코드가 만료되었습니다.");
+    expect(document.getElementById("remote-pair-button")?.hasAttribute("disabled")).toBe(false);
+    expect(handler).toHaveBeenCalledWith(
+      "/api/v1/remote/pair",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("shows, copies, and revokes a LAN pairing code from the desktop workspace", async () => {
+    const handler = installWorkspaceApi({
+      accessMode: "lan",
+      pairedDevices: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          device_name: "iPad",
+          last_seen_at: "2026-08-01T00:00:00Z",
+          created_at: "2026-08-01T00:00:00Z",
+          expires_at: "2026-08-01T01:00:00Z",
+        },
+      ],
+    });
+    document.body.innerHTML = `
+      <nav id="workspace-nav"><button type="button" id="remote-pairing-code-button"></button></nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    createWorkspace(root);
+
+    (document.getElementById("remote-pairing-code-button") as HTMLButtonElement).click();
+    await flush();
+
+    expect(root.textContent).toContain("192.168.0.10:8765/app/");
+    expect((document.getElementById("remote-pairing-code-value") as HTMLInputElement).value).toBe(
+      "123456",
+    );
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    const copy = Array.from(root.querySelectorAll("button")).find(
+      (button) => button.textContent === "코드 복사",
+    ) as HTMLButtonElement;
+    copy.click();
+    await flush();
+    expect(root.textContent).toContain("코드가 선택되었습니다");
+
+    (
+      Array.from(root.querySelectorAll("button")).find(
+        (button) => button.textContent === "연결 해제",
+      ) as HTMLButtonElement
+    ).click();
+    await flush();
+    expect(handler).toHaveBeenCalledWith(
+      "/api/v1/remote/devices/11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(root.textContent).toContain("아직 연결된 기기가 없습니다.");
   });
 });
 
@@ -142,6 +395,14 @@ describe("navigation", () => {
     workspace.showWriting();
 
     expect(root.querySelector(".seed-panel")).not.toBeNull();
+  });
+
+  it("maps documented hash routes to their owning workspace section", () => {
+    expect(routeFromHash("#today")).toBe("today");
+    expect(routeFromHash("#post/a-post-id")).toBe("post");
+    expect(routeFromHash("#writing/draft-id")).toBe("writing");
+    expect(routeFromHash("#settings/comment")).toBe("settings");
+    expect(routeFromHash("#unknown")).toBeNull();
   });
 
   it("shows the one-time-code form and hides normal navigation for an unpaired tablet", () => {

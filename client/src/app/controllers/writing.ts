@@ -15,13 +15,19 @@ import {
   blocksFromText,
   initialWritingState,
   startWorking,
+  withAutoSave,
+  withBodyText,
+  withDeleteConfirmation,
   withDraft,
+  withDraftTitle,
   withFailure,
   withLoaded,
   withNotice,
   withOptions,
   withRun,
   withSeed,
+  withWritingProfile,
+  withoutDraft,
 } from "../state/writing";
 import { type WritingHandlers, renderWriting } from "../views/writing";
 
@@ -42,8 +48,10 @@ const REFUSALS: Record<string, string> = {
 type WritingApi = Pick<
   LocalApiClient,
   | "blogCategories"
+  | "appSetting"
   | "composeDraft"
   | "createDraft"
+  | "deleteDraft"
   | "deleteDraftImage"
   | "draft"
   | "drafts"
@@ -61,6 +69,7 @@ type WritingApi = Pick<
 
 export interface WritingControllerOptions {
   api?: WritingApi;
+  onDraftOpened?: (draftId: string) => void;
   stream?: RunStreamFactory;
 }
 
@@ -68,12 +77,18 @@ export class WritingController {
   readonly #api: WritingApi;
   readonly #root: Element;
   readonly #stream: RunStreamFactory;
+  readonly #onDraftOpened: (draftId: string) => void;
   #state: WritingState = initialWritingState();
   #source: { close(): void } | null = null;
+  #autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  #autoSaveInFlight = false;
+  #bodyEditVersion = 0;
+  #pendingAutoSave: { text: string; version: number } | null = null;
 
   constructor(root: Element, options: WritingControllerOptions = {}) {
     this.#root = root;
     this.#api = options.api ?? new LocalApiClient();
+    this.#onDraftOpened = options.onDraftOpened ?? (() => undefined);
     this.#stream = options.stream ?? eventSourceStream;
   }
 
@@ -85,18 +100,28 @@ export class WritingController {
     renderWriting(this.#root, this.#state, this.#handlers());
   }
 
+  /** Re-read the selected draft after a backgrounded mobile browser resumes. */
+  async refreshActive(): Promise<void> {
+    const draft = this.#state.draft;
+    if (draft !== null) await this.#refresh(draft.id);
+  }
+
   /** Load providers, categories, and recent drafts, then render once. */
-  async load(): Promise<void> {
+  async load(options: { draftId?: string } = {}): Promise<void> {
     this.#update(
       startWorking(this.#state, this.#state.phase === "empty" ? "seed" : this.#state.phase),
     );
     try {
-      const [providers, categories, drafts] = await Promise.all([
+      const [providers, categories, drafts, writingProfile, selectedDraft] = await Promise.all([
         this.#api.llmProviders(),
         this.#api.blogCategories(),
         this.#api.drafts(),
+        this.#writingProfile(),
+        options.draftId === undefined ? Promise.resolve(null) : this.#api.draft(options.draftId),
       ]);
-      this.#update(withLoaded(this.#state, { categories, drafts, providers }));
+      const profiled = withWritingProfile(this.#state, writingProfile);
+      const loaded = withLoaded(profiled, { categories, drafts, providers });
+      this.#update(selectedDraft === null ? loaded : withDraft(loaded, selectedDraft));
     } catch (error) {
       this.#update(withFailure(this.#state, describe(error)));
     }
@@ -110,8 +135,15 @@ export class WritingController {
         title: this.#state.seedTitle.trim(),
         seedText: this.#state.seedText,
         categoryNo: this.#state.selectedCategoryNo,
+        useImageVision: this.#state.useImageVision,
       }),
     );
+  }
+
+  /** Register the seed and immediately compose the first body from the selected provider. */
+  async completeWithAi(): Promise<PostDraft | null> {
+    const created = await this.createDraft();
+    return created === null ? null : this.compose();
   }
 
   async openDraft(draftId: string): Promise<PostDraft | null> {
@@ -139,17 +171,81 @@ export class WritingController {
   }
 
   async saveBody(text: string): Promise<PostDraft | null> {
+    this.#clearAutosave();
+    return this.#saveBody(text, { automatic: false });
+  }
+
+  async #saveBody(
+    text: string,
+    options: { automatic: boolean; version?: number },
+  ): Promise<PostDraft | null> {
     const draft = this.#state.draft;
-    if (draft === null || this.#state.busy) return null;
+    if (draft === null || (this.#state.busy && !options.automatic)) return null;
     const blocks = blocksFromText(text, activeRevision(this.#state));
     if (blocks.length === 0) {
       this.#update(withFailure(this.#state, "저장할 본문이 없습니다."));
       return null;
     }
+    if (options.automatic) this.#update(withAutoSave(this.#state, "saving"));
+    else this.#update(startWorking(this.#state, "review"));
+    try {
+      const saved = await this.#api.saveDraftBody(draft.id, { title: draft.title, blocks });
+      if (options.version === undefined || options.version === this.#bodyEditVersion) {
+        this.#update(withDraft(this.#state, saved));
+      }
+      return saved;
+    } catch (error) {
+      if (options.automatic) {
+        this.#update(withAutoSave(this.#state, "failed"));
+      } else {
+        this.#update(withFailure(this.#state, describe(error)));
+      }
+      return null;
+    }
+  }
+
+  onBodyChange(text: string): void {
+    this.#bodyEditVersion += 1;
+    this.#state = withBodyText(this.#state, text);
+    this.#clearAutosave();
+    const version = this.#bodyEditVersion;
+    this.#autosaveTimer = setTimeout(() => {
+      this.#autosaveTimer = null;
+      void this.#queueAutoSave(text, version);
+    }, 700);
+  }
+
+  onTitleChange(title: string): void {
+    if (this.#state.draft === null) return;
+    this.#bodyEditVersion += 1;
+    this.#state = withDraftTitle(this.#state, title);
+    this.#clearAutosave();
+    const version = this.#bodyEditVersion;
+    this.#autosaveTimer = setTimeout(() => {
+      this.#autosaveTimer = null;
+      void this.#queueAutoSave(this.#state.bodyText, version);
+    }, 700);
+  }
+
+  async deleteDraft(): Promise<void> {
+    const draft = this.#state.draft;
+    if (draft === null || this.#state.busy) return;
+    if (this.#autoSaveInFlight) {
+      this.#update(withNotice(this.#state, "자동 저장이 끝난 뒤 초안을 삭제할 수 있습니다."));
+      return;
+    }
+    if (!this.#state.deleteConfirmation) {
+      this.#update(withDeleteConfirmation(this.#state));
+      return;
+    }
+    this.#clearAutosave();
     this.#update(startWorking(this.#state, "review"));
-    return this.#guard(async () =>
-      this.#api.saveDraftBody(draft.id, { title: draft.title, blocks }),
-    );
+    try {
+      await this.#api.deleteDraft(draft.id);
+      this.#update(withoutDraft(this.#state, draft.id));
+    } catch (error) {
+      this.#update(withFailure(this.#state, describe(error)));
+    }
   }
 
   async uploadImage(file: File): Promise<PostDraft | null> {
@@ -261,8 +357,11 @@ export class WritingController {
   #handlers(): WritingHandlers {
     return {
       onAddTags: (tags) => void this.addTags(tags),
+      onBodyChange: (text) => this.onBodyChange(text),
       onCompose: () => void this.compose(),
+      onCompleteWithAi: () => void this.completeWithAi(),
       onCreateDraft: () => void this.createDraft(),
+      onDeleteDraft: () => void this.deleteDraft(),
       onDeleteImage: (imageId) => void this.deleteImage(imageId),
       onGenerateTags: () => void this.generateTags(),
       onOpenDraft: (draftId) => void this.openDraft(draftId),
@@ -271,6 +370,7 @@ export class WritingController {
       onSaveBody: (text) => void this.saveBody(text),
       onSeedChange: (field, value) => this.setSeed(field, value),
       onStage: () => void this.stage(),
+      onTitleChange: (title) => this.onTitleChange(title),
       onSyncCategories: () => void this.syncCategories(),
       onToggleTag: (tag) => void this.toggleTag(tag),
       onUploadImage: (file) => void this.uploadImage(file),
@@ -291,6 +391,7 @@ export class WritingController {
         tone: this.#state.options.tone,
         structure: this.#state.options.structure,
         request: this.#state.options.request,
+        referenceLimit: this.#state.referenceLimit,
       }),
     );
   }
@@ -299,6 +400,7 @@ export class WritingController {
     try {
       const draft = await call();
       this.#update(withDraft(this.#state, draft));
+      this.#onDraftOpened(draft.id);
       return draft;
     } catch (error) {
       this.#update(withFailure(this.#state, describe(error)));
@@ -331,6 +433,54 @@ export class WritingController {
     this.#source = null;
   }
 
+  #clearAutosave(): void {
+    if (this.#autosaveTimer !== null) clearTimeout(this.#autosaveTimer);
+    this.#autosaveTimer = null;
+    this.#pendingAutoSave = null;
+  }
+
+  async #queueAutoSave(text: string, version: number): Promise<void> {
+    if (this.#autoSaveInFlight) {
+      this.#pendingAutoSave = { text, version };
+      return;
+    }
+    this.#autoSaveInFlight = true;
+    try {
+      await this.#saveBody(text, { automatic: true, version });
+    } finally {
+      this.#autoSaveInFlight = false;
+    }
+    const pending = this.#pendingAutoSave;
+    this.#pendingAutoSave = null;
+    if (pending !== null) await this.#queueAutoSave(pending.text, pending.version);
+  }
+
+  async #writingProfile(): Promise<{
+    referenceLimit?: number;
+    structure?: WritingState["options"]["structure"];
+    targetLength?: WritingState["options"]["length"];
+    tone?: WritingState["options"]["tone"];
+    useImageVision?: boolean;
+  }> {
+    try {
+      const record = await this.#api.appSetting("writing_profile");
+      const payload = record.payload;
+      return {
+        ...(typeof payload.reference_post_count === "number"
+          ? { referenceLimit: payload.reference_post_count }
+          : {}),
+        ...(isStructure(payload.structure) ? { structure: payload.structure } : {}),
+        ...(isLength(payload.target_length) ? { targetLength: payload.target_length } : {}),
+        ...(isTone(payload.tone) ? { tone: payload.tone } : {}),
+        ...(typeof payload.use_image_vision === "boolean"
+          ? { useImageVision: payload.use_image_vision }
+          : {}),
+      };
+    } catch {
+      return {};
+    }
+  }
+
   #update(state: WritingState): void {
     this.#state = state;
     this.render();
@@ -344,4 +494,16 @@ function describe(error: unknown): string {
     return error.problem?.detail ?? error.message;
   }
   return "알 수 없는 오류가 발생했습니다.";
+}
+
+function isLength(value: unknown): value is WritingState["options"]["length"] {
+  return value === "short" || value === "medium" || value === "long";
+}
+
+function isTone(value: unknown): value is WritingState["options"]["tone"] {
+  return value === "calm" || value === "warm" || value === "lively";
+}
+
+function isStructure(value: unknown): value is WritingState["options"]["structure"] {
+  return value === "plain" || value === "sectioned" || value === "story";
 }

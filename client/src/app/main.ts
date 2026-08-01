@@ -7,6 +7,7 @@
 
 import { ApiError, LocalApiClient } from "./api/client";
 import type { ArticleExtraction } from "./api/types";
+import { ActivityController } from "./controllers/activity";
 import { CommentController } from "./controllers/comment";
 import { SessionController } from "./controllers/session";
 import { SettingsController } from "./controllers/settings";
@@ -18,14 +19,31 @@ export const APP_ROOT_ID = "workspace";
 const REMOTE_PAIRING_BUTTON_ID = "remote-pairing-code-button";
 
 export interface Workspace {
+  activity: ActivityController;
   comment: CommentController;
-  openComment(extraction: ArticleExtraction, discoveryPostId: string): void;
+  openComment(
+    extraction: ArticleExtraction,
+    discoveryPostId: string | null,
+    source?: "neighbor" | "search" | null,
+    options?: { generate?: boolean },
+  ): void;
+  openCommentUrl(
+    url: string,
+    discoveryPostId: string | null,
+    source: "neighbor" | "search" | null,
+  ): void;
   session: SessionController;
   settings: SettingsController;
-  showSession(): void;
+  showSession(sessionId?: string): void;
+  showActivity(): void;
   showSettings(): void;
-  showToday(): void;
-  showWriting(): void;
+  showToday(selectedPostId?: string): void;
+  showWriting(draftId?: string): void;
+  showStoredComment(
+    recommendationId: string,
+    discoveryPostId: string | null,
+    source: "neighbor" | "search" | null,
+  ): void;
   showRemotePairing(): void;
   showRemotePairingCode(): void;
   today: TodayController;
@@ -43,23 +61,48 @@ export function createWorkspace(root: Element): Workspace {
     onSelect: (section: NavSection) => {
       if (section === "writing") workspace.showWriting?.();
       else if (section === "session") workspace.showSession?.();
+      else if (section === "activity") workspace.showActivity?.();
       else if (section === "settings") workspace.showSettings?.();
       else workspace.showToday?.();
     },
   });
   const comment = new CommentController(root, {
+    api,
     copy: async (text: string) => {
       if (!(await copyText(document, text))) throw new Error("clipboard_unavailable");
     },
     onBack: () => workspace.showToday?.(),
+    onRecommendationReady: (recommendationId, discoveryPostId, source) => {
+      const parameters = new URLSearchParams();
+      if (discoveryPostId !== null) parameters.set("post", discoveryPostId);
+      if (source !== null) parameters.set("source", source);
+      const query = parameters.size === 0 ? "" : `?${parameters.toString()}`;
+      setRoute(document, `#comment/${recommendationId}${query}`);
+    },
   });
   const today = new TodayController(root, {
-    onExtracted: (extraction, discoveryPostId) =>
-      workspace.openComment?.(extraction, discoveryPostId),
+    api,
+    onDiscoveryPostOpened: (post) =>
+      workspace.openCommentUrl?.(post.sourceUrl, post.id, post.source),
+    onDirectUrlOpened: (url) => workspace.openCommentUrl?.(url, null, null),
+    onExtracted: (extraction, post) =>
+      workspace.openComment?.(extraction, post?.id ?? null, post?.source ?? null, {
+        generate: true,
+      }),
     onRemotePairingRequired: () => workspace.showRemotePairing?.(),
+    onSettingsRequested: () => workspace.showSettings?.(),
   });
-  const writing = new WritingController(root);
-  const session = new SessionController(root);
+  const writing = new WritingController(root, {
+    api,
+    onDraftOpened: (draftId) => setRoute(document, `#writing/${draftId}`),
+  });
+  const activity = new ActivityController(root, api, {
+    onOpenDraft: (draftId) => workspace.showWriting?.(draftId),
+    onOpenRecommendation: (recommendationId) =>
+      workspace.showStoredComment?.(recommendationId, null, null),
+    onOpenSession: (sessionId) => workspace.showSession?.(sessionId),
+  });
+  const session = new SessionController(root, { api });
   session.observe(() => {
     if (activeSection === "session") session.render();
   });
@@ -72,47 +115,93 @@ export function createWorkspace(root: Element): Workspace {
   workspace.comment = comment;
   workspace.today = today;
   workspace.writing = writing;
+  workspace.activity = activity;
   workspace.showSettings = () => {
     setNavigationVisible(document, true);
     activeSection = "settings";
+    setRoute(document, "#settings");
     session.close();
     navigation?.mark("settings");
     appSettings.render();
     focusWorkspace(root);
     void appSettings.load();
   };
-  workspace.showSession = () => {
+  workspace.showSession = (sessionId) => {
     setNavigationVisible(document, true);
     activeSection = "session";
+    setRoute(document, sessionId === undefined ? "#session" : `#session/${sessionId}`);
     navigation?.mark("session");
     session.render();
     focusWorkspace(root);
-    void session.load();
+    void session.load(sessionId === undefined ? {} : { sessionId });
   };
-  workspace.showWriting = () => {
+  workspace.showWriting = (draftId) => {
     setNavigationVisible(document, true);
     activeSection = "writing";
+    setRoute(document, draftId === undefined ? "#writing" : `#writing/${draftId}`);
     navigation?.mark("writing");
     writing.render();
     focusWorkspace(root);
-    void writing.load();
+    void writing.load(draftId === undefined ? {} : { draftId });
   };
-  workspace.openComment = (extraction: ArticleExtraction, discoveryPostId: string) => {
+  workspace.openComment = (
+    extraction: ArticleExtraction,
+    discoveryPostId: string | null,
+    source: "neighbor" | "search" | null = null,
+    options: { generate?: boolean } = {},
+  ) => {
     setNavigationVisible(document, true);
     activeSection = "today";
+    setRoute(document, discoveryPostId === null ? "#comment/direct" : `#post/${discoveryPostId}`);
     session.close();
     navigation?.mark("today");
-    comment.open(extraction, discoveryPostId);
+    comment.open(extraction, discoveryPostId, source, options);
     focusWorkspace(root);
     void comment.loadClosingPhrase();
   };
-  workspace.showToday = () => {
+  workspace.openCommentUrl = (url, discoveryPostId, source) => {
     setNavigationVisible(document, true);
     activeSection = "today";
+    setRoute(document, discoveryPostId === null ? "#comment/direct" : `#post/${discoveryPostId}`);
+    session.close();
+    navigation?.mark("today");
+    comment.openUrl(url, discoveryPostId, source);
+    focusWorkspace(root);
+    void comment.loadClosingPhrase();
+  };
+  workspace.showStoredComment = (recommendationId, discoveryPostId, source) => {
+    setNavigationVisible(document, true);
+    activeSection = "today";
+    const parameters = new URLSearchParams();
+    if (discoveryPostId !== null) parameters.set("post", discoveryPostId);
+    if (source !== null) parameters.set("source", source);
+    const query = parameters.size === 0 ? "" : `?${parameters.toString()}`;
+    setRoute(document, `#comment/${recommendationId}${query}`);
+    session.close();
+    navigation?.mark("today");
+    comment.render();
+    focusWorkspace(root);
+    void comment.loadClosingPhrase();
+    void comment.restore(recommendationId, discoveryPostId, source);
+  };
+  workspace.showToday = (selectedPostId) => {
+    setNavigationVisible(document, true);
+    activeSection = "today";
+    setRoute(document, selectedPostId === undefined ? "#today" : `#post/${selectedPostId}`);
     navigation?.mark("today");
     today.render();
     focusWorkspace(root);
-    void today.load();
+    void today.load(selectedPostId === undefined ? {} : { selectedPostId });
+  };
+  workspace.showActivity = () => {
+    setNavigationVisible(document, true);
+    activeSection = "activity";
+    setRoute(document, "#activity");
+    session.close();
+    navigation?.mark("activity");
+    activity.render();
+    focusWorkspace(root);
+    void activity.load();
   };
   workspace.showRemotePairing = () => {
     session.close();
@@ -128,16 +217,49 @@ export function createWorkspace(root: Element): Workspace {
   };
   pairingButton?.addEventListener("click", () => workspace.showRemotePairingCode?.());
   const refreshAfterResume = () => {
-    if (root.querySelector("#remote-pairing-status, #comment-status") !== null) return;
+    if (root.querySelector("#remote-pairing-status") !== null) return;
+    if (root.querySelector("#comment-status") !== null) {
+      void comment.refresh();
+      return;
+    }
     if (activeSection === "today") void today.load();
     else if (activeSection === "session") void session.load();
-    else if (activeSection === "writing") void writing.load();
+    else if (activeSection === "writing") void writing.refreshActive();
+    else if (activeSection === "activity") void activity.load();
     else void appSettings.load();
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refreshAfterResume();
   });
   document.defaultView?.addEventListener("pageshow", () => refreshAfterResume());
+  document.defaultView?.addEventListener("hashchange", () => {
+    const hash = document.defaultView?.location.hash ?? "";
+    const route = routeFromHash(hash);
+    if (route === "writing" && activeSection !== "writing") {
+      workspace.showWriting?.(draftRouteFromHash(hash));
+    } else if (route === "session" && activeSection !== "session") {
+      workspace.showSession?.(sessionRouteFromHash(hash));
+    } else if (route === "activity" && activeSection !== "activity") workspace.showActivity?.();
+    else if (route === "settings" && activeSection !== "settings") workspace.showSettings?.();
+    else if (route === "today" && activeSection !== "today") workspace.showToday?.();
+    else if (route === "post" && root.querySelector("#comment-status") === null) {
+      const postId = postRouteFromHash(hash);
+      if (postId !== null) workspace.showToday?.(postId);
+    } else if (route === "comment") {
+      const context = commentRouteFromHash(hash);
+      if (
+        context !== null &&
+        comment.state.recommendation?.id !== context.recommendationId &&
+        root.querySelector("#comment-status") === null
+      ) {
+        workspace.showStoredComment?.(
+          context.recommendationId,
+          context.discoveryPostId,
+          context.source,
+        );
+      }
+    }
+  });
   return workspace as Workspace;
 }
 
@@ -146,8 +268,26 @@ export function mount(documentRef: Document = document): Workspace | null {
   const root = documentRef.getElementById(APP_ROOT_ID);
   if (root === null) return null;
   const workspace = createWorkspace(root);
-  workspace.today.render();
-  void workspace.today.load();
+  const route = routeFromHash(documentRef.defaultView?.location.hash ?? "");
+  if (route === "writing")
+    workspace.showWriting(draftRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
+  else if (route === "session")
+    workspace.showSession(sessionRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
+  else if (route === "activity") workspace.showActivity();
+  else if (route === "settings") workspace.showSettings();
+  else if (route === "post") {
+    const postId = postRouteFromHash(documentRef.defaultView?.location.hash ?? "");
+    workspace.showToday(postId ?? undefined);
+  } else if (route === "comment") {
+    const context = commentRouteFromHash(documentRef.defaultView?.location.hash ?? "");
+    if (context === null) workspace.showToday();
+    else
+      workspace.showStoredComment(
+        context.recommendationId,
+        context.discoveryPostId,
+        context.source,
+      );
+  } else workspace.showToday();
   return workspace;
 }
 
@@ -158,6 +298,59 @@ if (typeof document !== "undefined" && document.getElementById(APP_ROOT_ID) !== 
 function setNavigationVisible(document: Document, visible: boolean): void {
   const navigation = document.getElementById("workspace-nav");
   if (navigation !== null) navigation.hidden = !visible;
+}
+
+/** Map public hash routes back to their owning workspace section. */
+export function routeFromHash(hash: string): NavSection | "post" | "comment" | null {
+  const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
+  if (path === "today") return "today";
+  if (path === "session" || path.startsWith("session/")) return "session";
+  if (path === "writing" || path.startsWith("writing/")) return "writing";
+  if (path === "activity") return "activity";
+  if (path === "settings" || path.startsWith("settings/")) return "settings";
+  if (path.startsWith("post/")) return "post";
+  if (path.startsWith("comment/")) return "comment";
+  return null;
+}
+
+function postRouteFromHash(hash: string): string | null {
+  const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
+  const postId = path.startsWith("post/") ? path.slice("post/".length) : "";
+  return postId.length === 0 ? null : postId;
+}
+
+function draftRouteFromHash(hash: string): string | undefined {
+  const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
+  const draftId = path.startsWith("writing/") ? path.slice("writing/".length) : "";
+  return draftId.length === 0 ? undefined : draftId;
+}
+
+function sessionRouteFromHash(hash: string): string | undefined {
+  const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
+  const sessionId = path.startsWith("session/") ? path.slice("session/".length) : "";
+  return sessionId.length === 0 ? undefined : sessionId;
+}
+
+function commentRouteFromHash(hash: string): {
+  recommendationId: string;
+  discoveryPostId: string | null;
+  source: "neighbor" | "search" | null;
+} | null {
+  const [path, query = ""] = hash.replace(/^#/u, "").split("?", 2);
+  const recommendationId = path?.startsWith("comment/") ? path.slice("comment/".length) : "";
+  if (recommendationId.length === 0 || recommendationId === "direct") return null;
+  const parameters = new URLSearchParams(query);
+  const source = parameters.get("source");
+  return {
+    recommendationId,
+    discoveryPostId: parameters.get("post"),
+    source: source === "neighbor" || source === "search" ? source : null,
+  };
+}
+
+function setRoute(document: Document, hash: string): void {
+  const view = document.defaultView;
+  if (view !== null && view.location.hash !== hash) view.location.hash = hash;
 }
 
 function renderRemotePairing(root: Element, api: LocalApiClient, onPaired: () => void): void {

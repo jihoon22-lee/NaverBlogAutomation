@@ -12,9 +12,12 @@ import type {
   ArticleExtraction,
   CandidateTone,
   CommentCandidate,
+  CommentFanout,
   CommentGeneration,
+  CommentRefinement,
   GenerationOptions,
   Recommendation,
+  RecommendationHistoryItem,
   ReviewStatus,
   BrowserLoginState,
   BrowserSession,
@@ -251,10 +254,36 @@ export class LocalApiClient {
     return readCommentGeneration(body);
   }
 
+  async generateCommentFanout(
+    url: string,
+    providers: { provider: LlmProviderName; model?: string }[],
+    options: GenerationOptions = {},
+  ): Promise<CommentFanout> {
+    const payload: Record<string, unknown> = { url };
+    if (options.relationshipLevel !== undefined) {
+      payload.relationship_level = options.relationshipLevel;
+    }
+    if (options.speechStyle !== undefined) payload.speech_style = options.speechStyle;
+    if (options.commentLength !== undefined) payload.comment_length = options.commentLength;
+    if (options.commentMood !== undefined) payload.comment_mood = options.commentMood;
+    if (options.personalizationMode !== undefined) {
+      payload.personalization_mode = options.personalizationMode;
+    }
+    if (options.replace === true) payload.replace = true;
+    payload.providers = providers.map((selection) => ({
+      provider: selection.provider,
+      ...(selection.model === undefined ? {} : { model: selection.model }),
+    }));
+    return readCommentFanout(
+      await this.#request("POST", "/api/v1/automation/comments/fanout", payload),
+    );
+  }
+
   async reviewRecommendation(
     id: string,
     patch: {
       editedComment?: string;
+      personalizationEligible?: boolean;
       reviewStatus?: ReviewStatus;
       selectedCandidateId?: string;
     },
@@ -264,9 +293,61 @@ export class LocalApiClient {
       payload.selected_candidate_id = patch.selectedCandidateId;
     }
     if (patch.editedComment !== undefined) payload.edited_comment = patch.editedComment;
+    if (patch.personalizationEligible !== undefined) {
+      payload.personalization_eligible = patch.personalizationEligible;
+    }
     if (patch.reviewStatus !== undefined) payload.review_status = patch.reviewStatus;
     const body = await this.#request("PATCH", `/api/v1/recommendations/${id}`, payload);
     return readRecommendation(body);
+  }
+
+  async recommendation(id: string): Promise<Recommendation> {
+    return readRecommendation(await this.#request("GET", `/api/v1/recommendations/${id}`));
+  }
+
+  async recommendations(limit = 20): Promise<RecommendationHistoryItem[]> {
+    const body = await this.#request("GET", `/api/v1/recommendations?limit=${limit}`);
+    return readItems(body, readRecommendationHistoryItem);
+  }
+
+  async deleteRecommendation(id: string): Promise<void> {
+    await this.#request("DELETE", `/api/v1/recommendations/${id}`);
+  }
+
+  async clearPersonalizationExamples(): Promise<void> {
+    await this.#request("DELETE", "/api/v1/personalization/examples");
+  }
+
+  async refineRecommendation(
+    id: string,
+    payload: {
+      currentComment: string;
+      provider: LlmProviderName;
+      preset?: "shorter" | "natural" | "warmer" | "specific";
+      request?: string;
+      model?: string;
+      idempotencyKey: string;
+    },
+  ): Promise<CommentRefinement> {
+    const body = await this.#request(
+      "POST",
+      `/api/v1/recommendations/${id}/refine`,
+      {
+        current_comment: payload.currentComment,
+        provider: payload.provider,
+        ...(payload.preset === undefined ? {} : { preset: payload.preset }),
+        ...(payload.request === undefined ? {} : { request: payload.request }),
+        ...(payload.model === undefined ? {} : { model: payload.model }),
+      },
+      { "Idempotency-Key": payload.idempotencyKey },
+    );
+    return readCommentRefinement(body);
+  }
+
+  async updateDiscoveryPostState(id: string, state: DiscoveryState): Promise<DiscoveryPost> {
+    return readDiscoveryPost(
+      await this.#request("PATCH", `/api/v1/discovery/queue/${id}`, { state }),
+    );
   }
 
   async autoDiscoverySettings(): Promise<AutoDiscoverySettings> {
@@ -486,6 +567,10 @@ export class LocalApiClient {
     return readPostDraft(await this.#request("GET", `/api/v1/drafts/${id}`));
   }
 
+  async deleteDraft(id: string): Promise<void> {
+    await this.#request("DELETE", `/api/v1/drafts/${id}`);
+  }
+
   async patchDraft(
     id: string,
     patch: { title?: string; categoryNo?: number; activeRevisionId?: string },
@@ -583,8 +668,14 @@ export class LocalApiClient {
     }
   }
 
-  async #request(method: string, path: string, payload?: unknown): Promise<unknown> {
+  async #request(
+    method: string,
+    path: string,
+    payload?: unknown,
+    extraHeaders: HeadersInit = {},
+  ): Promise<unknown> {
     const headers = new Headers();
+    for (const [name, value] of new Headers(extraHeaders)) headers.set(name, value);
     if (payload !== undefined) headers.set("Content-Type", "application/json");
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
       const csrfToken = readCsrfCookie();
@@ -794,9 +885,47 @@ function readDiscoveryPost(value: unknown): DiscoveryPost {
     title: readString(value.title, "title"),
     publisherName: readNullableString(value.publisher_name, "publisher_name"),
     publisherBlogId: readNullableString(value.publisher_blog_id, "publisher_blog_id"),
+    sourceLabel:
+      value.source_label === undefined
+        ? null
+        : readNullableString(value.source_label, "source_label"),
     publishedAt: readNullableString(value.published_at, "published_at"),
     createdAt: readString(value.created_at, "created_at"),
     updatedAt: readString(value.updated_at, "updated_at"),
+  };
+}
+
+export function readCommentRefinement(body: unknown): CommentRefinement {
+  if (!isRecord(body)) throw contractError("comment refinement");
+  const provider = body.provider;
+  if (typeof provider !== "string" || !PROVIDERS.has(provider as LlmProviderName)) {
+    throw contractError("provider");
+  }
+  return {
+    text: readString(body.text, "text"),
+    provider: provider as LlmProviderName,
+    model: readString(body.model, "model"),
+  };
+}
+
+function readRecommendationHistoryItem(value: unknown): RecommendationHistoryItem {
+  if (!isRecord(value)) throw contractError("recommendation history item");
+  const reviewStatus = value.review_status;
+  if (typeof reviewStatus !== "string" || !REVIEW_STATUSES.has(reviewStatus as ReviewStatus)) {
+    throw contractError("review_status");
+  }
+  return {
+    id: readString(value.id, "id"),
+    sourceUrl: readString(value.source_url, "source_url"),
+    title: readString(value.title, "title"),
+    reviewStatus: reviewStatus as ReviewStatus,
+    comment: readNullableString(value.comment, "comment"),
+    createdAt: readString(value.created_at, "created_at"),
+    updatedAt: readNullableString(value.updated_at, "updated_at"),
+    personalizationEligible: readBoolean(
+      value.personalization_eligible,
+      "personalization_eligible",
+    ),
   };
 }
 
@@ -905,6 +1034,36 @@ export function readCommentGeneration(body: unknown): CommentGeneration {
     extraction: readArticleExtraction(body.extraction),
     recommendation: readRecommendation(body.recommendation),
     replayed: readBoolean(body.replayed, "replayed"),
+  };
+}
+
+export function readCommentFanout(body: unknown): CommentFanout {
+  if (!isRecord(body) || !Array.isArray(body.items)) throw contractError("fanout generation");
+  return {
+    attempt: readCount(body.attempt, "attempt"),
+    extraction: readArticleExtraction(body.extraction),
+    items: body.items.map(readProviderOutcome),
+  };
+}
+
+function readProviderOutcome(value: unknown): CommentFanout["items"][number] {
+  if (!isRecord(value)) throw contractError("provider outcome");
+  const provider = value.provider;
+  const status = value.status;
+  if (typeof provider !== "string" || !PROVIDERS.has(provider as LlmProviderName)) {
+    throw contractError("provider");
+  }
+  if (status !== "succeeded" && status !== "failed" && status !== "indeterminate") {
+    throw contractError("provider status");
+  }
+  return {
+    provider: provider as LlmProviderName,
+    model: readString(value.model, "model"),
+    status,
+    resultCode: readNullableString(value.result_code, "result_code"),
+    replayed: readBoolean(value.replayed, "replayed"),
+    retryAfter: value.retry_after === null ? null : readCount(value.retry_after, "retry_after"),
+    recommendation: value.recommendation === null ? null : readRecommendation(value.recommendation),
   };
 }
 

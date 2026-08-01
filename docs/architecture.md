@@ -43,13 +43,14 @@ UI입니다. 과거 Chrome Side Panel extension은 v0.5.6에서 동결(FROZEN)�
 TypeScript SPA로 빌드되며 같은 loopback 서비스에서 static으로 제공됩니다. CORS 추가
 설정 없이 같은 origin에서 API를 호출합니다.
 
-워크스페이스에는 **오늘의 작업(Today)**, **여러 글 처리(Session)**, **글 작성(Writing)**
-세 탭이 있으며, 한 번에 하나만 표시합니다.
+워크스페이스에는 **오늘의 작업(Today)**, **여러 글 처리(Session)**, **글 작성(Writing)**,
+**최근 작업(Activity)**, **설정(Settings)** 다섯 탭이 있으며, 한 번에 하나만 표시합니다.
 
 - **Today** — 탐색 대기열 상태, 큐 동기화, 개별 글 처리 시작.
-- **Comment** — 추출 결과 확인, 댓글 생성·선택·편집·복사, 실행 승인.
+- **Comment** — 추출 뒤 기본 후보를 생성하고, 선택·AI 빠른 다듬기·복사·한 번의 실행 승인을 제공합니다.
 - **Session** — 세션 배치 승인, SSE 기반 진행 추적, 취소.
-- **Writing** — 초안 등록, 본문 생성·다듬기, 태그 생성, 임시저장 실행.
+- **Writing** — 초안 생성과 AI 완성, title·body 자동 저장, revision 비교, 태그 생성, 임시저장 실행.
+- **Activity** — 저장된 recommendation·배치·초안을 다시 열고 개인화 예시와 로컬 기록을 정리합니다.
 
 SPA는 secret이나 API key를 보유하지 않으며, LLM provider 설정 여부만 표시합니다.
 
