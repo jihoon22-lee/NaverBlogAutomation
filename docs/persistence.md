@@ -10,7 +10,7 @@ forward-only migration을 기본으로 하며, downgrade는 disposable integrati
 generation provenance가 있으면 destructive downgrade는 명시적으로 거부되고 데이터와 현재
 schema를 그대로 유지합니다.
 
-운영 환경의 정확한 retention 범위, extension retry registry와 안전한 dry-run/confirmed cleanup
+운영 환경의 정확한 retention 범위와 안전한 dry-run/confirmed cleanup
 명령은 [`local-operations.md`](local-operations.md#data-retention-and-cleanup)를 참고하세요.
 
 ## 원자성과 멱등성
@@ -26,7 +26,7 @@ schema를 그대로 유지합니다.
 완료 상태의 최종 댓글은 사용자가 개인화를 켠 뒤 생성할 때 최대 5개까지 스타일 예시로 조회할 수
 있습니다. 각 기록은 예시 포함 여부를 별도로 보존하며, 전체 예시 정리는 recommendation과 retry
 snapshot을 삭제하지 않고 포함 여부만 해제합니다. 이 예시 원문은 SQLite에 이미 보존된 최종 댓글을
-사용하며 extension storage에는 복제하지 않습니다.
+사용하며 웹앱 browser storage에는 복제하지 않습니다.
 
 예약은 모델 호출 전 `reserved`, 호출 직전부터 `generating`, 저장 완료 후 `completed` 상태를
 사용합니다. 안전한 refusal/invalid 응답은 `failed`, timeout·connection·5xx처럼 결과를 알 수
@@ -49,8 +49,8 @@ rejection처럼 생성이 시작되지 않았음이 확인된 경우만 `release
 `engagement_runs`는 하나의 탐색 글과 승인된 추천을 참조하며, `approval_id`와
 `discovery_post_id`에 각각 unique constraint를 둡니다. `engagement_steps`는
 `like`, `comment`, 선택적 `mutual_neighbor`의 고정 순서와 상태, 민감하지 않은 결과 code만
-저장합니다. 최종 댓글과 서로이웃 신청 message는 Side Panel memory에서만 사용하고 database에
-저장하지 않습니다.
+저장합니다. 최종 댓글은 연결된 recommendation에만 보관하고, 서로이웃 신청 message는 실행 기록에
+복제하지 않습니다.
 
 단계 시작과 결과 저장은 각각 `BEGIN IMMEDIATE` transaction으로 직렬화합니다. 앞 단계가
 완료되지 않으면 다음 단계를 시작할 수 없고, 성공·건너뜀 단계는 다시 실행 상태로 되돌릴 수

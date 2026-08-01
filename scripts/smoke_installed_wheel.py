@@ -8,12 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import yaml
+from fastapi.testclient import TestClient
 
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.infrastructure.browser import PAGE_PROBES, load_page_bundle
 
-EXTENSION_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_MIGRATION_HEAD = "20260801_0018"
+EXPECTED_MIGRATION_HEAD = "20260801_0019"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 
@@ -26,13 +26,23 @@ def main() -> None:
     with TemporaryDirectory() as directory:
         database_path = Path(directory) / "wheel-smoke.db"
         settings = ApiSettings(
-            extension_origin=EXTENSION_ORIGIN,
             database_url=f"sqlite:///{database_path}",
             generator_mode="fake",
             app_environment="test",
         )
         app = create_app(settings)
         try:
+            with TestClient(app) as client:
+                app_shell = client.get("/app/")
+                app_script = client.get("/app/app.js")
+                app_manifest = client.get("/app/manifest.webmanifest")
+                app_icon = client.get("/app/icon.svg")
+            assert app_shell.status_code == 200
+            assert 'id="workspace"' in app_shell.text
+            assert app_script.status_code == 200
+            assert app_script.headers["content-type"].startswith("text/javascript")
+            assert app_manifest.status_code == 200
+            assert app_icon.status_code == 200
             contract = app.openapi()
             checked_in_contract = yaml.safe_load(CHECKED_IN_CONTRACT.read_text(encoding="utf-8"))
             assert contract == checked_in_contract
@@ -60,6 +70,7 @@ def main() -> None:
                 "engagement_runs",
                 "engagement_steps",
                 "app_settings",
+                "remote_device_sessions",
             } <= tables
             assert migration_head == (EXPECTED_MIGRATION_HEAD,)
         finally:

@@ -2,9 +2,12 @@
 
 Status: 완료 (Task 0~21), 2026-07-30 확정 · 2026-07-31 글쓰기 확장과 다중 provider 범위 통합
 
+> 보관 문서입니다. 이 계획의 모든 Task는 완료됐습니다. 현재 제품 작업은
+> [`../webapp-first-delivery-plan.md`](../webapp-first-delivery-plan.md)를 따릅니다.
+
 Chrome extension Side Panel을 로컬 웹앱으로 옮기고, DOM 조작을 backend가 소유한 Playwright 계열
 browser session으로 대체하는 전환 계획입니다. 기존 Side Panel 아키텍처는
-[`architecture.md`](architecture.md)에, 이전 배포 경계는 [`delivery-plan.md`](delivery-plan.md)와
+[`../architecture.md`](../architecture.md)에, 이전 배포 경계는 [`delivery-plan.md`](delivery-plan.md)와
 [`v0.5.1-engagement-delivery-plan.md`](v0.5.1-engagement-delivery-plan.md)에 남아 있습니다.
 
 2026-07-31에 범위를 통합했습니다. 이 문서는 위 전환 계획에 더해 두 가지를 함께 관리합니다. 첫째,

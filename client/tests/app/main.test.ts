@@ -143,4 +143,14 @@ describe("navigation", () => {
 
     expect(root.querySelector(".seed-panel")).not.toBeNull();
   });
+
+  it("shows the one-time-code form and hides normal navigation for an unpaired tablet", () => {
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showRemotePairing();
+
+    expect(root.querySelector(".remote-pairing-panel")).not.toBeNull();
+    expect(document.getElementById("workspace-nav")?.hidden).toBe(true);
+  });
 });

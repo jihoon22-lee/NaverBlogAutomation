@@ -41,8 +41,16 @@ packages = ["src/naver_blog_assistant"]
 # `artifacts` includes it when present without failing a build that has not run the client yet.
 artifacts = ["src/naver_blog_assistant/infrastructure/browser/bundles/page.js"]
 
+[tool.hatch.build.targets.sdist]
+# The web-app bundle is ignored by Git but an sdist must carry it so a wheel can be rebuilt alone.
+artifacts = [
+    "client/dist/**",
+    "src/naver_blog_assistant/infrastructure/browser/bundles/page.js",
+]
+
 [tool.hatch.build.targets.wheel.force-include]
 "docs/api/openapi.yaml" = "naver_blog_assistant/api/openapi.yaml"
+"client/dist" = "naver_blog_assistant/api/static_app"
 
 [tool.ruff]
 target-version = "py314"

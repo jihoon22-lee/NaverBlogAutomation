@@ -59,10 +59,10 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Build the injected page bundle
+      - name: Build web-app and injected page bundles
         run: |
           npm ci --prefix client
-          npm --prefix client run build:page
+          npm --prefix client run build
 
       - name: Install locked dependencies
         run: uv sync --frozen
@@ -389,13 +389,13 @@ jobs:
         continue-on-error: true
         run: npm ci --prefix extension
 
-      - name: Build the injected page bundle
+      - name: Build web-app and injected page bundles
         id: page_bundle
         if: steps.dependencies.outcome == 'success'
         continue-on-error: true
         run: |
           npm ci --prefix client
-          npm --prefix client run build:page
+          npm --prefix client run build
 
       - name: Install bundled Chromium and system dependencies
         id: chromium
@@ -485,7 +485,7 @@ jobs:
         continue-on-error: true
         run: |
           npm ci --prefix client
-          npm --prefix client run build:page
+          npm --prefix client run build
           uv sync --frozen
 
       - name: Install the automation browser

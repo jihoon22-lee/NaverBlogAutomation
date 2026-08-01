@@ -7,6 +7,7 @@
  */
 
 import type {
+  AppReadiness,
   AppSettingRecord,
   ArticleExtraction,
   CandidateTone,
@@ -46,6 +47,9 @@ import type {
   PublishStep,
   PublishStepName,
   ServiceStatus,
+  RemoteDevice,
+  RemotePairingCode,
+  ReadinessBlockerCode,
 } from "./types";
 
 const SESSION_STATES = new Set<BrowserSessionState>(["stopped", "launching", "ready", "closing"]);
@@ -96,6 +100,15 @@ const REVISION_KINDS = new Set(["seed", "composed", "refined", "user_edited"]);
 const BLOCK_KINDS = new Set(["heading", "paragraph", "quote", "image"]);
 const TAG_SOURCES = new Set(["generated", "user"]);
 const PUBLISH_STEPS = new Set<PublishStepName>(["title", "body", "images", "tags", "save"]);
+const READINESS_BLOCKERS = new Set<ReadinessBlockerCode>([
+  "web_app_assets_missing",
+  "browser_not_running",
+  "naver_login_required",
+  "own_blog_id_missing",
+  "llm_provider_missing",
+  "automation_consent_missing",
+  "safety_policy_missing",
+]);
 
 export interface DraftGenerationOptions {
   provider: LlmProviderName;
@@ -152,6 +165,33 @@ export class LocalApiClient {
 
   async status(): Promise<ServiceStatus> {
     return readServiceStatus(await this.#request("GET", "/api/v1/status"));
+  }
+
+  async appReadiness(): Promise<AppReadiness> {
+    return readAppReadiness(await this.#request("GET", "/api/v1/app/readiness"));
+  }
+
+  async createRemotePairingCode(): Promise<RemotePairingCode> {
+    return readRemotePairingCode(await this.#request("POST", "/api/v1/remote/pairing-code"));
+  }
+
+  async pairRemoteDevice(code: string, deviceName: string): Promise<RemoteDevice> {
+    const body = await this.#request("POST", "/api/v1/remote/pair", {
+      code,
+      device_name: deviceName,
+    });
+    if (!isRecord(body)) throw contractError("pairing response");
+    return readRemoteDevice(body.device);
+  }
+
+  async remoteDevices(): Promise<RemoteDevice[]> {
+    const body = await this.#request("GET", "/api/v1/remote/devices");
+    if (!isRecord(body) || !Array.isArray(body.items)) throw contractError("remote devices");
+    return body.items.map(readRemoteDevice);
+  }
+
+  async revokeRemoteDevice(id: string): Promise<void> {
+    await this.#request("DELETE", `/api/v1/remote/devices/${id}`);
   }
 
   /**
@@ -521,9 +561,12 @@ export class LocalApiClient {
   }
 
   async #upload(path: string, form: FormData): Promise<unknown> {
+    const headers = new Headers();
+    const csrfToken = readCsrfCookie();
+    if (csrfToken !== null) headers.set("X-NBA-CSRF", csrfToken);
     let response: Response;
     try {
-      response = await this.#fetch(`${this.#base}${path}`, { method: "POST", body: form });
+      response = await this.#fetch(`${this.#base}${path}`, { method: "POST", body: form, headers });
     } catch {
       throw new ApiError("로컬 서비스에 연결할 수 없습니다.", { status: null });
     }
@@ -541,12 +584,18 @@ export class LocalApiClient {
   }
 
   async #request(method: string, path: string, payload?: unknown): Promise<unknown> {
+    const headers = new Headers();
+    if (payload !== undefined) headers.set("Content-Type", "application/json");
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      const csrfToken = readCsrfCookie();
+      if (csrfToken !== null) headers.set("X-NBA-CSRF", csrfToken);
+    }
     const init: RequestInit =
       payload === undefined
-        ? { method }
+        ? { method, headers }
         : {
             method,
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify(payload),
           };
     let response: Response;
@@ -561,12 +610,23 @@ export class LocalApiClient {
         status: response.status,
       });
     }
+    if (response.status === 204) return undefined;
     try {
       return await response.json();
     } catch {
       throw new ApiError("응답을 해석할 수 없습니다.", { status: response.status });
     }
   }
+}
+
+function readCsrfCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = "nba_csrf=";
+  const value = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+  return value === undefined ? null : decodeURIComponent(value.slice(prefix.length));
 }
 
 async function readProblem(response: Response): Promise<ProblemDetails | null> {
@@ -627,6 +687,69 @@ function readCount(value: unknown, field: string): number {
 function readBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw contractError(field);
   return value;
+}
+
+export function readRemotePairingCode(body: unknown): RemotePairingCode {
+  if (!isRecord(body)) throw contractError("pairing code");
+  return {
+    code: readString(body.code, "code"),
+    expiresAt: readString(body.expires_at, "expires_at"),
+  };
+}
+
+export function readAppReadiness(body: unknown): AppReadiness {
+  if (!isRecord(body)) throw contractError("app readiness");
+  const accessMode = body.access_mode;
+  if (accessMode !== "local" && accessMode !== "lan") throw contractError("access_mode");
+  const browserState = body.browser_state;
+  if (
+    typeof browserState !== "string" ||
+    !SESSION_STATES.has(browserState as BrowserSessionState)
+  ) {
+    throw contractError("browser_state");
+  }
+  const browserLogin = body.browser_login;
+  if (typeof browserLogin !== "string" || !LOGIN_STATES.has(browserLogin as BrowserLoginState)) {
+    throw contractError("browser_login");
+  }
+  if (
+    !Array.isArray(body.lan_addresses) ||
+    !body.lan_addresses.every((item) => typeof item === "string")
+  ) {
+    throw contractError("lan_addresses");
+  }
+  if (
+    !Array.isArray(body.blockers) ||
+    !body.blockers.every(
+      (item): item is ReadinessBlockerCode =>
+        typeof item === "string" && READINESS_BLOCKERS.has(item as ReadinessBlockerCode),
+    )
+  ) {
+    throw contractError("blockers");
+  }
+  return {
+    accessMode,
+    webAppAssetsReady: readBoolean(body.web_app_assets_ready, "web_app_assets_ready"),
+    lanAddresses: body.lan_addresses,
+    browserState: browserState as BrowserSessionState,
+    browserLogin: browserLogin as BrowserLoginState,
+    ownBlogConfigured: readBoolean(body.own_blog_configured, "own_blog_configured"),
+    generationAvailable: readBoolean(body.generation_available, "generation_available"),
+    automationConsent: readBoolean(body.automation_consent, "automation_consent"),
+    safetyPolicyConfigured: readBoolean(body.safety_policy_configured, "safety_policy_configured"),
+    blockers: body.blockers,
+  };
+}
+
+export function readRemoteDevice(body: unknown): RemoteDevice {
+  if (!isRecord(body)) throw contractError("remote device");
+  return {
+    id: readString(body.id, "id"),
+    deviceName: readString(body.device_name, "device_name"),
+    createdAt: readString(body.created_at, "created_at"),
+    lastSeenAt: readString(body.last_seen_at, "last_seen_at"),
+    expiresAt: readString(body.expires_at, "expires_at"),
+  };
 }
 
 export function readServiceStatus(body: unknown): ServiceStatus {

@@ -10,16 +10,18 @@ service 구현이 반드시 보존해야 하는 행동을 기록합니다. endpo
 - Base URL: `http://127.0.0.1:8765`
 - Media type: `application/json`
 - Version prefix: `/api/v1`
-- Authentication: 첫 local-only 릴리스에서는 없음
-- Browser access: 같은 loopback origin의 SPA
+- Authentication: loopback desktop은 없음, paired private-LAN device는 session cookie와 CSRF header
+- Browser access: 같은 origin의 SPA
 
-서비스는 `0.0.0.0`에 bind하지 않습니다. CORS는 선언된 origin만, `GET`, `POST`, `PUT`,
-`PATCH`, `DELETE` method와 `Content-Type`, `Idempotency-Key` header를 허용합니다. Cookie와
-다른 browser credential은 비활성입니다.
+기본 service는 `127.0.0.1`에 bind합니다. `WEBAPP_ACCESS_MODE=lan`을 명시한 경우에만 private
+Wi-Fi의 `0.0.0.0:8765`를 열고, PC가 발견한 private IPv4 Host와 loopback Host만 허용합니다.
+non-loopback device는 PC에서 만든 일회용 code로 pair해야 하며 이후 `HttpOnly`, `SameSite=Strict`
+session cookie와 `X-NBA-CSRF` header를 사용합니다. public hosting과 port forwarding은 지원하지
+않습니다. 설정된 legacy extension origin 외의 foreign Origin은 거부합니다.
 
 ## Create a Recommendation
 
-`POST /api/v1/recommendations`는 Side Panel preview 확인 이후의 active post만 받습니다.
+`POST /api/v1/recommendations`는 웹앱 preview 확인 이후의 active post만 받습니다.
 UUID-valued `Idempotency-Key` header가 필수이며 첫 시도 전에 저장되어야 합니다.
 
 ```json

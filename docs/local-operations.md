@@ -5,18 +5,16 @@
 
 ## Runtime Contract
 
-Local API는 `127.0.0.1:8765`만 사용하고 한 개의 정확한
-`chrome-extension://<32-character-id>` origin만 허용합니다. Extension permission도 이 주소로
-고정되므로 host나 port를 바꾸지 마세요. Environment file은 명시적으로 전달합니다.
+기본 local web app은 `127.0.0.1:8765`에서만 실행되며 `/app/`과 API는 같은 origin을 사용합니다.
+따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 private env file에
+`WEBAPP_ACCESS_MODE=lan`, `API_HOST=0.0.0.0`을 함께 설정합니다. 이 경우에도 service는 발견한
+private IPv4 address와 loopback Host만 받으며, 태블릿은 PC에서 만든 일회용 code로 pair해야 합니다.
+공용 Wi-Fi, port forwarding, public hosting은 지원하지 않습니다.
 
-Side Panel의 **네이버 접근 허용**은 `blog.naver.com`과 `m.blog.naver.com`에만 선택적으로 적용됩니다.
-허용하면 navigation 뒤에도 현재 글 읽기와 글별 실행을 계속 사용할 수 있습니다. 거부해도
-toolbar action으로 연 현재 탭에서는 `activeTab` 권한으로 사용할 수 있습니다.
-
-Side Panel은 **오늘의 작업**, **댓글 작성**, **최근 작업**, **설정**으로 나뉩니다. 처음에는
-로컬 서비스 상태와 대기열 수를 보여 주는 오늘의 작업만 열립니다. 대기열의
-**이 글 처리하기** 또는 **새 탭에서 처리**를 누르면 댓글 작성으로 전환되고, 완료 뒤 다음 글이나
-오늘의 작업으로 이동할 수 있습니다. 탐색·알림·접근 권한·자동 실행 동의는 설정에서 관리합니다.
+웹앱의 **오늘의 작업**, **여러 글 처리**, **글 작성**, **설정**은 같은 PC-owned automation browser를
+사용합니다. 네이버 로그인은 automation browser 창에서 직접 처리하며, 웹앱·태블릿에 계정 비밀번호나
+cookie를 입력하지 않습니다. legacy extension의 별도 실행 조건은 [Extension Legacy](extension-legacy.md)를
+따르세요.
 
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
@@ -52,8 +50,9 @@ Database에 포함된 주요 table 목록:
 | `automation_activity_ledger` | 일별 외부 action 횟수(safety governor 일일 cap 산정) |
 | `digest_settings` / `digest_runs` | 이메일 요약 설정·발송 기록 |
 | `automatic_discovery_settings` / `automatic_discovery_runs` | 자동 탐색 설정·실행 기록 |
+| `remote_device_sessions` | paired 태블릿의 token·CSRF hash, 만료·해제 상태 |
 
-현재 migration head는 `20260801_0018_activity_ledger`입니다.
+현재 migration head는 `20260801_0019_remote_device_sessions`입니다.
 
 ### 초안 이미지 보관 (DRAFT_MEDIA_DIR)
 
@@ -74,28 +73,13 @@ rm -rf data/media/drafts/
 글 탐색 대기열의 RSS·검색 후보, 일일 요약, SMTP 설정과 별도 보관 정책은
 [글 탐색 대기열](discovery.md)을 참고하세요.
 
-Side Panel의 **최근 작업**은 SQLite에서 최신 20개를 읽으며 browser storage에 history text를
-복제하지 않습니다. 개별 **기록 삭제**는 선택한 recommendation, candidates와 연결된 completed
-idempotency snapshot을 한 transaction에서 제거합니다. 전체 database cleanup은 아래 script를
-사용합니다.
+웹앱은 browser storage에 작업 이력이나 provider credential을 복제하지 않습니다. recommendation과
+멱등성 상태는 SQLite에 보관하며, 완료 댓글은 개인화가 켜진 이후 생성에서 최대 5개까지 provider의
+style example으로 전송될 수 있습니다. paired 기기의 session·CSRF 원문은 database에 저장하지 않고
+hash만 보관합니다. PC의 **태블릿 연결**에서 기기를 해제하면 해당 세션은 즉시 쓸 수 없습니다.
 
-Extension의 trusted `chrome.storage.local`에는 retry용 digest, opaque id, state와 timestamp를
-최대 20개 저장하고, 별도 versioned record에는 사용자가 기본값으로 저장한 관계, 말투, 댓글
-길이와 분위기 enum, 최대 50자의 마무리 문구를 저장합니다. 신규 이웃 후보에 사용할
-최대 500자의 기본 서로이웃 신청 메시지도 별도 versioned record로 저장합니다. 두 문구는
-generation 요청이나 OpenAI에 전송되지 않고 local 검토·실행 단계에서만 사용됩니다. 본문, URL과 생성·편집된
-댓글은 extension storage에 저장하지 않습니다. 사용자 승인형 자동 실행 동의도 별도 versioned
-record에 활성 여부와 동의 시각만 저장합니다. 승인할 글, URL, 댓글, 이번 실행에서 수정한 신청
-메시지와 one-time
-승인 token은 Side Panel memory에만 있으며 navigation, 동의 철회 또는 panel 종료 시 폐기됩니다.
-반면 SQLite에 보관된 완료 댓글은 개인화가 켜진
-생성에서 최대 5개까지 OpenAI 스타일 예시로 전송될 수 있습니다. **최근 작업**에서 댓글별로
-포함·제외할 수 있고, **스타일 예시 정리**는 모든 완료 댓글을 제외하지만 기록은 보존합니다.
-Completed, released, dismissed entry는 60분 후 만료되고 다음 registry access에서 제거됩니다.
-Active, reviewing, terminal-failure와 indeterminate entry는 duplicate provider call을 막기 위해
-자동 만료되지 않습니다. Retained entry 20개가 남아 있거나 registry가 invalid이면 Side Panel이
-확인 dialog와 함께 cleanup action을 제공합니다. Cleanup은 retry 복구 정보를 잃게 하므로
-pending 결과를 확인한 뒤 실행하세요.
+개별 기록 삭제는 선택한 recommendation, candidates와 연결된 completed idempotency snapshot을 한
+transaction에서 제거합니다. 전체 database cleanup은 아래 script를 사용합니다.
 
 SQLite를 지우려면 API를 먼저 종료하고 dry run 결과를 확인한 뒤 같은 explicit env로 승인합니다.
 명령은 configured repo-local database와 `-wal`, `-shm` file 외에는 삭제하지 않습니다.
@@ -105,17 +89,17 @@ uv run --frozen --env-file .env.local python -m scripts.clear_local_data
 uv run --frozen --env-file .env.local python -m scripts.clear_local_data --confirm
 ```
 
-Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제거됩니다. 재설치 후 ID가
-달라졌다면 env origin을 갱신하고 API를 재시작하세요.
-
 ## Troubleshooting
 
 ### 기본 연결·설정
 
-- **Setup check가 extension origin을 거부함:** `chrome://extensions`의 현재 unpacked ID를 공백이나
-  trailing slash 없이 입력합니다. ID가 바뀌면 API를 재시작합니다.
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
   `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
+- **태블릿 연결 code를 만들 수 없음:** PC service를 종료하고 `WEBAPP_ACCESS_MODE=lan`과
+  `API_HOST=0.0.0.0`을 함께 설정한 뒤 다시 시작합니다. 태블릿과 PC가 같은 private Wi-Fi인지도
+  확인하세요.
+- **태블릿에서 계속 pairing 화면이 보임:** PC 웹앱에서 새 5분 code를 만든 뒤 다시 입력합니다. code는
+  한 번 성공하면 즉시 폐기되며, 기기를 해제한 경우에도 새 code가 필요합니다.
 - **연결 표시는 정상이지만 최근 작업이 비어 있음:** 기록은 현재 configured `DATABASE_URL`에만
   저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **최근 작업 > 새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
@@ -123,14 +107,14 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 
 ### 본문·댓글 생성
 
-- **본문을 읽지 못함:** 현재 URL이 `https://blog.naver.com` 또는 `https://m.blog.naver.com`인지
-  확인하고 Side Panel의 **네이버 접근 허용**을 선택합니다. Image-only 또는 너무 짧은 글은 지원하지
+- **본문을 읽지 못함:** automation browser가 실행 중이고 `https://blog.naver.com` 또는
+  `https://m.blog.naver.com`에 로그인되어 있는지 확인하세요. Image-only 또는 너무 짧은 글은 지원하지
   않습니다.
-- **대기열 글을 연 뒤 preview가 갱신되지 않음:** **댓글 작성**을 열고 페이지가 완료될 때까지
-  기다린 뒤 다시 시도합니다. **새 탭에서 처리**도 같은 흐름으로 동작하며, 네이버 접근 권한이
-  없으면 **설정 > 네이버 페이지 접근 허용**에서 한 번 허용합니다.
+- **대기열 글을 연 뒤 preview가 갱신되지 않음:** automation browser가 원문을 열고 페이지 로딩을
+  마칠 때까지 기다린 뒤 웹앱에서 다시 시도하세요. 로그인 화면이 열리면 PC automation browser에서
+  먼저 로그인합니다.
 - **Generation timeout/indeterminate:** 동일 작업의 결과가 불명확할 수 있으므로 새 key를 자동으로
-  만들지 않습니다. Side Panel의 복구 안내를 따르고 replacement 확인은 duplicate generation
+  만들지 않습니다. 웹앱의 복구 안내를 따르고 replacement 확인은 duplicate generation
   가능성을 이해한 경우에만 승인합니다.
 
 ### 탐색·이웃
@@ -148,15 +132,14 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
 - **자동 실행 동의가 없어 진행되지 않음:** **설정 > 사용자 승인형 자동 실행**으로 자동 이동합니다.
   범위와 약관을 확인해 동의하거나, 댓글 작성으로 돌아가 댓글을 복사해 직접 붙여넣습니다.
 - **수동 댓글 등록:** 후보를 선택해 다듬은 뒤 승인된 댓글을 복사하고 네이버 입력란에 직접 붙여넣습니다.
-  extension은 수동 흐름에서 입력란을 열거나 내용을 덮어쓰지 않습니다.
+  HTTP 태블릿 연결에서는 코드/댓글이 선택되면 길게 눌러 직접 복사할 수 있습니다.
 - **댓글 등록이 `not_found`로 중단됨:** 입력란과 `등록` 버튼이 각각 보이더라도 네이버는 둘을 형제
-  영역으로 배치할 수 있습니다. 최신 extension은 두 요소의 공통 댓글 작성 영역에서 버튼을 찾습니다.
-  Reload 뒤 글을 새로고침해도 반복되면, 공감·댓글을 다시 실행하지 말고 최근 작업의 code와 DOM 정보를
+  영역으로 배치할 수 있습니다. automation browser를 새로고침해도 반복되면, 공감·댓글을 다시 실행하지
+  말고 최근 작업의 code와 DOM 정보를
   공유해 주세요.
-- **댓글은 등록됐지만 `captcha_required`로 표시됨:** 최신 extension은 네이버의 크기 0 Captcha
-  placeholder를 실제 Captcha로 처리하지 않습니다. extension을 Reload한 뒤 이후 글에서 다시
-  확인하세요. 이미 등록된 댓글은 다시 실행하지 마세요.
-- **공감이 `not_found` 또는 `ambiguous`로 중단됨:** extension을 Reload한 뒤 글을 새로고침하고 다시
+- **댓글은 등록됐지만 `captcha_required`로 표시됨:** 이미 등록된 댓글은 다시 실행하지 말고 PC
+  automation browser에서 Captcha 여부를 직접 확인하세요.
+- **공감이 `not_found` 또는 `ambiguous`로 중단됨:** automation browser에서 글을 새로고침한 뒤 다시
   실행합니다. 현재 게시글의 `#area_sympathy… > .my_reaction` 표준 하트 control만 선택하고, 숨은
   중복·다른 반응 control은 제외합니다. 하트가 반응 레이어를 여는 글에서는 기본 `like` 항목을 한 번
   더 선택한 뒤 상태 변화를 확인합니다. 그래도 실패하지만 공감·댓글을 직접 완료했다면 **직접 처리한
@@ -227,12 +210,12 @@ Extension을 Chrome에서 제거하면 해당 extension의 local registry도 제
   임시저장까지만 수행하며, 발행은 사용자가 에디터에서 직접 확인하고 클릭합니다.
   자동 발행은 의도적으로 지원하지 않습니다.
 
-### Extension·기타
+### 웹앱·기타
 
-- **Extension 변경이 보이지 않음:** `npm --prefix extension run build` 후 extension card의 Reload를
-  누릅니다. Reload 후 ID와 env origin이 여전히 일치하는지 확인합니다.
-- **Clipboard 실패:** 편집 영역에 선택된 text를 OS copy command로 직접 복사합니다. 자동 게시로
-  전환되지 않습니다.
+- **Clipboard 실패:** 코드나 편집 영역의 text를 선택해 OS copy command 또는 길게 눌러 직접
+  복사합니다. 자동 게시로 전환되지 않습니다.
+- **legacy extension 문제:** 별도 설치·reload 문제는 [Extension Legacy](extension-legacy.md)를
+  참고하세요.
 
 Setup tool은 credential value를 출력하지 않습니다. 문제 보고에는 secret, 원문, source URL,
 browser profile 대신 redacted status와 synthetic reproduction만 첨부하세요.
@@ -271,8 +254,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
 
 읽기 전용 expression을 기본으로 사용합니다. click·submit처럼 외부 상태를 바꾸는 expression은
 사용자가 해당 대상과 동작을 명시적으로 승인한 경우에만 실행합니다. 실제 구조를 확인했다면 원본 HTML을
-저장하지 말고 [`extension/tests/fixtures/README.md`](../extension/tests/fixtures/README.md)의 규칙에 따라
-sanitized fixture와 연결 테스트를 함께 갱신합니다.
+저장하지 말고 sanitized fixture와 연결 테스트를 함께 갱신합니다.
 
 ## System E2E Scope and Limitation
 
@@ -281,9 +263,6 @@ CI의 `System E2E` job은 wheel을 temporary venv에 설치하고 그 absolute
 Chromium, temporary browser profile, temporary SQLite, fake generator와 synthetic Naver fixture만
 사용하며 worker 1개, retry 0회로 실행합니다. 실제 secret이나 E2E artifact는 업로드하지 않습니다.
 
-Headless Chromium은 native Side Panel surface를 안정적으로 노출하지 않습니다. Test staging은
-production manifest와 background를 그대로 load하고 CDP toolbar action으로 `activeTab` grant와
-`sidePanel.open({tabId})` 호출을 실행합니다. 이후 원본 production `sidepanel.html/js`를 browser
-page로 열어 `ChromeTabCaptureGateway`, DOM extraction, API client와 storage workflow를
-검증합니다. 따라서 native Side Panel이 실제 browser chrome에 표시되는 모습, live Naver markup,
-real OpenAI response는 이 automated test의 범위가 아니며 위 manual smoke로만 확인합니다.
+System E2E는 installed wheel의 `/app/`과 API를 같은 origin으로 열어 synthetic Naver fixture,
+DOM extraction, API client와 automation workflow를 검증합니다. 실제 Naver markup, real OpenAI
+response, private Wi-Fi의 실물 태블릿 연결은 위 manual smoke로만 확인합니다.

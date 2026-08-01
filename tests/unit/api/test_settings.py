@@ -51,11 +51,17 @@ def test_fake_generator_requires_explicit_non_production_environment() -> None:
 
 @pytest.mark.parametrize(
     "origin",
-    ["", "http://example.com", "chrome-extension://invalid"],
+    ["http://example.com", "chrome-extension://invalid"],
 )
 def test_extension_origin_must_be_one_exact_chrome_origin(origin: str) -> None:
     with pytest.raises(ValueError, match="CHROME_EXTENSION_ORIGIN"):
         ApiSettings(extension_origin=origin, openai_api_key="test-key")
+
+
+def test_extension_origin_is_optional_for_the_independent_web_app() -> None:
+    settings = ApiSettings(openai_api_key="test-key")
+
+    assert settings.extension_origin == ""
 
 
 def test_automation_defaults_to_patchright_in_a_visible_window() -> None:

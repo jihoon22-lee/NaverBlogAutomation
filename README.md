@@ -20,7 +20,7 @@ local-first 도구입니다. 사용자가 약관 안내에 동의하고 선택�
   순서로 내 글을 만듭니다. 자동 발행은 하지 않고 임시저장에서 멈추며, 발행은 사용자가 에디터에서
   직접 합니다.
 - 댓글·본문 생성 시 **OpenAI·Gemini·Claude**를 선택하거나 동시에 호출해 결과를 비교할 수 있습니다.
-- API key와 model 호출은 local FastAPI에만 남으며 extension에는 전달되지 않습니다.
+- API key와 model 호출은 local FastAPI에만 남으며 웹앱에는 전달되지 않습니다.
 
 ## 빠른 시작
 
@@ -33,9 +33,15 @@ CPython 3.14, `uv`, Node.js 24 LTS/npm 11, Chrome 120 이상이 필요합니다.
 | macOS | `scripts/setup-macos.command` | `scripts/start-macos.command` |
 | Linux·WSL | `scripts/setup-linux.sh` | `scripts/start-linux.sh` |
 
-Setup launcher가 extension build와 ID 설정을 안내합니다. Chrome의 `chrome://extensions`에서
-`extension/dist`를 **Load unpacked**로 불러온 뒤, 화면 안내에 따라 extension ID를 입력하세요.
-플랫폼별 상세 설치와 첫 실행은 [시작하기](docs/getting-started.md)를 따르세요.
+Setup launcher는 웹앱 bundle을 준비하고 private 환경 파일을 만듭니다. extension 설치나 ID 입력은
+더 이상 필요하지 않습니다. 시작 launcher는 준비가 끝나면 기본 브라우저에서 `/app/`을 엽니다.
+기존 extension을 계속 쓸 때만 setup launcher에 `--with-extension`을 더하세요. 플랫폼별 상세 설치와
+첫 실행은 [시작하기](docs/getting-started.md), legacy extension은
+[별도 안내](docs/extension-legacy.md)를 따르세요.
+
+Galaxy Tab·iPad는 기본 설치 후에도 PC와 같은 신뢰 Wi-Fi에서 선택적으로 연결할 수 있습니다. private
+env file에서 LAN mode를 명시적으로 켠 뒤 PC 화면의 일회용 코드로 pair합니다. 자세한 보안 경계와 설정은
+[시작하기](docs/getting-started.md#태블릿에서-열기-선택)를 참고하세요.
 
 ## 사용하는 흐름
 
@@ -143,7 +149,8 @@ API key는 Python process 환경에만 존재하며, 웹앱과 extension에는 �
 
 | 목적 | 문서 |
 | --- | --- |
-| 플랫폼별 설치, extension 로드, 첫 댓글 생성 | [시작하기](docs/getting-started.md) |
+| 플랫폼별 웹앱 설치와 첫 작업 | [시작하기](docs/getting-started.md) |
+| 동결된 legacy Chrome extension 설치 | [Extension Legacy](docs/extension-legacy.md) |
 | 이웃 RSS, 검색 후보, badge·알림, SMTP 요약 | [글 탐색 대기열](docs/discovery.md) |
 | runtime, 데이터 보관·정리, 문제 해결 | [Local Operations](docs/local-operations.md) |
 | 설계와 보안 경계 | [Architecture](docs/architecture.md) |
@@ -152,9 +159,9 @@ API key는 Python process 환경에만 존재하며, 웹앱과 extension에는 �
 
 ## Privacy
 
-FastAPI는 `127.0.0.1:8765`에만 bind합니다. extension storage에는 본문, URL, 후보와 편집 댓글을
-저장하지 않습니다. 명시적으로 저장한 댓글 생성 옵션·마무리 문구·서로이웃 기본 메시지와 자동
-실행 동의 상태만 versioned record로 보관합니다. SQLite에 남는 데이터와 삭제 방법은
+기본 FastAPI는 `127.0.0.1:8765`에만 bind합니다. 웹앱은 같은 origin에서 API를 호출하며, API key는
+Python process 밖으로 나가지 않습니다. 명시적으로 저장한 댓글 생성 옵션·마무리 문구·서로이웃 기본
+메시지와 자동 실행 동의 상태만 versioned record로 보관합니다. SQLite에 남는 데이터와 삭제 방법은
 [Local Operations](docs/local-operations.md)를 참고하세요.
 
 작업 branch와 Conventional Commit, review-ready PR 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다.

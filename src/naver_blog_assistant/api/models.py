@@ -75,6 +75,32 @@ class ServiceStatusResponse(StrictModel):
     generator_model: ShortText
 
 
+ReadinessBlockerCode = Literal[
+    "web_app_assets_missing",
+    "browser_not_running",
+    "naver_login_required",
+    "own_blog_id_missing",
+    "llm_provider_missing",
+    "automation_consent_missing",
+    "safety_policy_missing",
+]
+
+
+class AppReadinessResponse(StrictModel):
+    """Redacted prerequisites for the web-app's primary workflows."""
+
+    access_mode: Literal["local", "lan"]
+    web_app_assets_ready: bool
+    lan_addresses: list[str] = Field(max_length=16)
+    browser_state: Literal["stopped", "launching", "ready", "closing"]
+    browser_login: Literal["unknown", "anonymous", "authenticated"]
+    own_blog_configured: bool
+    generation_available: bool
+    automation_consent: bool
+    safety_policy_configured: bool
+    blockers: list[ReadinessBlockerCode] = Field(max_length=6)
+
+
 class CreateRecommendationRequest(StrictModel):
     source_url: Annotated[
         str,

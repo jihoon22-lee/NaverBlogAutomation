@@ -115,7 +115,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         )
     except (LocalRuntimeError, OSError) as error:
         raise SystemExit(f"Environment setup failed: {error}") from None
-    print("Created a restricted local environment file; replace the extension ID before use.")
+    print("Created a restricted local environment file for the independent web app.")
 
 
 if __name__ == "__main__":

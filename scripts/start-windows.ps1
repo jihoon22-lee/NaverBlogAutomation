@@ -27,7 +27,8 @@ try {
 
     Write-Host "Local API를 시작합니다. 이 창은 사용하는 동안 닫지 마세요."
     Write-Host "종료하려면 Ctrl+C를 누르세요."
-    & uv run --frozen --env-file $EnvironmentFile naver-blog-api
+    & uv run --frozen --env-file $EnvironmentFile python -m scripts.start_webapp `
+        --env-file $EnvironmentFile
     if ($LASTEXITCODE -ne 0) {
         throw "Local API가 오류와 함께 종료되었습니다."
     }
