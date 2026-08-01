@@ -49,7 +49,10 @@ scripts/setup-linux.sh
 
 private env file은 `${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env`에 mode `0600`으로
 만들어집니다. WSL에서도 browser extension을 설치할 필요가 없습니다. `/mnt/e` 같은 DrvFs에는 credential file을
-만들지 마세요.
+만들지 마세요. repository가 `/mnt/c/...`·`/mnt/e/...` 같은 Windows 드라이브에 있어도 launcher는 Python
+virtual environment를 Linux 파일 시스템의 `${XDG_DATA_HOME:-$HOME/.local/share}/naver-blog-assistant/python-venv`에
+자동으로 둡니다. 처음 setup은 이 환경을 준비하므로 조금 걸릴 수 있지만, 이후 API 시작 시 느린 Windows
+드라이브에서 대규모 Python dependency를 읽지 않습니다.
 
 ## 2. 환경 파일에 값 넣기
 

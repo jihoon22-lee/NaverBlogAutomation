@@ -44,6 +44,36 @@ def test_start_webapp_stops_an_unhealthy_api_without_opening_a_browser(monkeypat
     process.send_signal.assert_called_once()
 
 
+def test_start_webapp_reports_a_process_that_exits_before_readiness(monkeypatch, capsys) -> None:
+    process = Mock()
+    process.poll.return_value = 23
+    monkeypatch.setattr(start_webapp, "_wait_for_health", lambda _: False)
+
+    result = start_webapp.start_webapp(
+        environment_file=Path("/private/env"),
+        launch=Mock(return_value=process),
+        open_browser=Mock(return_value=True),
+    )
+
+    assert result == 1
+    assert "종료 코드: 23" in capsys.readouterr().err
+
+
+def test_start_webapp_reports_when_the_startup_wait_expires(monkeypatch, capsys) -> None:
+    process = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(start_webapp, "_wait_for_health", lambda _: False)
+
+    result = start_webapp.start_webapp(
+        environment_file=Path("/private/env"),
+        launch=Mock(return_value=process),
+        open_browser=Mock(return_value=True),
+    )
+
+    assert result == 1
+    assert "60초 안에 준비되지 않았습니다" in capsys.readouterr().err
+
+
 def test_start_webapp_prints_server_reported_tablet_addresses(monkeypatch, capsys) -> None:
     process = Mock()
     process.poll.return_value = None
