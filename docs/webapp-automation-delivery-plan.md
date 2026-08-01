@@ -1,6 +1,6 @@
 # 로컬 웹앱 + 브라우저 자동화 전환 Delivery Plan
 
-Status: 진행 중, 2026-07-30 확정 · 2026-07-31 글쓰기 확장과 다중 provider 범위 통합
+Status: 완료 (Task 0~21), 2026-07-30 확정 · 2026-07-31 글쓰기 확장과 다중 provider 범위 통합
 
 Chrome extension Side Panel을 로컬 웹앱으로 옮기고, DOM 조작을 backend가 소유한 Playwright 계열
 browser session으로 대체하는 전환 계획입니다. 기존 Side Panel 아키텍처는

@@ -446,4 +446,116 @@ describe("WritingController", () => {
     expect(writing.state.categories).toHaveLength(1);
     expect(writing.state.notice).toBe("카테고리를 새로 읽었습니다.");
   });
+
+  it("runs the remaining draft editing operations against the active draft", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    await writing.refine();
+    await writing.generateTags();
+    await writing.selectRevision(DRAFT_BODY.revisions[0]?.id as string);
+    await writing.uploadImage(new File(["image"], "photo.png", { type: "image/png" }));
+    await writing.deleteImage("image-id");
+
+    const typed = client as unknown as {
+      refineDraft: { mock: { calls: unknown[] } };
+      generateDraftTags: { mock: { calls: unknown[] } };
+      patchDraft: { mock: { calls: unknown[] } };
+      uploadDraftImage: { mock: { calls: unknown[] } };
+      deleteDraftImage: { mock: { calls: unknown[] } };
+    };
+    expect(typed.refineDraft.mock.calls).toHaveLength(1);
+    expect(typed.generateDraftTags.mock.calls).toHaveLength(1);
+    expect(typed.patchDraft.mock.calls).toHaveLength(1);
+    expect(typed.uploadDraftImage.mock.calls).toHaveLength(1);
+    expect(typed.deleteDraftImage.mock.calls).toHaveLength(1);
+  });
+
+  it("rejects an empty added-tag list without asking the service", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    expect(await writing.addTags([])).toBeNull();
+    expect(
+      (client as unknown as { patchDraftTags: { mock: { calls: unknown[] } } }).patchDraftTags.mock
+        .calls,
+    ).toHaveLength(0);
+  });
+
+  it("keeps request text, ignores unknown options, and selects a revision from the UI option", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.setOption("request", "마무리를 간결하게");
+    writing.setOption("unknown", "ignored");
+    writing.setOption("revision", DRAFT_BODY.revisions[0]?.id as string);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writing.state.options.request).toBe("마무리를 간결하게");
+    expect(
+      (client as unknown as { patchDraft: { mock: { calls: unknown[] } } }).patchDraft.mock.calls,
+    ).toHaveLength(1);
+  });
+
+  it("reports a failed staging request instead of opening a stream", async () => {
+    const writing = controller({
+      stageDraft: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    expect(await writing.stage()).toBeNull();
+    expect(writing.state.phase).toBe("failed");
+    expect(stream.urls).toEqual([]);
+  });
+
+  it("keeps the staging stream open for non-terminal events", async () => {
+    const writing = controller();
+    await writing.openDraft(DRAFT_BODY.id);
+    await writing.stage();
+
+    stream.emit("step_started");
+
+    expect(stream.closes).toBe(0);
+  });
+
+  it("reports a category refresh failure", async () => {
+    const writing = controller({
+      syncBlogCategories: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    await writing.load();
+
+    await writing.syncCategories();
+
+    expect(writing.state.phase).toBe("failed");
+    expect(writing.state.error).toBe("알 수 없는 오류가 발생했습니다.");
+  });
+
+  it("refuses a second action while generation is in flight", async () => {
+    let resolve: (draft: PostDraft) => void = () => {
+      throw new Error("compose did not start");
+    };
+    const client = api({
+      composeDraft: vi.fn(
+        () =>
+          new Promise<PostDraft>((complete) => {
+            resolve = complete;
+          }),
+      ),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    const composing = writing.compose();
+    expect(await writing.openDraft(DRAFT_BODY.id)).toBeNull();
+    resolve(readDraft());
+    await composing;
+  });
 });

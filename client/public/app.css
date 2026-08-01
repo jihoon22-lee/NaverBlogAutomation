@@ -175,14 +175,18 @@ button:disabled {
 
 .discovery-settings-panel,
 .sync-panel,
-.search-panel {
+.search-panel,
+.neighbor-panel,
+.digest-panel {
   border-top: 1px solid #e5e5e5;
   margin-top: 1rem;
   padding-top: 0.75rem;
 }
 
 .discovery-settings-panel label,
-.search-panel label {
+.search-panel label,
+.neighbor-panel label,
+.digest-panel label {
   display: block;
   font-size: 0.9rem;
   margin-top: 0.5rem;
@@ -205,6 +209,12 @@ button:disabled {
   padding: 0;
 }
 
+.neighbor-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
 .search-item {
   align-items: center;
   border-bottom: 1px solid #f0f0f0;
@@ -214,7 +224,32 @@ button:disabled {
   padding: 0.35rem 0;
 }
 
+.neighbor-item {
+  align-items: center;
+  border-bottom: 1px solid #f0f0f0;
+  display: grid;
+  gap: 0.2rem 0.5rem;
+  grid-template-columns: 1fr auto;
+  padding: 0.35rem 0;
+}
+
+.neighbor-detail,
+.search-refresh-result {
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.neighbor-detail,
+.search-refresh-result {
+  grid-column: 1 / -1;
+}
+
 .sync-provider-missing {
+  color: #a15c00;
+  font-size: 0.85rem;
+}
+
+.digest-smtp-missing {
   color: #a15c00;
   font-size: 0.85rem;
 }
