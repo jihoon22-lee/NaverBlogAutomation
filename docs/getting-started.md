@@ -96,6 +96,10 @@ private 환경 파일은 repository 밖에 있으므로 Git에 올라가지 않�
 extension 설정, screenshot, shell history에 복사하지 마세요. 개발자가 의도적으로 repository에서 API를
 수동 실행할 때만 `.env.local`과 `uv run --env-file .env.local ...` 경로를 사용합니다.
 
+자동화 browser는 별도 설치 없이 bundled Chromium을 기본으로 사용합니다. WSL에서는 Windows에 설치된
+Chrome을 browser driver가 직접 쓸 수 없으므로 `AUTOMATION_BROWSER_CHANNEL`을 비워 두세요. Linux 안에
+Google Chrome을 따로 설치한 경우에만 `AUTOMATION_BROWSER_CHANNEL=chrome`을 설정합니다.
+
 ## 3. API 시작
 
 설정을 마친 뒤 사용하는 동안 terminal을 열어 둡니다.

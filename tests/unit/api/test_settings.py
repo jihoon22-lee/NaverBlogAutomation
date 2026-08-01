@@ -69,7 +69,7 @@ def test_automation_defaults_to_patchright_in_a_visible_window() -> None:
 
     assert settings.automation_driver == "patchright"
     assert settings.automation_headless is False
-    assert settings.automation_browser_channel == "chrome"
+    assert settings.automation_browser_channel == ""
     assert settings.automation_profile_dir == ""
 
 

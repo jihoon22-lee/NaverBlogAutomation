@@ -102,7 +102,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--channel",
-        default=os.getenv("AUTOMATION_BROWSER_CHANNEL", "chrome"),
+        default=os.getenv("AUTOMATION_BROWSER_CHANNEL", ""),
         help="browser channel such as chrome; pass an empty value to use bundled Chromium",
     )
     parser.add_argument(
