@@ -240,6 +240,18 @@ class TestApi:
     def test_selected_posts_are_snapshotted_in_the_requested_order(
         self, client: TestClient
     ) -> None:
+        safety = client.get("/api/v1/settings/safety_policy").json()["payload"]
+        safety.update(
+            {
+                "min_interval_seconds": 1,
+                "jitter_ratio": 0,
+                "allowed_hours": list(range(24)),
+            }
+        )
+        assert (
+            client.put("/api/v1/settings/safety_policy", json={"payload": safety}).status_code
+            == 200
+        )
         neighbor = client.post(
             "/api/v1/discovery/neighbors",
             json={
