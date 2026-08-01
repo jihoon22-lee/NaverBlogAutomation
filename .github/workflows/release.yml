@@ -45,6 +45,7 @@ jobs:
           git fetch origin main --depth=1
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           uv sync --frozen
+          npm ci --prefix client
           npm ci --prefix extension
 
       - name: Verify version metadata
@@ -70,6 +71,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p release-assets wheel
+          npm --prefix client run build
           uv build --wheel --out-dir wheel
           wheel="$(find wheel -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"

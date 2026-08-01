@@ -2,8 +2,9 @@
 
 Status: 현재 구현을 반영한 개정본, 갱신 2026-08-01
 
-이 문서는 v0.6 이후의 실제 런타임 구조를 기술합니다. PR 1–8이 만든 원래 Side Panel
-아키텍처와 delivery boundary는 [`delivery-plan.md`](delivery-plan.md)에 남아 있습니다.
+이 문서는 v0.6 이후의 실제 런타임 구조를 기술합니다. 현재 제품 범위와 다음 구현 순서는
+[`webapp-first-delivery-plan.md`](webapp-first-delivery-plan.md)에, PR 1–8이 만든 원래 Side Panel
+아키텍처와 delivery boundary는 [`archive/delivery-plan.md`](archive/delivery-plan.md)에 남아 있습니다.
 
 ## 목적과 경계
 

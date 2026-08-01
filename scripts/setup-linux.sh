@@ -5,6 +5,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 extension_id=""
 skip_dependencies=0
+with_extension=0
 
 fail() {
   printf '오류: %s\n' "$1" >&2
@@ -34,7 +35,12 @@ while (($# > 0)); do
     --extension-id)
       (($# >= 2)) || fail "--extension-id 뒤에 값을 입력해 주세요."
       extension_id="$(normalize_extension_id "$2")"
+      with_extension=1
       shift 2
+      ;;
+    --with-extension)
+      with_extension=1
+      shift
       ;;
     --skip-dependencies)
       skip_dependencies=1
@@ -58,13 +64,17 @@ cd "$repository_root"
 if ((skip_dependencies == 0)); then
   printf '[1/4] Python dependency를 설치합니다.\n'
   uv sync --frozen
-  printf '[2/4] Extension dependency를 설치합니다.\n'
-  npm ci --prefix extension
-  printf '[3/4] Chrome extension을 build합니다.\n'
-  npm --prefix extension run build
+  printf '[2/4] 웹앱 dependency와 bundle을 준비합니다.\n'
+  npm ci --prefix client
+  npm --prefix client run build
+  if ((with_extension)); then
+    printf '[3/4] 선택한 Chrome extension을 build합니다.\n'
+    npm ci --prefix extension
+    npm --prefix extension run build
+  fi
 fi
 
-if [[ -z "$extension_id" ]]; then
+if ((with_extension)) && [[ -z "$extension_id" ]]; then
   printf '\nChrome에서 chrome://extensions 를 열고 Developer mode를 켜세요.\n'
   if is_wsl && command -v wslpath >/dev/null 2>&1; then
     windows_extension_path="$(wslpath -w "$repository_root/extension/dist")"
@@ -81,7 +91,6 @@ if [[ -z "$extension_id" ]]; then
   read -r -p "표시된 32자 extension ID: " extension_id
   extension_id="$(normalize_extension_id "$extension_id")"
 fi
-validate_extension_id "$extension_id"
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 environment_file="$config_home/naver-blog-assistant/env"
@@ -92,11 +101,17 @@ else
   printf '[4/4] 기존 private 설정 파일을 재사용합니다.\n'
 fi
 
-uv run --frozen python -m scripts.configure_local_env \
-  --target "$environment_file" \
-  --extension-id "$extension_id"
+if ((with_extension)); then
+  validate_extension_id "$extension_id"
+  uv run --frozen python -m scripts.configure_local_env \
+    --target "$environment_file" \
+    --extension-id "$extension_id"
+fi
 uv run --frozen --env-file "$environment_file" \
   python -m scripts.check_local_setup --env-file "$environment_file"
 
-printf '\n설정이 완료되었습니다. 다음부터 scripts/start-linux.sh 를 실행하세요.\n'
+printf '\n웹앱 설정이 완료되었습니다. 다음부터 scripts/start-linux.sh 를 실행하세요.\n'
+if ((with_extension)); then
+  printf '기존 Chrome extension도 함께 설정했습니다.\n'
+fi
 printf '실제 OpenAI 생성은 README의 안내에 따라 private 설정 파일에서 활성화할 수 있습니다.\n'

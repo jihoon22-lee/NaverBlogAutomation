@@ -1,4 +1,4 @@
-"""Loopback-only Uvicorn launcher."""
+"""Uvicorn launcher for the default loopback or explicit trusted-LAN web app."""
 
 from __future__ import annotations
 

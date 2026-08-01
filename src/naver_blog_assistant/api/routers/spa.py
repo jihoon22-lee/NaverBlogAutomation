@@ -1,7 +1,7 @@
-"""Serve the local web app from the same loopback origin as the API.
+"""Serve the local web app from the same origin as the API.
 
-Same-origin hosting removes the extension's CORS coupling entirely. The built assets come from
-`client/dist`; when they are missing the mount is skipped so the API still starts.
+The installed wheel owns a copy of the built assets. Editable source checkouts fall back to
+``client/dist`` so frontend development remains straightforward.
 """
 
 from __future__ import annotations
@@ -14,12 +14,18 @@ from fastapi.staticfiles import StaticFiles
 
 APP_MOUNT_PATH: Final = "/app"
 APP_DIST_RELATIVE: Final = Path("client") / "dist"
+PACKAGED_APP_DIRECTORY: Final = Path("static_app")
 
 
 def resolve_app_directory(root: Path | None = None) -> Path | None:
-    """Return the built web app directory when it exists."""
-    base = root if root is not None else Path(__file__).resolve().parents[4]
-    candidate = base / APP_DIST_RELATIVE
+    """Return packaged assets first, then the editable source build when available."""
+    if root is not None:
+        candidate = root / APP_DIST_RELATIVE
+        return candidate if (candidate / "index.html").is_file() else None
+    packaged = Path(__file__).resolve().parents[1] / PACKAGED_APP_DIRECTORY
+    if (packaged / "index.html").is_file():
+        return packaged
+    candidate = Path(__file__).resolve().parents[4] / APP_DIST_RELATIVE
     return candidate if (candidate / "index.html").is_file() else None
 
 

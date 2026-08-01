@@ -1,0 +1,16 @@
+{
+  "name": "네이버 블로그 작업 도우미",
+  "short_name": "블로그 도우미",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "browser",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

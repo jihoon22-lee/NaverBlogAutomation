@@ -19,6 +19,41 @@ export interface ServiceStatus {
   generatorModel: string;
 }
 
+export type ReadinessBlockerCode =
+  | "web_app_assets_missing"
+  | "browser_not_running"
+  | "naver_login_required"
+  | "own_blog_id_missing"
+  | "llm_provider_missing"
+  | "automation_consent_missing"
+  | "safety_policy_missing";
+
+export interface AppReadiness {
+  accessMode: "local" | "lan";
+  webAppAssetsReady: boolean;
+  lanAddresses: string[];
+  browserState: BrowserSessionState;
+  browserLogin: BrowserLoginState;
+  ownBlogConfigured: boolean;
+  generationAvailable: boolean;
+  automationConsent: boolean;
+  safetyPolicyConfigured: boolean;
+  blockers: ReadinessBlockerCode[];
+}
+
+export interface RemotePairingCode {
+  code: string;
+  expiresAt: string;
+}
+
+export interface RemoteDevice {
+  id: string;
+  deviceName: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
 export interface DiscoveryPost {
   id: string;
   source: DiscoverySource;

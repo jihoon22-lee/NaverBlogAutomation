@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import stat
 from pathlib import Path
 
 import pytest
 from scripts import check_local_setup
-
-ORIGIN = "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 
 def configure_fake_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -17,7 +14,6 @@ def configure_fake_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("API_PORT", "8765")
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("COMMENT_GENERATOR_MODE", "fake")
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("DATABASE_URL", "sqlite:///data/app.db")
 
 
@@ -26,12 +22,11 @@ def repository_fixture(root: Path) -> None:
     environment = root / ".env.local"
     environment.write_text("synthetic configuration\n", encoding="utf-8")
     environment.chmod(0o600)
-    dist = root / "extension" / "dist"
+    dist = root / "client" / "dist"
     dist.mkdir(parents=True)
-    (dist / "manifest.json").write_text(
-        json.dumps({"host_permissions": ["http://127.0.0.1:8765/*"]}),
-        encoding="utf-8",
-    )
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (dist / "app.js").write_text("export {};", encoding="utf-8")
+    (dist / "app.css").write_text("body {}", encoding="utf-8")
 
 
 def test_diagnostics_pass_fake_setup_without_requiring_a_key(

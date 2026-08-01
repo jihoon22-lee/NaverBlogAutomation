@@ -34,10 +34,13 @@ from naver_blog_assistant.api.errors import (
 )
 from naver_blog_assistant.api.middleware import (
     ExactCorsMiddleware,
+    HostBoundaryMiddleware,
+    RemoteAccessMiddleware,
     RequestContextMiddleware,
     RequestSizeLimitMiddleware,
 )
 from naver_blog_assistant.api.models import (
+    AppReadinessResponse,
     AutomaticDiscoverySettingsRequest,
     AutomaticDiscoverySettingsResponse,
     AutomaticDiscoverySyncResponse,
@@ -60,6 +63,7 @@ from naver_blog_assistant.api.models import (
     NeighborRequest,
     NeighborResponse,
     ProblemDetails,
+    ReadinessBlockerCode,
     RecommendationHistoryItemResponse,
     RecommendationHistoryResponse,
     RecommendationResponse,
@@ -78,10 +82,12 @@ from naver_blog_assistant.api.routers import (
     register_draft_routes,
     register_engagement_routes,
     register_llm_routes,
+    register_remote_access_routes,
     register_session_routes,
     register_settings_routes,
     register_staging_routes,
 )
+from naver_blog_assistant.api.runtime import WebAppAccessMode, private_ipv4_addresses
 from naver_blog_assistant.application import (
     ClearPersonalizationExamples,
     ConcurrentReviewError,
@@ -128,6 +134,7 @@ from naver_blog_assistant.application.discovery import (
     saved_search_title_matches,
 )
 from naver_blog_assistant.application.llm import CallBudget, FanOutGeneration
+from naver_blog_assistant.application.remote_access import RemoteAccessService
 from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
 from naver_blog_assistant.application.writing import ComposePost, ReferenceBody
 from naver_blog_assistant.domain import (
@@ -171,6 +178,9 @@ from naver_blog_assistant.infrastructure.database.post_draft_repository import (
 )
 from naver_blog_assistant.infrastructure.database.publish_run_repository import (
     SqlitePublishRunRepository,
+)
+from naver_blog_assistant.infrastructure.database.remote_session_repository import (
+    SqliteRemoteDeviceSessionStore,
 )
 from naver_blog_assistant.infrastructure.database.repositories import SqliteRepository
 from naver_blog_assistant.infrastructure.database.session_repository import (
@@ -284,10 +294,11 @@ class ContractFastAPI(FastAPI):
 class ApiSettings:
     """Non-secret local API settings, validated before opening a socket."""
 
-    extension_origin: str
+    extension_origin: str = ""
     database_url: str = DEFAULT_DATABASE_URL
     generator_mode: Literal["openai", "fake"] = "openai"
     app_environment: Literal["production", "development", "test"] = "production"
+    webapp_access_mode: WebAppAccessMode = "local"
     openai_api_key: str = field(default="", repr=False)
     max_request_bytes: int = 512_000
     generation_timeout_seconds: float = 45.0
@@ -323,7 +334,9 @@ class ApiSettings:
             raise ValueError("DATABASE_URL must be a valid SQLite URL") from None
         if database_backend != "sqlite":
             raise ValueError("DATABASE_URL must use the local SQLite adapter")
-        if not EXTENSION_ORIGIN_PATTERN.fullmatch(self.extension_origin):
+        if self.webapp_access_mode not in {"local", "lan"}:
+            raise ValueError("WEBAPP_ACCESS_MODE must be local or lan")
+        if self.extension_origin and not EXTENSION_ORIGIN_PATTERN.fullmatch(self.extension_origin):
             raise ValueError("CHROME_EXTENSION_ORIGIN must contain one valid Chrome extension ID")
         if self.generator_mode == "fake" and self.app_environment == "production":
             raise ValueError("the fake generator is forbidden in production")
@@ -411,6 +424,10 @@ class ApiSettings:
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL).strip(),
             generator_mode=cast(Literal["openai", "fake"], mode),
             app_environment=cast(Literal["production", "development", "test"], environment),
+            webapp_access_mode=cast(
+                WebAppAccessMode,
+                os.getenv("WEBAPP_ACCESS_MODE", "local").strip().lower(),
+            ),
             openai_api_key=openai_api_key,
             max_request_bytes=_environment_int("MAX_REQUEST_BYTES", "512000"),
             generation_timeout_seconds=_environment_float("GENERATION_TIMEOUT_SECONDS", "45"),
@@ -476,6 +493,7 @@ def create_app(
     )
     article_extractions = ExtractArticle(browser_sessions)
     app_settings_repository = SqliteAppSettingsRepository(engine)
+    remote_access = RemoteAccessService(SqliteRemoteDeviceSessionStore(engine))
     read_setting = ReadAppSetting(app_settings_repository)
     save_setting = SaveAppSetting(app_settings_repository)
     generation_planner = PlanGeneration(read_setting, GenerationKeyRegistry())
@@ -739,13 +757,34 @@ def create_app(
     app = ContractFastAPI(
         title="Naver Blog Assistant Local API",
         version="1.0.0",
-        description="Loopback-only API for human-reviewed comment recommendations.",
+        description=(
+            "Local web-app API for human-approved comment recommendations. "
+            "The default listener is loopback; a separately paired device on trusted private Wi-Fi "
+            "may use the same web app. Full article text is accepted only after preview "
+            "confirmation and is not retained in full."
+        ),
         lifespan=lifespan,
     )
     app.state.database_engine = engine
     app.state.browser_sessions = browser_sessions
+    app.state.remote_access = remote_access
     app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
-    app.add_middleware(ExactCorsMiddleware, allowed_origin=settings.extension_origin)
+    app.add_middleware(
+        ExactCorsMiddleware,
+        allowed_extension_origin=settings.extension_origin or None,
+    )
+    app.add_middleware(
+        RemoteAccessMiddleware,
+        access_mode=settings.webapp_access_mode,
+        remote_access=remote_access,
+        allow_test_client=settings.app_environment == "test",
+    )
+    app.add_middleware(
+        HostBoundaryMiddleware,
+        access_mode=settings.webapp_access_mode,
+        lan_hosts=private_ipv4_addresses() if settings.webapp_access_mode == "lan" else frozenset(),
+        allow_test_client=settings.app_environment == "test",
+    )
     app.add_middleware(RequestContextMiddleware)
 
     async def handle_api_error(request: Request, error: Exception) -> Response:
@@ -921,7 +960,15 @@ def create_app(
         save_setting=save_setting,
         problem_metadata=_problem_metadata,
     )
-    if not register_app_mount(app):
+    register_remote_access_routes(
+        app,
+        access=remote_access,
+        problem_metadata=_problem_metadata,
+        pairing_enabled=settings.webapp_access_mode == "lan",
+    )
+    web_app_assets_ready = register_app_mount(app)
+    app.state.web_app_assets_ready = web_app_assets_ready
+    if not web_app_assets_ready:
         logger.info("web_app_assets_missing run `npm --prefix client run build`")
 
     @app.exception_handler(Exception)
@@ -963,6 +1010,56 @@ def create_app(
             database="ready",
             generator_mode=settings.generator_mode,
             generator_model=generator_model,
+        )
+
+    @app.get(
+        "/api/v1/app/readiness",
+        response_model=AppReadinessResponse,
+        responses={400: _problem_metadata("The HTTP request is malformed.")},
+        tags=["System"],
+        operation_id="getAppReadiness",
+    )
+    def app_readiness() -> AppReadinessResponse:
+        """Report setup blockers without returning secrets or browser profile details."""
+        browser = browser_sessions.status()
+        own_blog_configured = bool(discovery.get_automatic_settings().own_blog_id.strip())
+        generation_available = settings.generator_mode == "fake" or bool(
+            provider_registry.configured()
+        )
+        automation_consent = bool(
+            read_setting.execute(AppSettingKind.AUTOMATION_CONSENT).payload["accepted"]
+        )
+        safety_policy_configured = (
+            read_setting.execute(AppSettingKind.SAFETY_POLICY).updated_at is not None
+        )
+        blockers: list[ReadinessBlockerCode] = []
+        if not app.state.web_app_assets_ready:
+            blockers.append("web_app_assets_missing")
+        if browser.state.value != "ready":
+            blockers.append("browser_not_running")
+        elif browser.login.value != "authenticated":
+            blockers.append("naver_login_required")
+        if not own_blog_configured:
+            blockers.append("own_blog_id_missing")
+        if not generation_available:
+            blockers.append("llm_provider_missing")
+        if not automation_consent:
+            blockers.append("automation_consent_missing")
+        if not safety_policy_configured:
+            blockers.append("safety_policy_missing")
+        return AppReadinessResponse(
+            access_mode=settings.webapp_access_mode,
+            web_app_assets_ready=app.state.web_app_assets_ready,
+            lan_addresses=(
+                sorted(private_ipv4_addresses()) if settings.webapp_access_mode == "lan" else []
+            ),
+            browser_state=browser.state.value,
+            browser_login=browser.login.value,
+            own_blog_configured=own_blog_configured,
+            generation_available=generation_available,
+            automation_consent=automation_consent,
+            safety_policy_configured=safety_policy_configured,
+            blockers=blockers,
         )
 
     @app.get(
@@ -1907,7 +2004,7 @@ def _digest_email_body(posts: tuple[object, ...]) -> str:
         published_text = published_at.isoformat() if published_at is not None else "게시 시각 미상"
         lines.extend((f"- {title} ({published_text})", str(source_url)))
     if len(posts) > 20:
-        lines.append(f"외 {len(posts) - 20}개는 Side Panel 대기열에서 확인하세요.")
+        lines.append(f"외 {len(posts) - 20}개는 웹앱 대기열에서 확인하세요.")
     if not posts:
         lines.append("현재 대기 중인 새 글이 없습니다.")
     return "\n".join(lines)

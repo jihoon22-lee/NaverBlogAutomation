@@ -33,12 +33,14 @@ type TodayApi = Pick<
 export interface TodayControllerOptions {
   api?: TodayApi;
   onExtracted?: (extraction: ArticleExtraction, discoveryPostId: string) => void;
+  onRemotePairingRequired?: () => void;
 }
 
 export class TodayController {
   readonly #api: TodayApi;
   readonly #root: Element;
   readonly #onExtracted: (extraction: ArticleExtraction, discoveryPostId: string) => void;
+  readonly #onRemotePairingRequired: () => void;
   #state: TodayState = initialTodayState();
   #busy = false;
 
@@ -46,6 +48,7 @@ export class TodayController {
     this.#root = root;
     this.#api = options.api ?? new LocalApiClient();
     this.#onExtracted = options.onExtracted ?? (() => undefined);
+    this.#onRemotePairingRequired = options.onRemotePairingRequired ?? (() => undefined);
   }
 
   get state(): TodayState {
@@ -65,6 +68,10 @@ export class TodayController {
       ]);
       this.#update(withLoaded(this.#state, { posts, service, session }));
     } catch (error) {
+      if (error instanceof ApiError && error.code === "remote_pairing_required") {
+        this.#onRemotePairingRequired();
+        return;
+      }
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;

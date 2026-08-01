@@ -28,9 +28,6 @@ from scripts._local_runtime import (
     repo_database_path,
 )
 
-PLACEHOLDER_ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-EXPECTED_HOST_PERMISSION = "http://127.0.0.1:8765/*"
-
 
 @dataclass(frozen=True, slots=True)
 class CheckResult:
@@ -109,17 +106,6 @@ def _configuration_check() -> CheckResult:
     return CheckResult("Runtime config", True, "non-secret settings satisfy the local contract")
 
 
-def _origin_check() -> CheckResult:
-    origin = os.getenv("CHROME_EXTENSION_ORIGIN", "").strip()
-    if origin == PLACEHOLDER_ORIGIN:
-        return CheckResult(
-            "Extension origin", False, "replace the placeholder with the unpacked ID"
-        )
-    if not re.fullmatch(r"chrome-extension://[a-p]{32}", origin):
-        return CheckResult("Extension origin", False, "expected one exact Chrome extension ID")
-    return CheckResult("Extension origin", True, "configured without displaying the ID")
-
-
 def _api_key_check() -> CheckResult:
     mode = os.getenv("COMMENT_GENERATOR_MODE", "openai").strip().lower()
     if mode != "openai":
@@ -161,39 +147,26 @@ def _database_check(root: Path) -> CheckResult:
     return CheckResult("SQLite path", True, f"repo-local target data/{path.name}")
 
 
-def _extension_build_check(root: Path) -> CheckResult:
-    manifest_path = root / "extension" / "dist" / "manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return CheckResult("Extension build", False, "missing; run the extension build first")
-    except OSError, json.JSONDecodeError:
-        return CheckResult("Extension build", False, "manifest.json is not readable JSON")
-    permissions = manifest.get("host_permissions") if isinstance(manifest, dict) else None
-    if permissions != [EXPECTED_HOST_PERMISSION]:
-        return CheckResult("Extension build", False, "loopback host permission does not match")
-    return CheckResult("Extension build", True, "built manifest uses the fixed loopback permission")
+def _web_app_build_check(root: Path) -> CheckResult:
+    directory = root / "client" / "dist"
+    required = (directory / "index.html", directory / "app.js", directory / "app.css")
+    if not all(path.is_file() for path in required):
+        return CheckResult("Web app build", False, "missing; run `npm --prefix client run build`")
+    return CheckResult("Web app build", True, "built assets are ready for /app")
 
 
 def _health_check() -> CheckResult:
-    origin = os.getenv("CHROME_EXTENSION_ORIGIN", "")
-    request = urllib.request.Request(
-        f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/health",
-        headers={"Origin": origin},
-    )
+    request = urllib.request.Request(f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/health")
     try:
         with urllib.request.urlopen(request, timeout=2) as response:
             payload = json.load(response)
-            allowed_origin = response.headers.get("Access-Control-Allow-Origin")
-            ok = response.status == 200 and payload == {"status": "ok"} and allowed_origin == origin
+            ok = response.status == 200 and payload == {"status": "ok"}
     except OSError, ValueError, urllib.error.URLError:
-        return CheckResult(
-            "API health/CORS", False, "API is not reachable with the configured origin"
-        )
+        return CheckResult("API health", False, "API is not reachable on the local web-app address")
     return CheckResult(
-        "API health/CORS",
+        "API health",
         ok,
-        "health and exact-origin CORS succeeded" if ok else "health or CORS response did not match",
+        "health check succeeded" if ok else "health response did not match",
     )
 
 
@@ -218,11 +191,10 @@ def collect_checks(
             != default_environment.resolve(strict=False),
         ),
         _configuration_check(),
-        _origin_check(),
         _api_key_check(),
         _naver_search_api_check(),
         _database_check(root),
-        _extension_build_check(root),
+        _web_app_build_check(root),
     ]
     if require_api:
         checks.append(_health_check())

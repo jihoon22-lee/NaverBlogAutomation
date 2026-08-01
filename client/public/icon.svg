@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="네이버 블로그 작업 도우미">
+  <rect width="128" height="128" rx="28" fill="#0f766e"/>
+  <path d="M32 31h48c9 0 16 7 16 16v34c0 9-7 16-16 16H55l-16 13V97h-7c-9 0-16-7-16-16V47c0-9 7-16 16-16Z" fill="#fff"/>
+  <path d="M37 54h38M37 70h28" stroke="#0f766e" stroke-linecap="round" stroke-width="8"/>
+</svg>

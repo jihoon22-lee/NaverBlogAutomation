@@ -24,7 +24,7 @@ from naver_blog_assistant.infrastructure.database.app_settings_repository import
 )
 
 ROOT = Path(__file__).parents[3]
-HEAD = "20260801_0018"
+HEAD = "20260801_0019"
 
 
 def alembic_config(database_url: str) -> Config:

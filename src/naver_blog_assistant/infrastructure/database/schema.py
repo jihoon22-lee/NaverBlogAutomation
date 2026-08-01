@@ -244,6 +244,22 @@ automatic_discovery_runs = Table(
     Column("created_at", String(32), nullable=False),
 )
 
+remote_device_sessions = Table(
+    "remote_device_sessions",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("device_name", String(80), nullable=False),
+    Column("token_hash", String(64), nullable=False, unique=True),
+    Column("csrf_hash", String(64), nullable=False),
+    Column("created_at", String(32), nullable=False),
+    Column("last_seen_at", String(32), nullable=False),
+    Column("expires_at", String(32), nullable=False),
+    Column("revoked_at", String(32), nullable=True),
+    CheckConstraint("length(device_name) BETWEEN 1 AND 80", name="ck_remote_device_name"),
+    CheckConstraint("length(token_hash) = 64", name="ck_remote_device_token_hash"),
+    CheckConstraint("length(csrf_hash) = 64", name="ck_remote_device_csrf_hash"),
+)
+
 engagement_runs = Table(
     "engagement_runs",
     metadata,

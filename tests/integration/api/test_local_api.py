@@ -99,6 +99,25 @@ def test_health_create_get_and_response_contract(client: TestClient) -> None:
         "generator_mode": "fake",
         "generator_model": "deterministic-fake",
     }
+    readiness = client.get("/api/v1/app/readiness")
+    assert readiness.status_code == 200
+    assert readiness.json() == {
+        "access_mode": "local",
+        "web_app_assets_ready": True,
+        "lan_addresses": [],
+        "browser_state": "stopped",
+        "browser_login": "unknown",
+        "own_blog_configured": False,
+        "generation_available": True,
+        "automation_consent": False,
+        "safety_policy_configured": False,
+        "blockers": [
+            "browser_not_running",
+            "own_blog_id_missing",
+            "automation_consent_missing",
+            "safety_policy_missing",
+        ],
+    }
 
     recommendation_id, payload = create(client)
 
@@ -917,6 +936,10 @@ def test_cors_allows_only_configured_extension_origin(client: TestClient) -> Non
     assert "access-control-allow-credentials" not in allowed.headers
     assert_problem(denied, status=403, code="cors_origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
+
+    same_origin = client.get("/health", headers={"Origin": "http://testserver"})
+    assert same_origin.status_code == 200
+    assert "access-control-allow-origin" not in same_origin.headers
 
     delete_preflight = client.options(
         "/api/v1/recommendations/00000000-0000-4000-8000-000000000010",

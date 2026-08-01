@@ -3,24 +3,33 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
+from http.cookies import SimpleCookie
+from ipaddress import ip_address
+from typing import Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from naver_blog_assistant.api.models import ProblemDetails
+from naver_blog_assistant.application.remote_access import RemoteAccessService
 
 logger = logging.getLogger("naver_blog_assistant.api")
 ALLOWED_CORS_METHODS = frozenset({"DELETE", "GET", "POST", "PUT", "PATCH"})
-ALLOWED_CORS_HEADERS = frozenset({"content-type", "idempotency-key"})
+ALLOWED_CORS_HEADERS = frozenset({"content-type", "idempotency-key", "x-nba-csrf"})
+REMOTE_SESSION_COOKIE = "nba_device_session"
+REMOTE_CSRF_COOKIE = "nba_csrf"
+REMOTE_CSRF_HEADER = "x-nba-csrf"
 
 
 class ExactCorsMiddleware:
-    """Allow one extension origin and reject every other browser origin safely."""
+    """Allow the same web-app origin and one optional legacy extension origin."""
 
-    def __init__(self, app: ASGIApp, *, allowed_origin: str) -> None:
+    def __init__(self, app: ASGIApp, *, allowed_extension_origin: str | None) -> None:
         self.app = app
-        self.allowed_origin = allowed_origin
+        self.allowed_extension_origin = allowed_extension_origin
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -31,7 +40,11 @@ class ExactCorsMiddleware:
         if origin is None:
             await self.app(scope, receive, send)
             return
-        if origin != self.allowed_origin:
+        if _is_same_service_origin(headers, origin):
+            await self.app(scope, receive, send)
+            return
+        extension_origin = self.allowed_extension_origin
+        if origin != extension_origin:
             await _send_problem(
                 scope,
                 send,
@@ -41,6 +54,7 @@ class ExactCorsMiddleware:
                 detail="This browser origin is not allowed to access the local API.",
             )
             return
+        assert extension_origin is not None
         if scope["method"] == "OPTIONS":
             await self._preflight(scope, headers, send)
             return
@@ -50,7 +64,10 @@ class ExactCorsMiddleware:
                 mutable_headers = list(message.get("headers", []))
                 mutable_headers.extend(
                     (
-                        (b"access-control-allow-origin", self.allowed_origin.encode()),
+                        (
+                            b"access-control-allow-origin",
+                            extension_origin.encode(),
+                        ),
                         (b"vary", b"Origin"),
                         (
                             b"access-control-expose-headers",
@@ -64,6 +81,8 @@ class ExactCorsMiddleware:
         await self.app(scope, receive, send_with_cors)
 
     async def _preflight(self, scope: Scope, headers: Headers, send: Send) -> None:
+        extension_origin = self.allowed_extension_origin
+        assert extension_origin is not None
         method = headers.get("access-control-request-method", "")
         requested_headers = {
             value.strip().lower()
@@ -81,9 +100,9 @@ class ExactCorsMiddleware:
             )
             return
         response_headers = [
-            (b"access-control-allow-origin", self.allowed_origin.encode()),
+            (b"access-control-allow-origin", extension_origin.encode()),
             (b"access-control-allow-methods", b"DELETE, GET, POST, PUT, PATCH"),
-            (b"access-control-allow-headers", b"Content-Type, Idempotency-Key"),
+            (b"access-control-allow-headers", b"Content-Type, Idempotency-Key, X-NBA-CSRF"),
             (
                 b"access-control-expose-headers",
                 b"Idempotency-Replayed, Engagement-Replayed, Retry-After",
@@ -93,6 +112,190 @@ class ExactCorsMiddleware:
         ]
         await send({"type": "http.response.start", "status": 200, "headers": response_headers})
         await send({"type": "http.response.body", "body": b""})
+
+
+def _is_same_service_origin(headers: Headers, origin: str) -> bool:
+    """Return whether a browser Origin exactly matches this HTTP service's Host header."""
+    host = headers.get("host")
+    if host is None:
+        return False
+    parsed = urlsplit(origin)
+    return (
+        parsed.scheme == "http"
+        and parsed.netloc.casefold() == host.casefold()
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.username is None
+        and parsed.password is None
+    )
+
+
+class HostBoundaryMiddleware:
+    """Accept only loopback and explicitly discovered private-LAN Host headers."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        access_mode: Literal["local", "lan"],
+        lan_hosts: frozenset[str],
+        allow_test_client: bool,
+    ) -> None:
+        self.app = app
+        self.access_mode = access_mode
+        self.lan_hosts = lan_hosts
+        self.allow_test_client = allow_test_client
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = Headers(scope=scope)
+        host = _host_name(headers.get("host"))
+        allowed = {"127.0.0.1", "localhost"}
+        if self.access_mode == "lan":
+            allowed.update(self.lan_hosts)
+        if self.allow_test_client and host == "testserver":
+            allowed.add("testserver")
+        if host not in allowed:
+            await _send_problem(
+                scope,
+                send,
+                status=400,
+                code="host_forbidden",
+                title="Host forbidden",
+                detail="This Host is not allowed to access the local web app.",
+            )
+            return
+        await self.app(scope, receive, send)
+
+
+class RemoteAccessMiddleware:
+    """Require pairing, session cookies, and CSRF outside desktop loopback."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        access_mode: Literal["local", "lan"],
+        remote_access: RemoteAccessService,
+        allow_test_client: bool,
+    ) -> None:
+        self.app = app
+        self.access_mode = access_mode
+        self.remote_access = remote_access
+        self.allow_test_client = allow_test_client
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        client_id = _client_id(scope)
+        is_local = _is_loopback_client(client_id, allow_test_client=self.allow_test_client)
+        scope.setdefault("state", {})["is_local_client"] = is_local
+        if is_local:
+            await self.app(scope, receive, send)
+            return
+        if self.access_mode != "lan":
+            await _send_problem(
+                scope,
+                send,
+                status=403,
+                code="remote_access_disabled",
+                title="Remote access disabled",
+                detail=(
+                    "Enable trusted LAN access from the desktop web app before pairing a device."
+                ),
+            )
+            return
+        if not _is_private_client(client_id):
+            await _send_problem(
+                scope,
+                send,
+                status=403,
+                code="remote_client_forbidden",
+                title="Remote client forbidden",
+                detail="Only devices on a private LAN can access this web app.",
+            )
+            return
+        path = scope["path"]
+        if path.startswith("/app") or path == "/health":
+            await self.app(scope, receive, send)
+            return
+        if path == "/api/v1/remote/pair" and scope["method"] == "POST":
+            await self.app(scope, receive, send)
+            return
+        cookies = SimpleCookie()
+        cookies.load(Headers(scope=scope).get("cookie", ""))
+        session_cookie = cookies.get(REMOTE_SESSION_COOKIE)
+        session_token = "" if session_cookie is None else session_cookie.value
+        session = self.remote_access.authenticate(
+            session_token=session_token,
+            now=datetime.now(UTC),
+        )
+        if session is None:
+            await _send_problem(
+                scope,
+                send,
+                status=401,
+                code="remote_pairing_required",
+                title="Device pairing required",
+                detail="Pair this device from the desktop web app before continuing.",
+            )
+            return
+        if scope["method"] in {"POST", "PUT", "PATCH", "DELETE"}:
+            csrf_cookie = cookies.get(REMOTE_CSRF_COOKIE)
+            csrf_token = "" if csrf_cookie is None else csrf_cookie.value
+            csrf_header = Headers(scope=scope).get(REMOTE_CSRF_HEADER, "")
+            if csrf_token != csrf_header or not self.remote_access.csrf_matches(
+                session=session,
+                csrf_token=csrf_token,
+                now=datetime.now(UTC),
+            ):
+                await _send_problem(
+                    scope,
+                    send,
+                    status=403,
+                    code="csrf_invalid",
+                    title="CSRF validation failed",
+                    detail="Refresh the paired web app and try the action again.",
+                )
+                return
+        scope["state"]["remote_device_session"] = session
+        await self.app(scope, receive, send)
+
+
+def _host_name(value: str | None) -> str | None:
+    if value is None or not value:
+        return None
+    host, separator, port = value.rpartition(":")
+    if not separator:
+        return value.casefold()
+    if port != "8765" or not host:
+        return None
+    return host.casefold()
+
+
+def _client_id(scope: Scope) -> str:
+    client = scope.get("client")
+    return "" if client is None else str(client[0])
+
+
+def _is_loopback_client(client_id: str, *, allow_test_client: bool) -> bool:
+    if allow_test_client and client_id == "testclient":
+        return True
+    try:
+        return ip_address(client_id).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_private_client(client_id: str) -> bool:
+    try:
+        return ip_address(client_id).is_private
+    except ValueError:
+        return False
 
 
 class RequestContextMiddleware:

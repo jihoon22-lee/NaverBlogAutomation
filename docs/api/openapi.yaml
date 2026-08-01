@@ -3,9 +3,9 @@ info:
   title: Naver Blog Assistant Local API
   version: 1.0.0
   description: >-
-    Loopback-only API used by the browser extension Side Panel to create and review
-    human-approved comment recommendations. Full article text is accepted only after preview
-    confirmation and is not retained in full.
+    Local web-app API for human-approved comment recommendations. The default listener is loopback;
+    a separately paired device on trusted private Wi-Fi may use the same web app. Full article text
+    is accepted only after preview confirmation and is not retained in full.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -31,6 +31,8 @@ tags:
     description: >-
       Control the single locally owned browser session. The user signs in manually in that window;
       the service never reads credentials or cookies.
+  - name: Remote access
+    description: Pair a trusted private-LAN browser with the desktop-owned local web app.
 security: []
 paths:
   /health:
@@ -61,6 +63,20 @@ paths:
                 $ref: "#/components/schemas/ServiceStatusResponse"
         "400":
           $ref: "#/components/responses/InvalidRequest"
+  /api/v1/app/readiness:
+    get:
+      operationId: getAppReadiness
+      tags: [System]
+      summary: Report web-app setup blockers without secrets
+      responses:
+        "200":
+          description: Redacted readiness for the primary local-web-app workflows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppReadinessResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
   /api/v1/recommendations:
     get:
       operationId: listRecommendations
@@ -89,7 +105,7 @@ paths:
       tags: [Recommendations]
       summary: Generate three comment recommendations for the previewed active blog post
       description: >-
-        The Side Panel persists one idempotency key before its first attempt and reuses it for
+        The web app persists one idempotency key before its first attempt and reuses it for
         duplicate clicks, interrupted responses, timeouts, and in-progress retries whenever the
         exact normalized payload remains available.
       parameters:
@@ -165,7 +181,7 @@ paths:
     patch:
       operationId: reviewRecommendation
       tags: [Recommendations]
-      summary: Record the user's explicit Side Panel review decision
+      summary: Record the user's explicit web-app review decision
       description: >-
         Review remains human controlled. Copying a comment does not itself mark the recommendation
         completed. On a review conflict, the client fetches the latest representation before
@@ -1080,6 +1096,121 @@ paths:
                 $ref: "#/components/schemas/AppSettingResponse"
         "404": {$ref: "#/components/responses/SettingNotFound"}
         "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/remote/pairing-code:
+    post:
+      tags: [Remote access]
+      summary: Create Pairing Code
+      operationId: createRemotePairingCode
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PairingCodeResponse"}
+        "403":
+          description: Only a local desktop can create pairing codes.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "409":
+          description: Trusted-LAN mode must be enabled before a device can pair.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+  /api/v1/remote/pair:
+    post:
+      tags: [Remote access]
+      summary: Pair Device
+      operationId: pairRemoteDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PairDeviceRequest"}
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PairDeviceResponse"}
+        "403":
+          description: The pairing code is invalid or expired.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "429":
+          description: Pairing attempts are temporarily rate limited.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "422":
+          description: Pairing request validation failed.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+  /api/v1/remote/devices:
+    get:
+      tags: [Remote access]
+      summary: List Devices
+      operationId: listRemoteDevices
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RemoteDeviceListResponse"}
+        "403":
+          description: Only a local desktop can list paired devices.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+  /api/v1/remote/devices/{session_id}:
+    delete:
+      tags: [Remote access]
+      summary: Revoke Device
+      operationId: revokeRemoteDevice
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            title: Session Id
+      responses:
+        "204":
+          description: The paired device was revoked.
+        "403":
+          description: Only a local desktop can revoke paired devices.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "404":
+          description: The paired device does not exist or is already revoked.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+            application/json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HTTPValidationError"}
 components:
   parameters:
     IdempotencyKey:
@@ -1112,6 +1243,51 @@ components:
         type: integer
         minimum: 0
   schemas:
+    PairingCodeResponse:
+      properties:
+        code: {type: string, title: Code}
+        expires_at: {type: string, format: date-time, title: Expires At}
+      additionalProperties: false
+      type: object
+      required: [code, expires_at]
+      title: PairingCodeResponse
+    PairDeviceRequest:
+      properties:
+        code: {type: string, maxLength: 128, minLength: 1, title: Code}
+        device_name: {type: string, maxLength: 80, minLength: 1, title: Device Name}
+      additionalProperties: false
+      type: object
+      required: [code, device_name]
+      title: PairDeviceRequest
+    RemoteDeviceResponse:
+      properties:
+        id: {type: string, format: uuid, title: Id}
+        device_name: {type: string, maxLength: 80, minLength: 1, title: Device Name}
+        created_at: {type: string, format: date-time, title: Created At}
+        last_seen_at: {type: string, format: date-time, title: Last Seen At}
+        expires_at: {type: string, format: date-time, title: Expires At}
+      additionalProperties: false
+      type: object
+      required: [id, device_name, created_at, last_seen_at, expires_at]
+      title: RemoteDeviceResponse
+    PairDeviceResponse:
+      properties:
+        device: {$ref: "#/components/schemas/RemoteDeviceResponse"}
+      additionalProperties: false
+      type: object
+      required: [device]
+      title: PairDeviceResponse
+    RemoteDeviceListResponse:
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          title: Items
+          items: {$ref: "#/components/schemas/RemoteDeviceResponse"}
+      additionalProperties: false
+      type: object
+      required: [items]
+      title: RemoteDeviceListResponse
     HealthResponse:
       type: object
       additionalProperties: false
@@ -1143,6 +1319,52 @@ components:
           type: string
           minLength: 1
           maxLength: 300
+    AppReadinessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - access_mode
+        - web_app_assets_ready
+        - lan_addresses
+        - browser_state
+        - browser_login
+        - own_blog_configured
+        - generation_available
+        - automation_consent
+        - safety_policy_configured
+        - blockers
+      properties:
+        access_mode:
+          type: string
+          enum: [local, lan]
+        web_app_assets_ready: {type: boolean}
+        lan_addresses:
+          type: array
+          maxItems: 16
+          items: {type: string}
+        browser_state:
+          type: string
+          enum: [stopped, launching, ready, closing]
+        browser_login:
+          type: string
+          enum: [unknown, anonymous, authenticated]
+        own_blog_configured: {type: boolean}
+        generation_available: {type: boolean}
+        automation_consent: {type: boolean}
+        safety_policy_configured: {type: boolean}
+        blockers:
+          type: array
+          maxItems: 6
+          items:
+            type: string
+            enum:
+              - web_app_assets_missing
+              - browser_not_running
+              - naver_login_required
+              - own_blog_id_missing
+              - llm_provider_missing
+              - automation_consent_missing
+              - safety_policy_missing
     CreateRecommendationRequest:
       type: object
       additionalProperties: false

@@ -29,5 +29,4 @@
 | 댓글 후보 검토 UI | `client/src/app/views/comment.ts` |
 | 설정 보관 | SQLite `app_settings` table |
 
-새 기능은 [webapp automation delivery plan](../docs/webapp-automation-delivery-plan.md)을
-따릅니다.
+새 기능은 [웹앱 중심 제품 완성 Delivery Plan](../docs/webapp-first-delivery-plan.md)을 따릅니다.

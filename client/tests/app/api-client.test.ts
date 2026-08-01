@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   LocalApiClient,
+  readAppReadiness,
   readAppSetting,
   readArticleExtraction,
   readAutoDiscoverySettings,
@@ -32,6 +33,19 @@ const STATUS = {
   database: "ready",
   generator_mode: "fake",
   generator_model: "deterministic-fake",
+};
+
+const READINESS = {
+  access_mode: "lan",
+  web_app_assets_ready: true,
+  lan_addresses: ["192.168.1.20"],
+  browser_state: "ready",
+  browser_login: "authenticated",
+  own_blog_configured: true,
+  generation_available: true,
+  automation_consent: true,
+  safety_policy_configured: true,
+  blockers: [],
 };
 
 const SESSION = {
@@ -146,6 +160,7 @@ function clientWith(handler: typeof fetch): LocalApiClient {
 describe("response shape guards", () => {
   const decoders: [string, (value: unknown) => unknown][] = [
     ["service status", readServiceStatus],
+    ["app readiness", readAppReadiness],
     ["discovery queue", readDiscoveryQueue],
     ["browser session", readBrowserSession],
     ["article extraction", readArticleExtraction],
@@ -205,6 +220,24 @@ describe("status", () => {
     );
 
     await expect(client.status()).rejects.toThrow(/generator_model/u);
+  });
+});
+
+describe("appReadiness", () => {
+  it("maps the redacted setup status", async () => {
+    const client = clientWith(vi.fn(async () => jsonResponse(READINESS)) as never);
+
+    const readiness = await client.appReadiness();
+
+    expect(readiness.accessMode).toBe("lan");
+    expect(readiness.lanAddresses).toEqual(["192.168.1.20"]);
+    expect(readiness.browserLogin).toBe("authenticated");
+  });
+
+  it("rejects an unknown setup blocker", () => {
+    expect(() => readAppReadiness({ ...READINESS, blockers: ["remote_desktop"] })).toThrow(
+      /blockers/u,
+    );
   });
 });
 
@@ -535,6 +568,20 @@ describe("extractArticle", () => {
 });
 
 describe("error handling", () => {
+  it("sends the paired-device CSRF cookie on a state-changing request", async () => {
+    document.cookie = "nba_csrf=synthetic-csrf; path=/";
+    const handler = vi.fn(async () =>
+      jsonResponse({ code: "123456", expires_at: "2026-08-01T00:05:00Z" }),
+    );
+    const client = clientWith(handler as never);
+
+    await client.createRemotePairingCode();
+
+    const init = (handler.mock.calls[0] as unknown[] | undefined)?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("X-NBA-CSRF")).toBe("synthetic-csrf");
+    document.cookie = "nba_csrf=; Max-Age=0; path=/";
+  });
+
   it("exposes the problem code and detail", async () => {
     const client = clientWith(
       vi.fn(async () =>

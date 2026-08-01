@@ -2,7 +2,7 @@
  * Today view.
  *
  * The wide layout shows the queue list and the selected post's detail at the same time, which the
- * narrow Side Panel could not do. Rendering is a pure function of state so the tests can assert the
+ * narrow extension panel could not do. Rendering is a pure function of state so the tests can assert the
  * DOM without a running service.
  */
 
