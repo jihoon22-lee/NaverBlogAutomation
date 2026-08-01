@@ -16,6 +16,8 @@ from fastapi.responses import StreamingResponse
 
 from naver_blog_assistant.api.errors import ApiError
 from naver_blog_assistant.api.session_models import (
+    SafetyActionStatusResponse,
+    SafetyStatusResponse,
     ScheduleStatusResponse,
     SessionApprovalRequest,
     SessionListResponse,
@@ -36,6 +38,7 @@ def register_session_routes(
     sessions: RunSession,
     store: Any,
     schedule: Any,
+    safety: Any,
     read_setting: Any,
     problem_metadata: Callable[..., dict[str, Any]],
 ) -> None:
@@ -60,6 +63,7 @@ def register_session_routes(
                 approved_steps=[EngagementStepName(step) for step in payload.approved_steps],
                 max_posts=payload.max_posts,
                 sources=[DiscoverySource(source) for source in payload.sources],
+                post_ids=payload.post_ids,
             )
         except EngagementNotAllowedError as error:
             raise ApiError(
@@ -84,6 +88,33 @@ def register_session_routes(
             ) from error
         sessions.start_background(session.id)
         return SessionResponse.from_domain(session)
+
+    @app.get(
+        "/api/v1/automation/safety-status",
+        response_model=SafetyStatusResponse,
+        tags=["Automation"],
+        operation_id="getAutomationSafetyStatus",
+    )
+    async def get_safety_status() -> SafetyStatusResponse:
+        status = safety.status()
+        return SafetyStatusResponse(
+            local_date=status.local_date,
+            allowed_now=status.allowed_now,
+            blocking_reason=status.blocking_reason,
+            allowed_hours=list(status.allowed_hours),
+            min_interval_seconds=status.min_interval_seconds,
+            consecutive_failures=status.consecutive_failures,
+            max_consecutive_failures=status.max_consecutive_failures,
+            actions=[
+                SafetyActionStatusResponse(
+                    name=action.action.value,
+                    cap=action.cap,
+                    used=action.used,
+                    remaining=action.remaining,
+                )
+                for action in status.actions
+            ],
+        )
 
     @app.get(
         "/api/v1/automation/schedule",

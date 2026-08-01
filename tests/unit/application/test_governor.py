@@ -102,6 +102,21 @@ class TestPolicy:
 
         assert gate.today == date(2026, 8, 1)
 
+    def test_status_shows_remaining_daily_capacity_per_action(self) -> None:
+        gate, _ = governor(
+            ledger=_Ledger({EngagementStepName.LIKE: 5}),
+            now=SEOUL_NOON,
+        )
+
+        status = gate.status()
+
+        assert status.local_date == date(2026, 8, 1)
+        assert status.allowed_now is True
+        assert status.blocking_reason is None
+        assert status.min_interval_seconds == 60
+        assert status.actions[0].action is EngagementStepName.LIKE
+        assert status.actions[0].remaining == 0
+
 
 class TestChecks:
     def test_it_allows_a_post_inside_every_limit(self) -> None:
@@ -205,6 +220,7 @@ class TestPacing:
 class _Sessions:
     def __init__(self) -> None:
         self.sessions: dict[UUID, Any] = {}
+        self.snapshots: dict[UUID, tuple[UUID, ...]] = {}
 
     def create(self, **kwargs: Any) -> Any:
         from naver_blog_assistant.domain.sessions import AutomationSession
@@ -216,12 +232,17 @@ class _Sessions:
             approved_steps=tuple(kwargs["approved_steps"]),
             max_posts=kwargs["max_posts"],
             sources=tuple(kwargs["sources"]),
+            post_ids=tuple(kwargs["post_ids"]),
         )
         self.sessions[session.id] = session
+        self.snapshots[session.id] = session.post_ids
         return session
 
     def get(self, session_id: UUID) -> Any:
         return self.sessions[session_id]
+
+    def post_ids(self, session_id: UUID) -> tuple[UUID, ...]:
+        return self.snapshots[session_id]
 
     def transition(self, session_id: UUID, state: Any, *, abort_reason: Any = None) -> Any:
         from dataclasses import replace
@@ -263,6 +284,9 @@ class _Queue:
 
     def list_queue(self, source: DiscoverySource) -> list[DiscoveredPost]:
         return [entry for entry in self.posts if entry.source is source]
+
+    def get_post(self, post_id: UUID) -> DiscoveredPost | None:
+        return next((entry for entry in self.posts if entry.id == post_id), None)
 
 
 class _Runner:

@@ -572,6 +572,28 @@ automation_sessions = Table(
     CheckConstraint("processed_count >= 0", name="ck_automation_sessions_processed"),
 )
 
+automation_session_posts = Table(
+    "automation_session_posts",
+    metadata,
+    Column(
+        "session_id",
+        String(36),
+        ForeignKey("automation_sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "post_id",
+        String(36),
+        ForeignKey("discovered_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+    ),
+    Column("position", Integer, nullable=False),
+    Column("created_at", String(32), nullable=False),
+    UniqueConstraint("session_id", "position", name="uq_automation_session_posts_position"),
+    CheckConstraint("position BETWEEN 0 AND 49", name="ck_automation_session_posts_position"),
+)
+
 ACTIVITY_ACTIONS = ("like", "comment", "mutual_neighbor")
 
 automation_activity_ledger = Table(

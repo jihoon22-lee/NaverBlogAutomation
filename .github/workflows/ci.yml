@@ -397,12 +397,12 @@ jobs:
           npm ci --prefix client
           npm --prefix client run build
 
-      - name: Install bundled Chromium and system dependencies
+      - name: Install Chromium·WebKit and system dependencies
         id: chromium
         if: steps.dependencies.outcome == 'success'
         continue-on-error: true
         working-directory: extension
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Build and install wheel in an isolated environment
         id: package
@@ -420,7 +420,7 @@ jobs:
           test -x "$executable"
           echo "SYSTEM_E2E_API_EXECUTABLE=$executable" >> "$GITHUB_ENV"
 
-      - name: Run packaged synthetic workflow
+      - name: Run packaged legacy extension and standalone web-app workflows
         id: e2e
         if: >-
           steps.dependencies.outcome == 'success' &&
@@ -444,9 +444,9 @@ jobs:
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Locked extension dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Injected page bundle | $BUNDLE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Playwright bundled Chromium | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Playwright Chromium·WebKit | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Installed Python wheel | $PACKAGE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Synthetic packaged workflow | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Packaged web-app·legacy workflows | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$DEPENDENCIES_RESULT" != "success" \
             || "$BUNDLE_RESULT" != "success" \

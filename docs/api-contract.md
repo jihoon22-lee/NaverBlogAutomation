@@ -181,9 +181,19 @@ Response는 `CommentFanoutResponse`로, `attempt`, `extraction`, `items[]`를 �
 {
   "approved_steps": ["like", "comment", "mutual_neighbor"],
   "sources": ["neighbor"],
-  "max_posts": 10
+  "max_posts": 2,
+  "post_ids": [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222"
+  ]
 }
 ```
+
+`post_ids`는 선택 사항입니다. 포함하면 1–50개의 고유한 현재 queued post만 허용하며,
+`max_posts`는 목록 길이와 같아야 합니다. 배열 순서가 실행 순서가 되고 service는
+`automation_session_posts`에 snapshot으로 저장합니다. 생략하면 기존처럼 `sources`의 당시
+대기열에서 `max_posts`건까지 snapshot합니다. 실행 중 새로 수집되거나 순서가 바뀐 글은
+현재 session에 들어오지 않습니다.
 
 | 상태 | HTTP | code |
 | --- | --- | --- |
@@ -226,6 +236,17 @@ SSE stream으로 세션 진행을 실시간으로 전달합니다. `text/event-s
 
 `blocking_reason` 가능한 값: `not_scheduled`, `not_due`, `already_ran_today`,
 `consent_missing`, `safety_policy_missing`, `session_active`, `browser_unavailable`.
+
+### `GET /api/v1/automation/safety-status`
+
+웹앱이 batch 시작 전에 표시할 redacted safety 상태입니다. `actions`는 `like`, `comment`,
+`mutual_neighbor` 각각의 `cap`, `used`, `remaining`을 가지며, `allowed_now`와
+`blocking_reason`은 현재 시각과 연속 실패 gate만 전체 batch를 막는지 나타냅니다.
+`min_interval_seconds`는 예상 최소 대기 시간을 표시하는 기준입니다. 한 action의 잔여량이 부족한지는
+client가 선택한 단계·글 수와 비교해 표시하지만, server도 매 글 직전에 동일한 제한을 강제합니다.
+
+프로세스를 다시 시작하면 미종료 session은 `process_restarted`로 aborted 처리합니다. 자동 재개는
+하지 않으며 사용자가 결과를 확인하고 새 session을 승인해야 합니다.
 
 ## 글쓰기 (Drafts)
 

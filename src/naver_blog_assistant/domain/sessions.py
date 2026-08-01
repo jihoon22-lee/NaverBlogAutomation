@@ -25,6 +25,7 @@ ABORT_REASONS = frozenset(
         "outside_allowed_hours",
         "browser_unavailable",
         "internal_error",
+        "process_restarted",
     }
 )
 
@@ -73,6 +74,7 @@ class AutomationSession:
     approved_steps: tuple[EngagementStepName, ...]
     max_posts: int
     sources: tuple[DiscoverySource, ...]
+    post_ids: tuple[UUID, ...] = ()
     processed_count: int = 0
     created_at: datetime | None = None
     started_at: datetime | None = None
@@ -94,6 +96,10 @@ class AutomationSession:
             raise DomainValidationError("a session must target at least one source")
         if len(set(self.sources)) != len(self.sources):
             raise DomainValidationError("sources must be unique")
+        if len(self.post_ids) > self.max_posts:
+            raise DomainValidationError("session snapshot cannot exceed max_posts")
+        if len(set(self.post_ids)) != len(self.post_ids):
+            raise DomainValidationError("session snapshot post ids must be unique")
         if self.processed_count < 0:
             raise DomainValidationError("processed_count must not be negative")
         if self.abort_reason is not None and self.abort_reason not in ABORT_REASONS:

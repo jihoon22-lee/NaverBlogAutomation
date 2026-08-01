@@ -6,6 +6,7 @@ import {
   LocalApiClient,
   readAutomationSession,
   readScheduleStatus,
+  readSafetyStatus,
 } from "../../src/app/api/client";
 
 const SESSION_BODY = {
@@ -14,6 +15,7 @@ const SESSION_BODY = {
   state: "running",
   approved_steps: ["like", "comment"],
   sources: ["neighbor"],
+  post_ids: ["22222222-2222-4222-8222-222222222222"],
   max_posts: 3,
   processed_count: 1,
   abort_reason: null,
@@ -29,6 +31,21 @@ const SCHEDULE_BODY = {
   max_posts: 3,
   enabled: true,
   blocking_reason: null,
+};
+
+const SAFETY_BODY = {
+  local_date: "2026-08-01",
+  allowed_now: true,
+  blocking_reason: null,
+  allowed_hours: [9, 10, 11],
+  min_interval_seconds: 60,
+  consecutive_failures: 0,
+  max_consecutive_failures: 3,
+  actions: [
+    { name: "like", cap: 5, used: 2, remaining: 3 },
+    { name: "comment", cap: 5, used: 0, remaining: 5 },
+    { name: "mutual_neighbor", cap: 3, used: 0, remaining: 3 },
+  ],
 };
 
 function client(
@@ -55,6 +72,7 @@ describe("readAutomationSession", () => {
       state: "running",
       approvedSteps: ["like", "comment"],
       sources: ["neighbor"],
+      postIds: SESSION_BODY.post_ids,
       maxPosts: 3,
       processedCount: 1,
       abortReason: null,
@@ -134,6 +152,27 @@ describe("readScheduleStatus", () => {
   });
 });
 
+describe("readSafetyStatus", () => {
+  it("maps the local day and every action budget", () => {
+    const status = readSafetyStatus(SAFETY_BODY);
+
+    expect(status).toMatchObject({
+      localDate: "2026-08-01",
+      allowedNow: true,
+    });
+    expect(status.actions[0]).toEqual({ name: "like", cap: 5, used: 2, remaining: 3 });
+  });
+
+  it("rejects a mismatched remaining capacity", () => {
+    expect(() =>
+      readSafetyStatus({
+        ...SAFETY_BODY,
+        actions: [{ ...SAFETY_BODY.actions[0], remaining: 4 }],
+      }),
+    ).toThrow();
+  });
+});
+
 describe("session requests", () => {
   it("sends the approval in snake_case", async () => {
     const { api, fetch } = client(SESSION_BODY, 202);
@@ -150,6 +189,20 @@ describe("session requests", () => {
       max_posts: 4,
       sources: ["neighbor"],
     });
+  });
+
+  it("sends an explicitly selected post snapshot in order", async () => {
+    const { api, fetch } = client(SESSION_BODY, 202);
+
+    await api.approveSession({
+      approvedSteps: ["like"],
+      maxPosts: 1,
+      sources: ["neighbor"],
+      postIds: SESSION_BODY.post_ids,
+    });
+
+    const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ post_ids: SESSION_BODY.post_ids });
   });
 
   it("asks for the newest batches with a limit", async () => {
@@ -196,5 +249,12 @@ describe("session requests", () => {
     const { api } = client(SCHEDULE_BODY);
 
     expect((await api.schedule()).enabled).toBe(true);
+  });
+
+  it("reads the safety status", async () => {
+    const { api, fetch } = client(SAFETY_BODY);
+
+    expect((await api.safetyStatus()).actions[0]?.remaining).toBe(3);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/api/v1/automation/safety-status");
   });
 });

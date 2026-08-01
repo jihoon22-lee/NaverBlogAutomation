@@ -39,6 +39,7 @@ import type {
   DigestSettings,
   SavedSearch,
   ScheduleStatus,
+  SafetyStatus,
   SessionState,
   SessionTrigger,
   EngagementStepState,
@@ -482,11 +483,13 @@ export class LocalApiClient {
     approvedSteps: EngagementStepName[];
     maxPosts: number;
     sources: DiscoverySource[];
+    postIds?: string[];
   }): Promise<AutomationSession> {
     const body = await this.#request("POST", "/api/v1/automation/sessions", {
       approved_steps: request.approvedSteps,
       max_posts: request.maxPosts,
       sources: request.sources,
+      ...(request.postIds === undefined ? {} : { post_ids: request.postIds }),
     });
     return readAutomationSession(body);
   }
@@ -515,6 +518,10 @@ export class LocalApiClient {
 
   async schedule(): Promise<ScheduleStatus> {
     return readScheduleStatus(await this.#request("GET", "/api/v1/automation/schedule"));
+  }
+
+  async safetyStatus(): Promise<SafetyStatus> {
+    return readSafetyStatus(await this.#request("GET", "/api/v1/automation/safety-status"));
   }
 
   /** Record only the steps a user confirms were completed by hand. */
@@ -778,6 +785,11 @@ function readCount(value: unknown, field: string): number {
 function readBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw contractError(field);
   return value;
+}
+
+function readStrings(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw contractError(field);
+  return value.map((entry) => readString(entry, field));
 }
 
 export function readRemotePairingCode(body: unknown): RemotePairingCode {
@@ -1111,6 +1123,7 @@ export function readAutomationSession(body: unknown): AutomationSession {
   if (!BATCH_STATES.has(state as SessionState)) throw contractError("session state");
   const steps = body.approved_steps;
   const sources = body.sources;
+  const postIds = body.post_ids;
   if (!Array.isArray(steps) || steps.length === 0) throw contractError("approved_steps");
   if (!Array.isArray(sources) || sources.length === 0) throw contractError("sources");
   return {
@@ -1119,6 +1132,7 @@ export function readAutomationSession(body: unknown): AutomationSession {
     state: state as SessionState,
     approvedSteps: steps.map(readStepName),
     sources: sources.map(readSourceName),
+    postIds: postIds === undefined ? [] : readStrings(postIds, "post_ids"),
     maxPosts: readCount(body.max_posts, "max_posts"),
     processedCount: readCount(body.processed_count, "processed_count"),
     abortReason: readNullableString(body.abort_reason ?? null, "abort_reason"),
@@ -1253,6 +1267,34 @@ export function readScheduleStatus(body: unknown): ScheduleStatus {
     enabled: readBoolean(body.enabled, "enabled"),
     blockingReason: readNullableString(body.blocking_reason ?? null, "blocking_reason"),
   };
+}
+
+export function readSafetyStatus(body: unknown): SafetyStatus {
+  if (!isRecord(body) || !Array.isArray(body.actions) || !Array.isArray(body.allowed_hours)) {
+    throw contractError("safety status");
+  }
+  const allowedHours = body.allowed_hours.map((value) => readCount(value, "allowed_hours"));
+  if (allowedHours.some((hour) => hour > 23)) throw contractError("allowed_hours");
+  return {
+    localDate: readString(body.local_date, "local_date"),
+    allowedNow: readBoolean(body.allowed_now, "allowed_now"),
+    blockingReason: readNullableString(body.blocking_reason ?? null, "blocking_reason"),
+    allowedHours,
+    minIntervalSeconds: readCount(body.min_interval_seconds, "min_interval_seconds"),
+    consecutiveFailures: readCount(body.consecutive_failures, "consecutive_failures"),
+    maxConsecutiveFailures: readCount(body.max_consecutive_failures, "max_consecutive_failures"),
+    actions: body.actions.map(readSafetyActionStatus),
+  };
+}
+
+function readSafetyActionStatus(value: unknown): SafetyStatus["actions"][number] {
+  if (!isRecord(value)) throw contractError("safety action");
+  const name = readStepName(value.name);
+  const cap = readCount(value.cap, "cap");
+  const used = readCount(value.used, "used");
+  const remaining = readCount(value.remaining, "remaining");
+  if (remaining !== Math.max(cap - used, 0)) throw contractError("remaining");
+  return { name, cap, used, remaining };
 }
 
 function readEngagementStep(value: unknown): EngagementStep {

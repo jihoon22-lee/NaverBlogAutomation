@@ -932,6 +932,17 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ScheduleStatusResponse"}
+  /api/v1/automation/safety-status:
+    get:
+      operationId: getAutomationSafetyStatus
+      tags: [Automation]
+      summary: Report the local daily action budgets for a batch preview
+      responses:
+        "200":
+          description: Redacted current safety limits and remaining capacity.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SafetyStatusResponse"}
   /api/v1/automation/sessions:
     post:
       operationId: approveAutomationSession
@@ -1836,6 +1847,40 @@ components:
         max_posts: {type: integer, minimum: 1}
         enabled: {type: boolean}
         blocking_reason: {type: string, nullable: true}
+    SafetyActionStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [name, cap, used, remaining]
+      properties:
+        name: {type: string, enum: [like, comment, mutual_neighbor]}
+        cap: {type: integer, minimum: 0}
+        used: {type: integer, minimum: 0}
+        remaining: {type: integer, minimum: 0}
+    SafetyStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - local_date
+        - allowed_now
+        - blocking_reason
+        - allowed_hours
+        - min_interval_seconds
+        - consecutive_failures
+        - max_consecutive_failures
+        - actions
+      properties:
+        local_date: {type: string, format: date}
+        allowed_now: {type: boolean}
+        blocking_reason: {type: string, nullable: true}
+        allowed_hours:
+          type: array
+          items: {type: integer, minimum: 0, maximum: 23}
+        min_interval_seconds: {type: integer, minimum: 0}
+        consecutive_failures: {type: integer, minimum: 0}
+        max_consecutive_failures: {type: integer, minimum: 1}
+        actions:
+          type: array
+          items: {$ref: "#/components/schemas/SafetyActionStatusResponse"}
     SessionApprovalRequest:
       type: object
       additionalProperties: false
@@ -1854,6 +1899,12 @@ components:
           uniqueItems: true
           items: {type: string, enum: [neighbor, search]}
         max_posts: {type: integer, minimum: 1, maximum: 50}
+        post_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, format: uuid}
     SessionResponse:
       type: object
       additionalProperties: false
@@ -1863,6 +1914,7 @@ components:
         - state
         - approved_steps
         - sources
+        - post_ids
         - max_posts
         - processed_count
         - abort_reason
@@ -1879,6 +1931,9 @@ components:
         sources:
           type: array
           items: {type: string}
+        post_ids:
+          type: array
+          items: {type: string, format: uuid}
         max_posts: {type: integer, minimum: 1}
         processed_count: {type: integer, minimum: 0}
         abort_reason: {type: string, nullable: true}

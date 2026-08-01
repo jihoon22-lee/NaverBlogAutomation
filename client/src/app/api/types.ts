@@ -345,12 +345,33 @@ export interface AutomationSession {
   state: SessionState;
   approvedSteps: EngagementStepName[];
   sources: DiscoverySource[];
+  postIds: string[];
   maxPosts: number;
   processedCount: number;
   abortReason: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+/** One external action's daily cap and current use. */
+export interface SafetyActionStatus {
+  name: EngagementStepName;
+  cap: number;
+  used: number;
+  remaining: number;
+}
+
+/** Safety status the batch screen uses to preview one explicit scope. */
+export interface SafetyStatus {
+  localDate: string;
+  allowedNow: boolean;
+  blockingReason: string | null;
+  allowedHours: number[];
+  minIntervalSeconds: number;
+  consecutiveFailures: number;
+  maxConsecutiveFailures: number;
+  actions: SafetyActionStatus[];
 }
 
 /** Whether unattended mode can run, and what blocks it. */

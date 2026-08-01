@@ -47,9 +47,12 @@ class SessionStore(Protocol):
         approved_steps: Sequence[Any],
         max_posts: int,
         sources: Sequence[DiscoverySource],
+        post_ids: Sequence[UUID] = (),
     ) -> AutomationSession: ...
 
     def get(self, session_id: UUID) -> AutomationSession: ...
+
+    def post_ids(self, session_id: UUID) -> tuple[UUID, ...]: ...
 
     def transition(
         self, session_id: UUID, state: SessionState, *, abort_reason: str | None = None
@@ -62,6 +65,8 @@ class QueueReader(Protocol):
     """Read the queued posts one session may process."""
 
     def list_queue(self, source: DiscoverySource) -> list[DiscoveredPost]: ...
+
+    def get_post(self, post_id: UUID) -> DiscoveredPost | None: ...
 
 
 class PostRunner(Protocol):
@@ -120,6 +125,7 @@ class RunSession:
         approved_steps: Sequence[Any],
         max_posts: int,
         sources: Sequence[DiscoverySource],
+        post_ids: Sequence[UUID] | None = None,
     ) -> AutomationSession:
         """Persist one pending session for this approval.
 
@@ -130,11 +136,17 @@ class RunSession:
             consent = self._read_setting(AppSettingKind.AUTOMATION_CONSENT).payload
             if consent.get("accepted") is not True:
                 raise EngagementNotAllowedError("consent_missing")
+        snapshot = self._snapshot_posts(
+            max_posts=max_posts,
+            sources=sources,
+            post_ids=post_ids,
+        )
         return self._sessions.create(
             trigger=trigger,
             approved_steps=approved_steps,
             max_posts=max_posts,
             sources=sources,
+            post_ids=[post.id for post in snapshot],
         )
 
     def cancel(self, session_id: UUID) -> AutomationSession:
@@ -299,10 +311,35 @@ class RunSession:
         await asyncio.sleep(seconds)
 
     def _posts(self, session: AutomationSession) -> list[DiscoveredPost]:
-        collected: list[DiscoveredPost] = []
-        for source in session.sources:
-            collected.extend(self._queue.list_queue(source))
-        return collected[: session.remaining]
+        posts: list[DiscoveredPost] = []
+        for post_id in self._sessions.post_ids(session.id)[session.processed_count :]:
+            post = self._queue.get_post(post_id)
+            if post is not None:
+                posts.append(post)
+        return posts
+
+    def _snapshot_posts(
+        self,
+        *,
+        max_posts: int,
+        sources: Sequence[DiscoverySource],
+        post_ids: Sequence[UUID] | None,
+    ) -> list[DiscoveredPost]:
+        queued = [post for source in sources for post in self._queue.list_queue(source)]
+        if post_ids is None:
+            return queued[:max_posts]
+        requested = tuple(post_ids)
+        if not requested:
+            raise ValueError("selected session posts must not be empty")
+        if len(requested) != max_posts:
+            raise ValueError("max_posts must equal the selected session post count")
+        if len(set(requested)) != len(requested):
+            raise ValueError("selected session posts must be unique")
+        available = {post.id: post for post in queued}
+        missing = [post_id for post_id in requested if post_id not in available]
+        if missing:
+            raise ValueError("selected session posts must still be queued")
+        return [available[post_id] for post_id in requested]
 
     def _retire(self, session_id: UUID) -> None:
         if session_id in self._retired:

@@ -3,8 +3,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RunStreamFactory, RunStreamHandlers } from "../../src/app/api/run-stream";
-import type { AutomationSession, ScheduleStatus } from "../../src/app/api/types";
-import { SessionController } from "../../src/app/controllers/session";
+import type {
+  AutomationSession,
+  DiscoveryPost,
+  SafetyStatus,
+  ScheduleStatus,
+} from "../../src/app/api/types";
+import {
+  SessionController,
+  canStartScope,
+  initialSessionState,
+} from "../../src/app/controllers/session";
 
 const SESSION: AutomationSession = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -12,6 +21,7 @@ const SESSION: AutomationSession = {
   state: "running",
   approvedSteps: ["like", "comment"],
   sources: ["neighbor"],
+  postIds: [],
   maxPosts: 3,
   processedCount: 0,
   abortReason: null,
@@ -29,6 +39,34 @@ const SCHEDULE: ScheduleStatus = {
   blockingReason: "not_scheduled",
 };
 
+const SAFETY: SafetyStatus = {
+  localDate: "2026-08-01",
+  allowedNow: true,
+  blockingReason: null,
+  allowedHours: [9, 10, 11],
+  minIntervalSeconds: 60,
+  consecutiveFailures: 0,
+  maxConsecutiveFailures: 3,
+  actions: [
+    { name: "like", cap: 5, used: 0, remaining: 5 },
+    { name: "comment", cap: 5, used: 0, remaining: 5 },
+    { name: "mutual_neighbor", cap: 3, used: 0, remaining: 3 },
+  ],
+};
+
+const QUEUED_POST: DiscoveryPost = {
+  id: "22222222-2222-4222-8222-222222222222",
+  source: "neighbor",
+  state: "queued",
+  sourceUrl: "https://example.test/post",
+  title: "테스트 글",
+  publisherName: "테스트 이웃",
+  publisherBlogId: "tester",
+  publishedAt: null,
+  createdAt: "2026-08-01T00:00:00Z",
+  updatedAt: "2026-08-01T00:00:00Z",
+};
+
 interface Harness {
   root: Element;
   controller: SessionController;
@@ -39,6 +77,8 @@ interface Harness {
     cancelSession: ReturnType<typeof vi.fn>;
     sessionEventsUrl: ReturnType<typeof vi.fn>;
     schedule: ReturnType<typeof vi.fn>;
+    discoveryQueue?: ReturnType<typeof vi.fn>;
+    safetyStatus?: ReturnType<typeof vi.fn>;
   };
   emit(event: string, payload: Record<string, unknown>): void;
   fail(): void;
@@ -141,8 +181,20 @@ describe("session scope", () => {
     const { controller } = harness();
 
     controller.setMaxPosts(0);
+    controller.setMaxPosts(51);
+    controller.setMaxPosts(1.5);
 
     expect(controller.state.maxPosts).toBe(3);
+  });
+
+  it("accepts only distinct non-empty source choices", () => {
+    const { controller } = harness();
+
+    controller.setSources([]);
+    controller.setSources(["neighbor", "neighbor"]);
+    controller.setSources(["neighbor", "search"]);
+
+    expect(controller.state.sources).toEqual(["neighbor", "search"]);
   });
 
   it("explains that cancelling takes effect after the current post", () => {
@@ -151,6 +203,107 @@ describe("session scope", () => {
     controller.render();
 
     expect(text(root)).toContain("취소는 지금 처리 중인 글이 끝난 뒤에 반영됩니다");
+  });
+
+  it("retains direct selection order and uses it as the approval snapshot", async () => {
+    const second = {
+      ...QUEUED_POST,
+      id: "33333333-3333-4333-8333-333333333333",
+      title: "두 번째 글",
+    };
+    const { controller, api } = harness({
+      discoveryQueue: vi.fn(async () => [QUEUED_POST, second]),
+      safetyStatus: vi.fn(async () => SAFETY),
+    });
+    await controller.load();
+    controller.togglePost(second.id);
+    controller.togglePost(QUEUED_POST.id);
+
+    await controller.start();
+
+    expect(api.approveSession).toHaveBeenCalledWith({
+      approvedSteps: ["like", "comment"],
+      maxPosts: 2,
+      sources: ["neighbor"],
+      postIds: [second.id, QUEUED_POST.id],
+    });
+  });
+
+  it("prevents a scope that exceeds a selected action's remaining cap", async () => {
+    const { root, controller, api } = harness({
+      discoveryQueue: vi.fn(async () => [QUEUED_POST]),
+      safetyStatus: vi.fn(async () => ({
+        ...SAFETY,
+        actions: [{ ...SAFETY.actions[0], remaining: 0 }, ...SAFETY.actions.slice(1)],
+      })),
+    });
+    await controller.load();
+    controller.render();
+
+    expect(root.querySelector<HTMLButtonElement>("#start-session-button")?.disabled).toBe(true);
+    await controller.start();
+    expect(api.approveSession).not.toHaveBeenCalled();
+  });
+
+  it("makes both queue sources selectable and explains a time-window block", async () => {
+    const searchPost = {
+      ...QUEUED_POST,
+      id: "33333333-3333-4333-8333-333333333333",
+      source: "search" as const,
+    };
+    const { root, controller } = harness({
+      discoveryQueue: vi.fn(async () => [QUEUED_POST, searchPost]),
+      safetyStatus: vi.fn(async () => ({
+        ...SAFETY,
+        allowedNow: false,
+        blockingReason: "outside_allowed_hours",
+      })),
+    });
+    await controller.load();
+    controller.render();
+
+    const source = root.querySelector<HTMLSelectElement>("#batch-source");
+    if (source === null) throw new Error("missing source selector");
+    source.value = "both";
+    source.dispatchEvent(new Event("change"));
+
+    expect(controller.state.sources).toEqual(["neighbor", "search"]);
+    expect(root.querySelectorAll("#session-queue-selection input")).toHaveLength(2);
+    expect(text(root)).toContain("허용한 시간대를 벗어나 중단했습니다");
+  });
+
+  it("keeps a maximum of fifty explicit queued posts", async () => {
+    const queued = Array.from({ length: 51 }, (_, index) => ({
+      ...QUEUED_POST,
+      id: `22222222-2222-4222-8222-${String(index).padStart(12, "0")}`,
+    }));
+    const { controller } = harness({ discoveryQueue: vi.fn(async () => queued) });
+    await controller.load();
+
+    controller.togglePost("not-in-queue");
+    for (const post of queued) controller.togglePost(post.id);
+
+    expect(controller.state.selectedPostIds).toHaveLength(50);
+    expect(controller.state.selectedPostIds).not.toContain(queued[50]?.id);
+  });
+
+  it("requires queued posts, time permission, and every action cap for a displayed scope", () => {
+    const emptyQueue = { ...initialSessionState(), queueLoaded: true };
+    const selected = {
+      ...emptyQueue,
+      queue: [QUEUED_POST],
+      selectedPostIds: [QUEUED_POST.id],
+    };
+
+    expect(canStartScope(emptyQueue, null)).toBe(false);
+    expect(canStartScope(selected, null)).toBe(true);
+    expect(canStartScope(selected, { ...SAFETY, allowedNow: false })).toBe(false);
+    expect(
+      canStartScope(selected, {
+        ...SAFETY,
+        actions: SAFETY.actions.filter(({ name }) => name !== "comment"),
+      }),
+    ).toBe(false);
   });
 });
 
@@ -426,6 +579,7 @@ function snapshot(): Record<string, unknown> {
     state: "running",
     approved_steps: ["like", "comment"],
     sources: ["neighbor"],
+    post_ids: [],
     max_posts: 3,
     processed_count: 1,
     abort_reason: null,

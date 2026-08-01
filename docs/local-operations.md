@@ -47,12 +47,13 @@ Database에 포함된 주요 table 목록:
 | `post_drafts` / `post_draft_revisions` / `post_draft_images` / `post_draft_tags` | 글쓰기 초안·리비전·이미지·태그 |
 | `publish_runs` / `publish_run_steps` | 임시저장 실행 기록 |
 | `automation_sessions` | 세션 배치(승인·진행·완료·중단 내역) |
+| `automation_session_posts` | 각 세션 승인 시 고정한 대상 글과 실행 순서 |
 | `automation_activity_ledger` | 일별 외부 action 횟수(safety governor 일일 cap 산정) |
 | `digest_settings` / `digest_runs` | 이메일 요약 설정·발송 기록 |
 | `automatic_discovery_settings` / `automatic_discovery_runs` | 자동 탐색 설정·실행 기록 |
 | `remote_device_sessions` | paired 태블릿의 token·CSRF hash, 만료·해제 상태 |
 
-현재 migration head는 `20260801_0019_remote_device_sessions`입니다.
+현재 migration head는 `20260801_0020_automation_session_posts`입니다.
 
 ### 초안 이미지 보관 (DRAFT_MEDIA_DIR)
 
@@ -156,9 +157,18 @@ uv run --frozen --env-file .env.local python -m scripts.clear_local_data --confi
 
 ### 세션 배치 (여러 글 처리)
 
-- **배치가 `daily_cap_reached`로 중단됨:** safety_policy에 설정한 일일 상한(공감·댓글·서로이웃 중
-  하나)에 도달했습니다. 오늘은 더 이상 처리하지 않으며 내일 자동으로 초기화됩니다. 상한을
-  높이려면 **설정 > 자동 실행과 안전**에서 값을 변경하고 저장합니다.
+- **서비스 재시작 뒤 `process_restarted`로 중단됨:** 이전 process가 남긴 pending/running batch는
+  재시작 시 자동 재개하지 않습니다. 이미 어떤 네이버 동작이 끝났는지 확정할 수 없기 때문입니다.
+  **여러 글 처리**에서 결과와 처리 건수를 확인한 뒤, 아직 필요한 글만 새 batch로 다시 선택·승인하세요.
+- **선택한 글이 기대와 다름:** batch 화면에서 체크한 순서가 실행 순서로 고정됩니다. 시작 뒤 새로
+  수집된 글은 추가되지 않습니다. 선택하지 않았다면 당시 source 대기열의 최대 N건이 고정됩니다.
+- **시작 버튼이 비활성화됨:** 현재 시간, 연속 실패 수, 선택한 공감·댓글·서로이웃 단계의 오늘 잔여
+  한도를 확인하세요. 선택하지 않은 단계의 상한 소진은 batch를 막지 않습니다.
+
+- **배치가 `daily_cap_reached`로 중단됨:** 이 batch에 포함한 공감·댓글·서로이웃 단계 중 하나가
+  safety_policy의 일일 상한에 도달했습니다. 해당 단계의 사용량은 다음 날 자동으로 초기화됩니다.
+  다른 단계만 선택한 새 batch는 가능할 수 있습니다. 상한을 높이려면 **설정 > 자동 실행과 안전**에서
+  값을 변경하고 저장합니다.
 - **배치가 `outside_allowed_hours`로 시작도 안 되거나 중간에 멈춤:** 현재 시각(Asia/Seoul)이
   safety_policy의 `allowed_hours` 목록에 포함되지 않습니다. 허용 시간대를 확인하고, 필요하면
   현재 시간을 목록에 추가한 뒤 저장합니다.
