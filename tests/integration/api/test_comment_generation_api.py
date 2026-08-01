@@ -11,11 +11,14 @@ from fastapi.testclient import TestClient
 
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
+from naver_blog_assistant.domain import LlmProvider
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 from naver_blog_assistant.infrastructure.browser.page_scripts import _CALL_EXPRESSION
+from naver_blog_assistant.infrastructure.llm import FakeStructuredClient, ProviderRegistry
 
 ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 COMMENTS = "/api/v1/automation/comments"
+REFINE = "/api/v1/recommendations/{recommendation_id}/refine"
 SESSION = "/api/v1/automation/session"
 POST_URL = "https://blog.naver.com/example/223456789012"
 BODY = "전시에서 인상 깊었던 작품과 관람 동선을 자세하게 정리한 합성 본문입니다."
@@ -247,3 +250,101 @@ def test_the_response_never_exposes_the_full_body(client: TestClient) -> None:
     assert len(body["extraction"]["preview"]) <= 1_200
     assert "body" not in body["extraction"]
     assert "body" not in body["recommendation"]
+
+
+def test_refinement_requires_a_configured_structured_provider(client: TestClient) -> None:
+    recommendation = client.post(COMMENTS, json={"url": POST_URL}).json()["recommendation"]
+
+    response = client.post(
+        REFINE.format(recommendation_id=recommendation["id"]),
+        json={
+            "current_comment": recommendation["candidates"][0]["comment"],
+            "preset": "natural",
+            "provider": "openai",
+        },
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000090"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "generation_unavailable"
+
+
+def test_refinement_rejects_an_oversized_provider_model_before_calling_a_provider(
+    client: TestClient,
+) -> None:
+    recommendation = client.post(COMMENTS, json={"url": POST_URL}).json()["recommendation"]
+
+    response = client.post(
+        REFINE.format(recommendation_id=recommendation["id"]),
+        json={
+            "current_comment": recommendation["candidates"][0]["comment"],
+            "preset": "natural",
+            "provider": "openai",
+            "model": "x" * 101,
+        },
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000092"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_request"
+
+
+def test_refinement_returns_a_bounded_provider_result_and_replays_the_same_key(
+    tmp_path: Path,
+    driver: FakeBrowserDriver,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    structured = FakeStructuredClient(
+        payloads=[{"comment": "전시 동선이 특히 인상 깊었다는 마음이 잘 전해집니다."}]
+    )
+    registry = ProviderRegistry(
+        api_keys={LlmProvider.OPENAI: "test-key"},
+        factories={LlmProvider.OPENAI: lambda _key, _model: structured},
+    )
+    monkeypatch.setattr(
+        "naver_blog_assistant.api.factory._configured_registry", lambda _settings: registry
+    )
+    settings = ApiSettings(
+        extension_origin=ORIGIN,
+        database_url=f"sqlite:///{tmp_path / 'refinement.db'}",
+        generator_mode="fake",
+        app_environment="test",
+        rate_limit_requests=50,
+        automation_driver="fake",
+        automation_headless=True,
+        automation_profile_dir=str(tmp_path / "profile"),
+    )
+    key = "00000000-0000-4000-8000-000000000091"
+    with TestClient(create_app(settings, browser_driver=driver)) as test_client:
+        test_client.post(f"{SESSION}/launch")
+        recommendation = test_client.post(COMMENTS, json={"url": POST_URL}).json()["recommendation"]
+        payload = {
+            "current_comment": recommendation["candidates"][0]["comment"],
+            "preset": "specific",
+            "provider": "openai",
+        }
+        first = test_client.post(
+            REFINE.format(recommendation_id=recommendation["id"]),
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
+        replay = test_client.post(
+            REFINE.format(recommendation_id=recommendation["id"]),
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
+        conflict = test_client.post(
+            REFINE.format(recommendation_id=recommendation["id"]),
+            json={**payload, "preset": "warmer"},
+            headers={"Idempotency-Key": key},
+        )
+
+    assert first.status_code == 200
+    assert first.json()["text"] == "전시 동선이 특히 인상 깊었다는 마음이 잘 전해집니다."
+    assert replay.status_code == 200
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "idempotency_conflict"
+    assert len(structured.calls) == 1
+    assert POST_URL not in structured.calls[0][1]
+    assert BODY not in structured.calls[0][1]

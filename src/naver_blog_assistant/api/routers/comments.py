@@ -9,12 +9,15 @@ replacement attempt.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Header, Response
 
 from naver_blog_assistant.api.errors import ApiError
 from naver_blog_assistant.api.models import (
@@ -23,6 +26,8 @@ from naver_blog_assistant.api.models import (
     CommentFanoutResponse,
     CommentGenerationRequest,
     CommentGenerationResponse,
+    CommentRefinementRequest,
+    CommentRefinementResponse,
     ProviderOutcomeResponse,
     RecommendationResponse,
 )
@@ -36,7 +41,11 @@ from naver_blog_assistant.application import (
     GenerationRefusedError,
     GenerationResult,
     GenerationUnavailableError,
+    GetRecommendation,
     IdempotencyConflictError,
+    RecommendationNotFoundError,
+    RefineComment,
+    RefinedComment,
     ReplayedGenerationFailure,
 )
 from naver_blog_assistant.application.automation import (
@@ -65,6 +74,9 @@ def register_comment_routes(
     track: Callable[[asyncio.Task[GenerationResult]], None],
     fanout: FanOutGeneration | None = None,
     selection_for: Callable[[str, str | None], ModelSelection] | None = None,
+    client_for: Callable[[ModelSelection], Any] | None = None,
+    get: GetRecommendation | None = None,
+    refiner: RefineComment | None = None,
 ) -> None:
     """Add the web app comment generation endpoint to ``app``."""
 
@@ -225,6 +237,127 @@ def register_comment_routes(
             ],
         )
 
+    refinements = _RefinementRequests()
+
+    @app.post(
+        "/api/v1/recommendations/{recommendation_id}/refine",
+        response_model=CommentRefinementResponse,
+        responses={
+            200: {
+                "description": "The stored refinement for a repeated idempotency key.",
+                "headers": {
+                    "Idempotency-Replayed": {
+                        "description": "True when this request key already completed.",
+                        "schema": {"type": "boolean"},
+                    }
+                },
+            },
+            404: problem_metadata("The recommendation does not exist."),
+            409: problem_metadata("The refinement key is already processing another request."),
+            422: problem_metadata("The refinement request is not usable."),
+            502: problem_metadata("The provider could not refine the comment."),
+            503: problem_metadata("The selected provider is not configured."),
+            504: problem_metadata("The provider did not finish before the timeout."),
+        },
+        tags=["Recommendations"],
+        operation_id="refineRecommendationComment",
+    )
+    async def refine_recommendation_comment(
+        recommendation_id: UUID,
+        payload: CommentRefinementRequest,
+        response: Response,
+        idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
+    ) -> CommentRefinementResponse:
+        """Refine a comment only from bounded recommendation context and explicit user text."""
+        if get is None or refiner is None or selection_for is None or client_for is None:
+            raise ApiError(
+                status=503,
+                code="generation_unavailable",
+                title="Generation unavailable",
+                detail="호출할 수 있는 provider가 구성되지 않았습니다.",
+            )
+        try:
+            recommendation = get.execute(recommendation_id)
+        except RecommendationNotFoundError as error:
+            raise ApiError(
+                status=404,
+                code="recommendation_not_found",
+                title="Recommendation not found",
+                detail="해당 추천을 찾을 수 없습니다.",
+            ) from error
+        try:
+            selection = selection_for(payload.provider, payload.model)
+        except (DomainValidationError, ValueError) as error:
+            raise ApiError(
+                status=422,
+                code="invalid_provider_selection",
+                title="Invalid provider selection",
+                detail="provider 또는 model 값이 유효하지 않습니다.",
+            ) from error
+        try:
+            client = client_for(selection)
+        except GenerationUnavailableError as error:
+            raise ApiError(
+                status=503,
+                code="generation_unavailable",
+                title="Generation unavailable",
+                detail="선택한 provider가 구성되지 않았습니다.",
+            ) from error
+
+        request_hash = _refinement_hash(recommendation_id, payload, selection)
+        try:
+            result, replayed = await refinements.execute(
+                key=idempotency_key,
+                request_hash=request_hash,
+                timeout_seconds=timeout_seconds,
+                run=lambda: refiner.execute(
+                    recommendation=recommendation,
+                    current_comment=payload.current_comment,
+                    preset=payload.preset,
+                    request=payload.request,
+                    client=client,
+                ),
+            )
+        except TimeoutError as error:
+            raise ApiError(
+                status=504,
+                code="generation_timeout",
+                title="Generation timed out",
+                detail=(
+                    "다듬기가 제한 시간 안에 끝나지 않았습니다. "
+                    "같은 요청은 같은 key로 결과를 확인합니다."
+                ),
+            ) from error
+        except _RefinementConflictError as error:
+            raise ApiError(
+                status=409,
+                code="idempotency_conflict",
+                title="Idempotency conflict",
+                detail="같은 Idempotency-Key가 다른 다듬기 요청에 사용되었습니다.",
+            ) from error
+        except GenerationUnavailableError as error:
+            raise ApiError(
+                status=503,
+                code="generation_unavailable",
+                title="Generation unavailable",
+                detail="선택한 provider가 구성되지 않았습니다.",
+            ) from error
+        except Exception as error:  # noqa: BLE001 - adapters normalize vendor-specific failures
+            logger.info("comment_refinement_failed provider=%s", selection.provider.value)
+            raise ApiError(
+                status=502,
+                code="generation_refused",
+                title="Generation refused",
+                detail="댓글을 안전하게 다듬지 못했습니다.",
+            ) from error
+        if replayed:
+            response.headers["Idempotency-Replayed"] = "true"
+        return CommentRefinementResponse(
+            text=result.text,
+            provider=result.provider.value,
+            model=result.model,
+        )
+
 
 def _options(payload: CommentGenerationRequest) -> GenerationOptions:
     return GenerationOptions(
@@ -329,3 +462,64 @@ async def _generate(  # noqa: C901 - one branch per documented generation failur
             title="Generation unavailable",
             detail="생성 의존성을 사용할 수 없습니다.",
         ) from error
+
+
+class _RefinementConflictError(ValueError):
+    """A caller reused an idempotency key for a different comment rewrite."""
+
+
+@dataclass(slots=True)
+class _RefinementRequest:
+    request_hash: str
+    task: asyncio.Task[RefinedComment]
+
+
+class _RefinementRequests:
+    """Keep in-flight and completed refinements stable for one local process lifetime."""
+
+    def __init__(self) -> None:
+        self._items: dict[UUID, _RefinementRequest] = {}
+        self._lock = asyncio.Lock()
+
+    async def execute(
+        self,
+        *,
+        key: UUID,
+        request_hash: str,
+        timeout_seconds: float,
+        run: Callable[[], RefinedComment],
+    ) -> tuple[RefinedComment, bool]:
+        async with self._lock:
+            existing = self._items.get(key)
+            if existing is not None and existing.request_hash != request_hash:
+                raise _RefinementConflictError("idempotency key belongs to another request")
+            replayed = existing is not None and existing.task.done()
+            if existing is None:
+                existing = _RefinementRequest(
+                    request_hash=request_hash,
+                    task=asyncio.create_task(asyncio.to_thread(run)),
+                )
+                self._items[key] = existing
+        async with asyncio.timeout(timeout_seconds):
+            return await asyncio.shield(existing.task), replayed
+
+
+def _refinement_hash(
+    recommendation_id: UUID,
+    payload: CommentRefinementRequest,
+    selection: ModelSelection,
+) -> str:
+    encoded = json.dumps(
+        {
+            "recommendation_id": str(recommendation_id),
+            "current_comment": payload.current_comment,
+            "preset": payload.preset,
+            "request": payload.request,
+            "provider": selection.provider.value,
+            "model": selection.model,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()

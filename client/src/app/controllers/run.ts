@@ -112,6 +112,12 @@ export class RunController {
     }
   }
 
+  /** Re-read the active run after a backgrounded mobile browser resumes. */
+  async refresh(): Promise<void> {
+    const run = this.#state.run;
+    if (run !== null) await this.#refresh(run.id);
+  }
+
   #subscribe(runId: string): void {
     this.#closeSource();
     this.#source = this.#stream(this.#api.engagementRunEventsUrl(runId), {

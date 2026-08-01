@@ -283,7 +283,26 @@ describe("WritingController", () => {
     expect(
       (client as unknown as { createDraft: { mock: { calls: unknown[][] } } }).createDraft.mock
         .calls[0],
-    ).toEqual([{ title: "합성 초안", seedText: "메모입니다.", categoryNo: 7 }]);
+    ).toEqual([
+      { title: "합성 초안", seedText: "메모입니다.", categoryNo: 7, useImageVision: false },
+    ]);
+  });
+
+  it("completes a seed with one explicit create-and-compose action", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    writing.setSeed("title", "합성 초안");
+
+    await writing.completeWithAi();
+
+    expect(
+      (client as unknown as { createDraft: { mock: { calls: unknown[][] } } }).createDraft.mock
+        .calls,
+    ).toHaveLength(1);
+    expect(
+      (client as unknown as { composeDraft: { mock: { calls: unknown[][] } } }).composeDraft.mock
+        .calls,
+    ).toHaveLength(1);
   });
 
   it("clears the category when the empty option is chosen", async () => {
@@ -330,6 +349,57 @@ describe("WritingController", () => {
       title: "합성 초안",
       blocks: [{ type: "paragraph", text: "고친 문단" }],
     });
+  });
+
+  it("debounces body edits into an automatic save", async () => {
+    vi.useFakeTimers();
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.onBodyChange("자동 저장할 문단");
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(
+      (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } }).saveDraftBody.mock
+        .calls[0]?.[1],
+    ).toMatchObject({ blocks: [{ type: "paragraph", text: "자동 저장할 문단" }] });
+    vi.useRealTimers();
+  });
+
+  it("includes a changed title in the next automatic body save", async () => {
+    vi.useFakeTimers();
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.onTitleChange("고친 제목");
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(
+      (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } }).saveDraftBody.mock
+        .calls[0]?.[1],
+    ).toMatchObject({ title: "고친 제목" });
+    vi.useRealTimers();
+  });
+
+  it("requires a second explicit press before deleting the open draft", async () => {
+    const client = api({ deleteDraft: vi.fn(async () => undefined) });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    await writing.deleteDraft();
+    expect(
+      (client as unknown as { deleteDraft: { mock: { calls: unknown[][] } } }).deleteDraft.mock
+        .calls,
+    ).toHaveLength(0);
+    await writing.deleteDraft();
+
+    expect(
+      (client as unknown as { deleteDraft: { mock: { calls: unknown[][] } } }).deleteDraft.mock
+        .calls,
+    ).toEqual([[DRAFT_BODY.id]]);
+    expect(writing.state.draft).toBeNull();
   });
 
   it("refuses to save an empty body", async () => {

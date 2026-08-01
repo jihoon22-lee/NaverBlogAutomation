@@ -20,10 +20,17 @@ export interface CommentHandlers {
   onApprove(): void;
   onBack(): void;
   onCopy(): void;
+  onCompare(): void;
   onDraftChange(draft: string): void;
+  onExecute(): void;
   onGenerate(): void;
   onOptionChange(option: string, value: string): void;
   onReplace(): void;
+  onRefine(
+    preset: "shorter" | "natural" | "warmer" | "specific" | undefined,
+    request: string,
+  ): void;
+  onSelectComparisonRecommendation(recommendationId: string): void;
   onSelectCandidate(candidateId: string): void;
   run?: RunHandlers;
 }
@@ -97,7 +104,7 @@ export function renderComment(
     run !== null &&
     handlers.run !== undefined &&
     state.recommendation !== null &&
-    state.recommendation.reviewStatus !== "drafted"
+    run.phase !== "idle"
   ) {
     root.append(renderRun(document, run, handlers.run));
   }
@@ -187,6 +194,22 @@ function renderOptions(
   generate.disabled = state.phase === "generating";
   section.append(generate);
 
+  const configured = state.configuredProviders.filter((provider) => provider.configured);
+  if (configured.length > 1) {
+    const compare = button(
+      document,
+      "compare-providers-button",
+      `${configured.length}개 AI 후보 비교`,
+      handlers.onCompare,
+    );
+    compare.disabled = state.phase === "generating";
+    section.append(compare);
+    const cost = document.createElement("p");
+    cost.className = "options-hint";
+    cost.textContent = `비교하면 선택한 ${configured.length}개 provider를 각각 한 번 호출합니다.`;
+    section.append(cost);
+  }
+
   const hint = document.createElement("p");
   hint.className = "options-hint";
   hint.textContent = "선택하지 않은 항목은 저장한 기본 설정을 사용합니다.";
@@ -219,6 +242,10 @@ function renderCandidates(
   const recommendation = state.recommendation;
   if (recommendation === null) return section;
 
+  if (state.comparisonOutcomes.length > 0) {
+    section.append(renderComparison(document, state, handlers));
+  }
+
   if (recommendation.qualityWarnings.length > 0) {
     const warnings = document.createElement("ul");
     warnings.className = "quality-warnings";
@@ -246,6 +273,39 @@ function renderCandidates(
   }
   section.append(list);
   return section;
+}
+
+function renderComparison(
+  document: Document,
+  state: CommentState,
+  handlers: CommentHandlers,
+): Element {
+  const panel = document.createElement("div");
+  panel.className = "provider-comparison";
+  const heading = document.createElement("h3");
+  heading.textContent = "AI 후보 비교";
+  panel.append(heading);
+  const list = document.createElement("ul");
+  for (const outcome of state.comparisonOutcomes) {
+    const item = document.createElement("li");
+    const label = `${outcome.provider} · ${outcome.model} · ${outcome.status}`;
+    item.append(document.createTextNode(label));
+    if (outcome.recommendation !== null) {
+      const select = button(
+        document,
+        `comparison-${outcome.recommendation.id}`,
+        outcome.recommendation.id === state.recommendation?.id ? "현재 선택" : "이 후보 사용",
+        () => handlers.onSelectComparisonRecommendation(outcome.recommendation?.id ?? ""),
+      );
+      select.disabled = outcome.recommendation.id === state.recommendation?.id;
+      item.append(document.createTextNode(" "), select);
+    } else if (outcome.resultCode !== null) {
+      item.append(document.createTextNode(` · ${outcome.resultCode}`));
+    }
+    list.append(item);
+  }
+  panel.append(list);
+  return panel;
 }
 
 function renderEditor(document: Document, state: CommentState, handlers: CommentHandlers): Element {
@@ -285,10 +345,32 @@ function renderEditor(document: Document, state: CommentState, handlers: Comment
   const copy = button(document, "copy-button", "댓글 복사", handlers.onCopy);
   copy.disabled = state.draft.length === 0;
   actions.append(copy);
-  const approve = button(document, "approve-button", "이 댓글로 승인", handlers.onApprove);
-  approve.disabled = !canApprove(state);
-  actions.append(approve);
+  if (state.source === null) {
+    const approve = button(document, "approve-button", "이 댓글로 승인", handlers.onApprove);
+    approve.disabled = !canApprove(state);
+    actions.append(approve);
+  } else {
+    if (state.source === "search") {
+      const message = document.createElement("p");
+      message.className = "mutual-neighbor-message";
+      message.textContent =
+        state.neighborMessage.length === 0
+          ? "서로이웃 신청 메시지가 비어 있습니다. 설정에서 기본 메시지를 저장할 수 있습니다."
+          : `서로이웃 신청 메시지: ${state.neighborMessage}`;
+      section.append(message);
+    }
+    const execute = button(
+      document,
+      "execute-comment-button",
+      state.source === "neighbor" ? "공감하고 댓글 등록" : "공감·댓글 등록·서로이웃 신청",
+      handlers.onExecute,
+    );
+    execute.disabled = !canApprove(state);
+    actions.append(execute);
+  }
   section.append(actions);
+
+  section.append(renderRefinement(document, state, handlers));
 
   const detail = selectedCandidate(state);
   if (detail !== null) {
@@ -296,6 +378,54 @@ function renderEditor(document: Document, state: CommentState, handlers: Comment
     reference.className = "candidate-reference";
     reference.textContent = `근거: ${detail.referencedDetail}`;
     section.append(reference);
+  }
+  return section;
+}
+
+function renderRefinement(
+  document: Document,
+  state: CommentState,
+  handlers: CommentHandlers,
+): Element {
+  const section = document.createElement("div");
+  section.className = "comment-refinement";
+  const heading = document.createElement("h3");
+  heading.textContent = "AI 빠른 다듬기";
+  section.append(heading);
+  const presets: readonly ["shorter" | "natural" | "warmer" | "specific", string][] = [
+    ["shorter", "더 짧게"],
+    ["natural", "더 자연스럽게"],
+    ["warmer", "더 따뜻하게"],
+    ["specific", "구체적 내용 강조"],
+  ];
+  const actions = document.createElement("div");
+  actions.className = "refinement-actions";
+  for (const [preset, label] of presets) {
+    const action = button(document, `refine-${preset}-button`, label, () =>
+      handlers.onRefine(preset, ""),
+    );
+    action.disabled = state.refinementBusy || state.draft.trim().length === 0;
+    actions.append(action);
+  }
+  section.append(actions);
+
+  const label = document.createElement("label");
+  label.htmlFor = "comment-refine-request";
+  label.textContent = "자유 지시";
+  const request = document.createElement("input");
+  request.id = "comment-refine-request";
+  request.maxLength = 300;
+  const submit = button(document, "refine-request-button", "요청 적용", () =>
+    handlers.onRefine(undefined, request.value),
+  );
+  submit.disabled = state.refinementBusy || state.draft.trim().length === 0;
+  section.append(label, request, submit);
+  if (state.refinementError !== null) {
+    const status = document.createElement("p");
+    status.className = "refinement-status";
+    status.setAttribute("role", "status");
+    status.textContent = state.refinementError;
+    section.append(status);
   }
   return section;
 }

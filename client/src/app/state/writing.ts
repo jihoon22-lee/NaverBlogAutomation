@@ -33,10 +33,13 @@ export interface WritingOptions {
 }
 
 export interface WritingState {
+  autoSave: "idle" | "saving" | "saved" | "failed";
+  bodyText: string;
   busy: boolean;
   categories: BlogCategory[];
   draft: PostDraft | null;
   drafts: PostDraft[];
+  deleteConfirmation: boolean;
   error: string | null;
   notice: string | null;
   options: WritingOptions;
@@ -46,14 +49,19 @@ export interface WritingState {
   seedText: string;
   seedTitle: string;
   selectedCategoryNo: number | null;
+  referenceLimit: number;
+  useImageVision: boolean;
 }
 
 export function initialWritingState(): WritingState {
   return {
+    autoSave: "idle",
+    bodyText: "",
     busy: false,
     categories: [],
     draft: null,
     drafts: [],
+    deleteConfirmation: false,
     error: null,
     notice: null,
     options: {
@@ -69,6 +77,8 @@ export function initialWritingState(): WritingState {
     seedText: "",
     seedTitle: "",
     selectedCategoryNo: null,
+    referenceLimit: 3,
+    useImageVision: false,
   };
 }
 
@@ -95,7 +105,10 @@ export function withLoaded(
 export function withDraft(state: WritingState, draft: PostDraft): WritingState {
   return {
     ...state,
+    autoSave: "saved",
+    bodyText: revisionText(activeRevisionFor(draft)),
     busy: false,
+    deleteConfirmation: false,
     draft,
     error: null,
     phase: phaseFor(draft),
@@ -112,7 +125,7 @@ export function startWorking(state: WritingState, phase: WritingPhase): WritingS
 }
 
 export function withFailure(state: WritingState, message: string): WritingState {
-  return { ...state, busy: false, error: message, phase: "failed" };
+  return { ...state, autoSave: "failed", busy: false, error: message, phase: "failed" };
 }
 
 export function withNotice(state: WritingState, notice: string): WritingState {
@@ -135,9 +148,70 @@ export function withOptions(state: WritingState, options: Partial<WritingOptions
   return { ...state, options: { ...state.options, ...options } };
 }
 
+export function withWritingProfile(
+  state: WritingState,
+  profile: {
+    referenceLimit?: number;
+    structure?: WritingOptions["structure"];
+    tone?: WritingOptions["tone"];
+    targetLength?: WritingOptions["length"];
+    useImageVision?: boolean;
+  },
+): WritingState {
+  return {
+    ...state,
+    options: {
+      ...state.options,
+      ...(profile.targetLength === undefined ? {} : { length: profile.targetLength }),
+      ...(profile.tone === undefined ? {} : { tone: profile.tone }),
+      ...(profile.structure === undefined ? {} : { structure: profile.structure }),
+    },
+    referenceLimit: profile.referenceLimit ?? state.referenceLimit,
+    useImageVision: profile.useImageVision ?? state.useImageVision,
+  };
+}
+
+export function withBodyText(state: WritingState, bodyText: string): WritingState {
+  return { ...state, autoSave: "idle", bodyText };
+}
+
+export function withDraftTitle(state: WritingState, title: string): WritingState {
+  if (state.draft === null) return state;
+  return { ...state, autoSave: "idle", draft: { ...state.draft, title } };
+}
+
+export function withAutoSave(
+  state: WritingState,
+  autoSave: WritingState["autoSave"],
+): WritingState {
+  return { ...state, autoSave };
+}
+
+export function withDeleteConfirmation(state: WritingState): WritingState {
+  return { ...state, deleteConfirmation: !state.deleteConfirmation };
+}
+
+export function withoutDraft(state: WritingState, draftId: string): WritingState {
+  return {
+    ...state,
+    autoSave: "idle",
+    bodyText: "",
+    deleteConfirmation: false,
+    draft: null,
+    drafts: state.drafts.filter((draft) => draft.id !== draftId),
+    error: null,
+    notice: "초안을 삭제했습니다.",
+    phase: "seed",
+    run: null,
+  };
+}
+
 /** Return the revision the screen should show. */
 export function activeRevision(state: WritingState): DraftRevision | null {
-  const draft = state.draft;
+  return activeRevisionFor(state.draft);
+}
+
+function activeRevisionFor(draft: PostDraft | null): DraftRevision | null {
   if (draft === null || draft.revisions.length === 0) return null;
   return draft.revisions.find((revision) => revision.isActive) ?? draft.revisions.at(-1) ?? null;
 }

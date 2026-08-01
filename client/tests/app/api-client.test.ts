@@ -253,8 +253,8 @@ describe("discoveryQueue", () => {
     const posts = await client.discoveryQueue();
 
     expect(handler.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
-      "/api/v1/discovery/queue?source=neighbor",
-      "/api/v1/discovery/queue?source=search",
+      "/api/v1/app/discovery/queue?source=neighbor",
+      "/api/v1/app/discovery/queue?source=search",
     ]);
     expect(posts.map((post) => post.source)).toEqual(["neighbor", "search"]);
   });

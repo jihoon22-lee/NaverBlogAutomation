@@ -6,21 +6,35 @@
  */
 
 import { ApiError, LocalApiClient } from "../api/client";
-import type { ArticleExtraction, GenerationOptions, Recommendation } from "../api/types";
+import type {
+  ArticleExtraction,
+  DiscoverySource,
+  GenerationOptions,
+  LlmProviderName,
+  Recommendation,
+} from "../api/types";
 import { RunController } from "./run";
 import {
   type CommentState,
   appendClosingPhrase,
   canApprove,
   initialCommentState,
+  startRefining,
   startGenerating,
   withClosingPhrase,
+  withComparedRecommendation,
   withDraft,
   withExtraction,
+  withFanout,
   withGeneration,
   withGenerationFailure,
+  withGenerationRequest,
+  withNeighborMessage,
   withOptions,
+  withProviderAvailability,
   withReviewed,
+  withRefinedDraft,
+  withRefinementFailure,
   withSelectedCandidate,
 } from "../state/comment";
 import { type CommentHandlers, renderComment } from "../views/comment";
@@ -39,12 +53,26 @@ const REPLACEMENT_CODES = new Set([
   "generation_in_progress",
 ]);
 
-type CommentApi = Pick<LocalApiClient, "appSetting" | "generateComment" | "reviewRecommendation">;
+type CommentApi = Pick<
+  LocalApiClient,
+  | "appSetting"
+  | "generateComment"
+  | "generateCommentFanout"
+  | "llmProviders"
+  | "recommendation"
+  | "refineRecommendation"
+  | "reviewRecommendation"
+>;
 
 export interface CommentControllerOptions {
   api?: CommentApi;
   copy?: (text: string) => Promise<void>;
   onBack?: () => void;
+  onRecommendationReady?: (
+    recommendationId: string,
+    discoveryPostId: string | null,
+    source: DiscoverySource | null,
+  ) => void;
   run?: RunController;
 }
 
@@ -53,9 +81,17 @@ export class CommentController {
   readonly #root: Element;
   readonly #copy: (text: string) => Promise<void>;
   readonly #onBack: () => void;
+  readonly #onRecommendationReady: (
+    recommendationId: string,
+    discoveryPostId: string | null,
+    source: DiscoverySource | null,
+  ) => void;
   readonly #run: RunController;
   #state: CommentState = initialCommentState();
   #discoveryPostId: string | null = null;
+  #provider: LlmProviderName = "openai";
+  #providers: { provider: LlmProviderName; model: string }[] = [];
+  #refinementKeys = new Map<string, string>();
   #busy = false;
 
   constructor(root: Element, options: CommentControllerOptions = {}) {
@@ -63,6 +99,7 @@ export class CommentController {
     this.#api = options.api ?? new LocalApiClient();
     this.#copy = options.copy ?? (async () => undefined);
     this.#onBack = options.onBack ?? (() => undefined);
+    this.#onRecommendationReady = options.onRecommendationReady ?? (() => undefined);
     this.#run = options.run ?? new RunController();
     this.#run.observe(() => this.render());
   }
@@ -75,6 +112,11 @@ export class CommentController {
     return this.#run;
   }
 
+  /** Re-read an active external-action run after a backgrounded browser resumes. */
+  async refresh(): Promise<void> {
+    await this.#run.refresh();
+  }
+
   /** Load the saved closing phrase so candidate selection can append it locally. */
   async loadClosingPhrase(): Promise<void> {
     try {
@@ -84,13 +126,80 @@ export class CommentController {
     } catch {
       this.#update(withClosingPhrase(this.#state, ""));
     }
+    try {
+      const record = await this.#api.appSetting("neighbor_message");
+      const message = record.payload.message;
+      this.#update(withNeighborMessage(this.#state, typeof message === "string" ? message : ""));
+    } catch {
+      this.#update(withNeighborMessage(this.#state, ""));
+    }
+    try {
+      const providers = await this.#api.llmProviders();
+      this.#provider = providers.find((provider) => provider.configured)?.provider ?? "openai";
+      this.#providers = providers
+        .filter((provider) => provider.configured)
+        .map((provider) => ({ provider: provider.provider, model: provider.model }));
+      this.#update(withProviderAvailability(this.#state, providers));
+    } catch {
+      // The existing comment workflow still works with its default provider when availability
+      // cannot be refreshed; refinement will report a concrete service refusal if unavailable.
+    }
   }
 
   /** Show one extracted post and wait for the user to request generation. */
-  open(extraction: ArticleExtraction, discoveryPostId: string | null = null): void {
+  open(
+    extraction: ArticleExtraction,
+    discoveryPostId: string | null = null,
+    source: DiscoverySource | null = null,
+    options: { generate?: boolean } = {},
+  ): void {
     this.#discoveryPostId = discoveryPostId;
     this.#run.reset();
-    this.#update(withExtraction(this.#state, extraction));
+    this.#update(withExtraction(this.#state, extraction, source));
+    if (options.generate === true) void this.generate();
+  }
+
+  /** Generate directly from a discovery or pasted URL so the service extracts only once. */
+  openUrl(url: string, discoveryPostId: string | null, source: DiscoverySource | null): void {
+    this.#discoveryPostId = discoveryPostId;
+    this.#run.reset();
+    this.#update(withGenerationRequest(this.#state, url, source));
+    void this.generate();
+  }
+
+  /** Restore a saved recommendation after a refresh without re-sending the article to a provider. */
+  async openStored(
+    recommendation: Recommendation,
+    discoveryPostId: string | null,
+    source: DiscoverySource | null,
+  ): Promise<void> {
+    const extraction = storedExtraction(recommendation);
+    this.open(extraction, discoveryPostId, source);
+    this.#update(
+      withGeneration(this.#state, {
+        attempt: 0,
+        extraction,
+        recommendation,
+        replayed: false,
+      }),
+    );
+  }
+
+  /** Fetch and render a saved recommendation addressed by a shareable local hash route. */
+  async restore(
+    recommendationId: string,
+    discoveryPostId: string | null,
+    source: DiscoverySource | null,
+  ): Promise<void> {
+    try {
+      await this.openStored(
+        await this.#api.recommendation(recommendationId),
+        discoveryPostId,
+        source,
+      );
+    } catch (error) {
+      this.#update(withGenerationFailure(this.#state, describe(error)));
+    }
   }
 
   render(): void {
@@ -102,14 +211,19 @@ export class CommentController {
       onApprove: () => void this.approve(),
       onBack: () => this.#onBack(),
       onCopy: () => void this.copyDraft(),
+      onCompare: () => void this.compareProviders(),
       onDraftChange: (draft: string) => {
         this.#state = withDraft(this.#state, draft);
       },
+      onExecute: () => void this.execute(),
       onGenerate: () => void this.generate(),
       onOptionChange: (option: string, value: string) => this.#setOption(option, value),
       onReplace: () => void this.generate({ replace: true }),
       onSelectCandidate: (candidateId: string) =>
         this.#update(withSelectedCandidate(this.#state, candidateId)),
+      onRefine: (preset, request) => void this.refine(preset, request),
+      onSelectComparisonRecommendation: (recommendationId) =>
+        this.#update(withComparedRecommendation(this.#state, recommendationId)),
       run: {
         onManualComplete: () => void this.#run.completeManually(),
         onStart: () => void this.startRun(),
@@ -122,6 +236,17 @@ export class CommentController {
   async startRun(): Promise<void> {
     const recommendation = this.#state.recommendation;
     if (recommendation === null || this.#discoveryPostId === null) return;
+    await this.#run.start(this.#discoveryPostId, recommendation.id);
+  }
+
+  /** Approve the reviewed text and begin exactly the steps promised for this discovered post. */
+  async execute(): Promise<void> {
+    if (this.#discoveryPostId === null || this.#state.source === null || this.#busy) return;
+    const recommendation =
+      this.#state.recommendation?.reviewStatus === "drafted"
+        ? await this.approve()
+        : this.#state.recommendation;
+    if (recommendation === null) return;
     await this.#run.start(this.#discoveryPostId, recommendation.id);
   }
 
@@ -143,6 +268,11 @@ export class CommentController {
         ...(options.replace === true ? { replace: true } : {}),
       });
       this.#update(withGeneration(this.#state, generation));
+      this.#onRecommendationReady(
+        generation.recommendation.id,
+        this.#discoveryPostId,
+        this.#state.source,
+      );
       return generation.recommendation;
     } catch (error) {
       const code = error instanceof ApiError ? error.code : null;
@@ -152,6 +282,30 @@ export class CommentController {
         }),
       );
       return null;
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  /** Compare every configured provider in one explicit, bounded fan-out request. */
+  async compareProviders(): Promise<void> {
+    const url = this.#state.url;
+    if (url === null || this.#busy || this.#providers.length < 2) return;
+    this.#busy = true;
+    this.#update(startGenerating(this.#state));
+    try {
+      const fanout = await this.#api.generateCommentFanout(
+        url,
+        this.#providers,
+        this.#state.options,
+      );
+      this.#update(withFanout(this.#state, fanout));
+      const selected = this.#state.recommendation;
+      if (selected !== null) {
+        this.#onRecommendationReady(selected.id, this.#discoveryPostId, this.#state.source);
+      }
+    } catch (error) {
+      this.#update(withGenerationFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
     }
@@ -175,6 +329,43 @@ export class CommentController {
     } catch (error) {
       this.#update(withGenerationFailure(this.#state, describe(error)));
       return null;
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  /** Ask the selected configured provider to rewrite only the visible comment and saved metadata. */
+  async refine(
+    preset: "shorter" | "natural" | "warmer" | "specific" | undefined,
+    request: string,
+  ): Promise<void> {
+    const recommendation = this.#state.recommendation;
+    if (recommendation === null || this.#state.draft.trim().length === 0 || this.#busy) return;
+    if (preset === undefined && request.trim().length === 0) return;
+    const requestText = request.trim();
+    const requestKey = JSON.stringify({
+      currentComment: this.#state.draft,
+      preset: preset ?? null,
+      provider: this.#provider,
+      recommendationId: recommendation.id,
+      request: requestText,
+    });
+    const idempotencyKey = this.#refinementKeys.get(requestKey) ?? randomIdempotencyKey();
+    this.#refinementKeys.set(requestKey, idempotencyKey);
+    this.#busy = true;
+    this.#update(startRefining(this.#state));
+    try {
+      const refinement = await this.#api.refineRecommendation(recommendation.id, {
+        currentComment: this.#state.draft,
+        provider: this.#provider,
+        ...(preset === undefined ? {} : { preset }),
+        ...(requestText.length === 0 ? {} : { request: requestText }),
+        idempotencyKey,
+      });
+      this.#update(withRefinedDraft(this.#state, refinement));
+      this.#refinementKeys.delete(requestKey);
+    } catch (error) {
+      this.#update(withRefinementFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
     }
@@ -209,4 +400,26 @@ function describe(error: unknown): string {
     return error.problem?.detail ?? error.message;
   }
   return "알 수 없는 오류가 발생했습니다.";
+}
+
+function randomIdempotencyKey(): string {
+  const random = globalThis.crypto?.randomUUID?.();
+  if (random !== undefined) return random;
+  const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function storedExtraction(recommendation: Recommendation): ArticleExtraction {
+  return {
+    sourceUrl: recommendation.sourceUrl,
+    title: recommendation.title,
+    selectorKind: "semantic",
+    originalLength: recommendation.summary.length,
+    transmittedLength: recommendation.summary.length,
+    truncated: false,
+    preview: recommendation.summary,
+  };
 }

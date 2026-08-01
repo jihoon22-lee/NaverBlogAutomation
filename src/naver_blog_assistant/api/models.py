@@ -215,6 +215,28 @@ class RecommendationResponse(StrictModel):
         )
 
 
+class CommentRefinementRequest(StrictModel):
+    """One explicit AI rewrite request for the comment currently shown to the user."""
+
+    current_comment: CommentText
+    preset: Literal["shorter", "natural", "warmer", "specific"] | None = None
+    request: Annotated[str | None, StringConstraints(max_length=300)] = None
+    provider: Literal["openai", "gemini", "anthropic"]
+    model: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+
+    @model_validator(mode="after")
+    def validate_instruction(self) -> Self:
+        if self.preset is None and (self.request is None or not self.request.strip()):
+            raise ValueError("a refinement preset or request is required")
+        return self
+
+
+class CommentRefinementResponse(StrictModel):
+    text: CommentText
+    provider: Literal["openai", "gemini", "anthropic"]
+    model: ShortText
+
+
 class RecommendationHistoryItemResponse(StrictModel):
     id: UUID
     source_url: Annotated[
@@ -399,6 +421,38 @@ class DiscoveryPostResponse(StrictModel):
 
 class DiscoveryQueueResponse(StrictModel):
     items: list[DiscoveryPostResponse]
+
+
+class WebAppDiscoveryPostResponse(DiscoveryPostResponse):
+    """Queue item enriched for the separately deployed web application.
+
+    The browser extension validates the original discovery response strictly, so its public
+    contract must not gain web-only presentation fields.
+    """
+
+    source_label: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
+
+    @classmethod
+    def from_domain(cls, post: DiscoveredPost, *, source_label: str | None = None) -> Self:
+        return cls(
+            id=post.id,
+            source=post.source.value,
+            state=post.state.value,
+            source_url=post.source_url,
+            title=post.title,
+            publisher_name=post.publisher_name,
+            publisher_blog_id=post.publisher_blog_id,
+            published_at=post.published_at,
+            neighbor_id=post.neighbor_id,
+            search_id=post.search_id,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+            source_label=source_label,
+        )
+
+
+class WebAppDiscoveryQueueResponse(StrictModel):
+    items: list[WebAppDiscoveryPostResponse]
 
 
 class DiscoveryPostStateRequest(StrictModel):

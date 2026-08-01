@@ -205,6 +205,53 @@ paths:
           $ref: "#/components/responses/ReviewConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+  /api/v1/recommendations/{recommendation_id}/refine:
+    parameters:
+      - $ref: "#/components/parameters/RecommendationId"
+    post:
+      operationId: refineRecommendationComment
+      tags: [Recommendations]
+      summary: Refine the current comment from bounded stored recommendation context
+      description: >-
+        The service sends only the stored summary, topics, bounded excerpt, and the current comment
+        to the selected provider. It never sends the source URL or captured full article body again.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CommentRefinementRequest"}
+      responses:
+        "200":
+          description: The refined comment, or a stored replay for the same key.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CommentRefinementResponse"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: The refinement key belongs to another request.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "422": {$ref: "#/components/responses/ValidationError"}
+        "502":
+          description: The selected provider could not refine the comment.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "503":
+          description: The selected provider is not configured.
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/ProblemDetails"}
+        "504": {$ref: "#/components/responses/GenerationTimeout"}
   /api/v1/personalization/examples:
     delete:
       operationId: clearPersonalizationExamples
@@ -392,6 +439,13 @@ paths:
       tags: [Discovery]
       responses:
         "200": {description: Queue items for one discovery source.}
+        "422": {$ref: "#/components/responses/ValidationError"}
+  /api/v1/app/discovery/queue:
+    get:
+      operationId: listWebAppDiscoveryQueue
+      tags: [Web app]
+      responses:
+        "200": {description: Queue items for one discovery source, with web-app presentation context.}
         "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/discovery/queue/{post_id}:
     patch:
@@ -1736,6 +1790,33 @@ components:
           $ref: "#/components/schemas/RecommendationResponse"
         replayed:
           type: boolean
+    CommentRefinementRequest:
+      type: object
+      additionalProperties: false
+      required: [current_comment, provider]
+      properties:
+        current_comment: {type: string, minLength: 1, maxLength: 500}
+        preset:
+          oneOf:
+            - {type: string, enum: [shorter, natural, warmer, specific]}
+            - {type: "null"}
+        request:
+          oneOf:
+            - {type: string, maxLength: 300}
+            - {type: "null"}
+        provider: {type: string, enum: [openai, gemini, anthropic]}
+        model:
+          oneOf:
+            - {type: string, minLength: 1, maxLength: 100}
+            - {type: "null"}
+    CommentRefinementResponse:
+      type: object
+      additionalProperties: false
+      required: [text, provider, model]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 500}
+        provider: {type: string, enum: [openai, gemini, anthropic]}
+        model: {type: string, minLength: 1, maxLength: 300}
     AppSettingRequest:
       type: object
       additionalProperties: false

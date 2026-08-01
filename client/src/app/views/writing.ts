@@ -17,8 +17,11 @@ import {
 
 export interface WritingHandlers {
   onAddTags(tags: string[]): void;
+  onBodyChange(text: string): void;
   onCompose(): void;
+  onCompleteWithAi(): void;
   onCreateDraft(): void;
+  onDeleteDraft(): void;
   onDeleteImage(imageId: string): void;
   onGenerateTags(): void;
   onOptionChange(option: string, value: string): void;
@@ -28,6 +31,7 @@ export interface WritingHandlers {
   onSeedChange(field: "title" | "text" | "category", value: string): void;
   onStage(): void;
   onSyncCategories(): void;
+  onTitleChange(title: string): void;
   onToggleTag(tag: string): void;
   onUploadImage(file: File): void;
 }
@@ -136,9 +140,16 @@ function renderSeed(document: Document, state: WritingState, handlers: WritingHa
 
   section.append(renderCategories(document, state, handlers));
 
-  const create = button(document, "create-draft-button", "초안 등록", handlers.onCreateDraft);
+  const create = button(document, "create-draft-button", "초안만 저장", handlers.onCreateDraft);
   create.disabled = state.busy || state.seedTitle.trim().length === 0;
-  section.append(create);
+  const complete = button(
+    document,
+    "complete-draft-button",
+    "AI로 초안 완성",
+    handlers.onCompleteWithAi,
+  );
+  complete.disabled = create.disabled || !state.providers.some((provider) => provider.configured);
+  section.append(create, complete);
   return section;
 }
 
@@ -301,12 +312,24 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
   section.append(meta);
 
   const label = document.createElement("label");
+  const titleLabel = document.createElement("label");
+  titleLabel.htmlFor = "draft-title";
+  titleLabel.textContent = "제목";
+  const title = document.createElement("input");
+  title.id = "draft-title";
+  title.type = "text";
+  title.maxLength = 200;
+  title.value = state.draft?.title ?? "";
+  title.addEventListener("input", () => handlers.onTitleChange(title.value));
+  section.append(titleLabel, title);
+
   label.htmlFor = "body-text";
   label.textContent = "본문 내용";
   const editor = document.createElement("textarea");
   editor.id = "body-text";
   editor.rows = 12;
-  editor.value = revisionText(revision);
+  editor.value = state.bodyText;
+  editor.addEventListener("input", () => handlers.onBodyChange(editor.value));
   section.append(label, editor);
 
   const actions = document.createElement("div");
@@ -320,6 +343,17 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
   actions.append(save, refine);
   section.append(actions);
 
+  const autosave = document.createElement("p");
+  autosave.className = "autosave-status";
+  autosave.setAttribute("role", "status");
+  autosave.textContent = {
+    idle: "편집하면 자동 저장합니다.",
+    saving: "자동 저장 중입니다.",
+    saved: "자동 저장되었습니다.",
+    failed: "자동 저장에 실패했습니다. 편집 저장을 다시 시도하세요.",
+  }[state.autoSave];
+  section.append(autosave);
+
   const label2 = document.createElement("label");
   label2.htmlFor = "refine-request";
   label2.textContent = "다듬기 요청 사항";
@@ -331,6 +365,34 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
   section.append(label2, request);
 
   section.append(renderRevisionHistory(document, state, handlers));
+  section.append(renderRevisionDiff(document, state));
+  return section;
+}
+
+function renderRevisionDiff(document: Document, state: WritingState): Element {
+  const section = document.createElement("section");
+  section.className = "revision-diff";
+  const heading = document.createElement("h3");
+  heading.textContent = "이전 revision과 비교";
+  section.append(heading);
+  const revisions = state.draft?.revisions ?? [];
+  const active = activeRevision(state);
+  const previous =
+    active === null ? null : revisions.find((item) => item.roundNo === active.roundNo - 1);
+  if (active === null || previous === undefined || previous === null) {
+    const empty = document.createElement("p");
+    empty.textContent = "비교할 이전 revision이 없습니다.";
+    section.append(empty);
+    return section;
+  }
+  const diff = document.createElement("p");
+  for (const item of wordDiff(revisionText(previous), revisionText(active))) {
+    const span = document.createElement("span");
+    span.className = `diff-${item.kind}`;
+    span.textContent = item.text;
+    diff.append(span);
+  }
+  section.append(diff);
   return section;
 }
 
@@ -414,9 +476,27 @@ function renderStaging(
   hint.textContent = "임시저장까지만 자동으로 진행합니다. 발행은 에디터에서 직접 확인하세요.";
   section.append(hint);
 
+  const summary = document.createElement("p");
+  summary.className = "staging-summary";
+  summary.textContent = `제목 ${state.draft?.title.length ?? 0}자 · 본문 ${
+    Array.from(state.bodyText).length
+  }자 · 이미지 ${state.draft?.images.length ?? 0}장 · 선택 태그 ${
+    state.draft?.tags.filter((tag) => tag.selected).length ?? 0
+  }개`;
+  section.append(summary);
+
   const stage = button(document, "stage-button", "임시저장 실행", handlers.onStage);
   stage.disabled = !canStage(state);
   section.append(stage);
+
+  const remove = button(
+    document,
+    "delete-draft-button",
+    state.deleteConfirmation ? "정말 이 초안을 삭제" : "초안 삭제",
+    handlers.onDeleteDraft,
+  );
+  remove.disabled = state.busy;
+  section.append(remove);
 
   if (state.run !== null) section.append(renderSteps(document, state.run.steps));
   return section;
@@ -516,4 +596,35 @@ function button(
 
 export function draftLabel(draft: PostDraft): string {
   return `${draft.title} · ${draft.status}`;
+}
+
+interface DiffPart {
+  kind: "added" | "removed" | "same";
+  text: string;
+}
+
+/** A compact word-level diff for revision review; it does not mutate either revision. */
+export function wordDiff(previous: string, current: string): DiffPart[] {
+  const before = previous.split(/(\s+)/u).filter(Boolean);
+  const after = current.split(/(\s+)/u).filter(Boolean);
+  const parts: DiffPart[] = [];
+  let index = 0;
+  for (const token of after) {
+    const found = before.indexOf(token, index);
+    if (found === index) {
+      parts.push({ kind: "same", text: token });
+      index += 1;
+    } else {
+      if (found > index) {
+        parts.push({ kind: "removed", text: before.slice(index, found).join("") });
+        index = found;
+        parts.push({ kind: "same", text: token });
+        index += 1;
+      } else {
+        parts.push({ kind: "added", text: token });
+      }
+    }
+  }
+  if (index < before.length) parts.push({ kind: "removed", text: before.slice(index).join("") });
+  return parts;
 }

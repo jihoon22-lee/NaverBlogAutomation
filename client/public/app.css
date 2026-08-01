@@ -31,6 +31,47 @@ h2 {
   grid-template-columns: minmax(18rem, 2fr) minmax(20rem, 3fr);
 }
 
+.queue-filters,
+.refinement-actions,
+.body-actions,
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.onboarding-panel li {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-block: 0.4rem;
+}
+
+.comment-refinement,
+.provider-comparison,
+.revision-diff {
+  border-top: 1px solid rgb(128 128 128 / 30%);
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+
+.diff-added {
+  background: #c8f7d8;
+}
+
+.diff-removed {
+  background: #ffd5d5;
+  text-decoration: line-through;
+}
+
+.autosave-status,
+.staging-summary,
+.refinement-status {
+  color: #555;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 60rem) {
   .today-layout {
     grid-template-columns: 1fr;
@@ -98,6 +139,10 @@ input,
 select,
 textarea {
   font-size: max(1rem, 16px);
+}
+
+.queue-filters select {
+  min-height: 2.75rem;
 }
 
 button:disabled {
@@ -224,7 +269,10 @@ button:disabled {
 .sync-panel,
 .search-panel,
 .neighbor-panel,
-.digest-panel {
+.digest-panel,
+.comment-settings-panel,
+.automation-settings-panel,
+.writing-settings-panel {
   border-top: 1px solid #e5e5e5;
   margin-top: 1rem;
   padding-top: 0.75rem;
@@ -233,7 +281,10 @@ button:disabled {
 .discovery-settings-panel label,
 .search-panel label,
 .neighbor-panel label,
-.digest-panel label {
+.digest-panel label,
+.comment-settings-panel label,
+.automation-settings-panel label,
+.writing-settings-panel label {
   display: block;
   font-size: 0.9rem;
   margin-top: 0.5rem;
@@ -243,6 +294,22 @@ button:disabled {
   align-items: center;
   display: flex;
   gap: 0.4rem;
+}
+
+.allowed-hours-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+}
+
+.allowed-hours-field legend {
+  width: 100%;
+}
+
+.automation-settings-panel .allowed-hours-field label {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin: 0;
 }
 
 .settings-note {
