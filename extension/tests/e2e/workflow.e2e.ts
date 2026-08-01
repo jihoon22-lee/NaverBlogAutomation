@@ -373,6 +373,7 @@ test("built production Side Panel completes neighbor and search engagement and r
 async function enableEngagementConsent(panel: Page): Promise<void> {
   await panel.locator("#workspace-settings-button").click();
   await panel.locator("#engagement-consent-card summary").click();
+  await expect(panel.locator("#engagement-consent-status")).toContainText("동의하지 않음");
   await panel.locator("#engagement-consent-checkbox").check();
   await panel.locator("#engagement-consent-agree").click();
   await expect(panel.locator("#engagement-consent-status")).toContainText("동의함");
