@@ -51,7 +51,49 @@ private env file은 `${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env`
 만들어집니다. WSL에서도 browser extension을 설치할 필요가 없습니다. `/mnt/e` 같은 DrvFs에는 credential file을
 만들지 마세요.
 
-## 2. API 시작
+## 2. 환경 파일에 값 넣기
+
+위의 setup launcher를 **한 번 실행하면** private 환경 파일이 자동으로 만들어집니다. 일반 사용자는
+repository 안의 `.env.local`을 새로 만들 필요가 없습니다. 아래 명령으로 만들어진 파일을 열어 값을 넣으세요.
+
+| 환경 | private 환경 파일 열기 |
+| --- | --- |
+| Windows (PowerShell) | `notepad "$env:APPDATA\NaverBlogAssistant\env"` |
+| macOS (Terminal) | `nano ~/.config/naver-blog-assistant/env` |
+| Linux·WSL (Terminal) | `nano "${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env"` |
+
+처음 만들어진 상태는 다음과 같습니다. 이 상태에서는 실제 AI를 호출하지 않고, 기능을 둘러보기 위한
+fake 댓글·본문 후보만 만듭니다. API key나 네이버 계정 정보는 필요 없습니다.
+
+```dotenv
+APP_ENV=development
+COMMENT_GENERATOR_MODE=fake
+```
+
+OpenAI로 실제 댓글·본문을 생성하려면 위 두 줄을 아래처럼 바꾸고, 세 번째 줄의 오른쪽에 본인이 발급한
+API key를 붙여 넣으세요.
+
+```dotenv
+APP_ENV=production
+COMMENT_GENERATOR_MODE=openai
+OPENAI_API_KEY=발급받은_OpenAI_API_key_전체
+```
+
+`발급받은_OpenAI_API_key_전체`는 예시 문구이므로 그대로 입력하면 안 됩니다. [OpenAI API
+Quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request)의 안내에 따라 OpenAI
+Platform dashboard에서 API key를 새로 만든 뒤, 표시된 key 전체를 `=` 뒤에만 붙여 넣으세요. 이 key는
+개인별 비밀값이라 문서나 예시 파일에 실제 값을 적을 수 없습니다. 저장한 뒤 실행 중인 start launcher를
+완전히 종료하고 다시 시작해야 반영됩니다.
+
+`OPENAI_MODEL`은 환경 파일에 이미 기본값이 있으므로 처음에는 바꾸지 않아도 됩니다. key 앞뒤에 따옴표,
+공백, `<`·`>`를 넣지 마세요. 네이버 ID·비밀번호·cookie도 이 파일에 넣지 말고, automation browser가 열린
+뒤 네이버에서 직접 로그인하세요.
+
+private 환경 파일은 repository 밖에 있으므로 Git에 올라가지 않습니다. key를 `README.md`, `.env.example`,
+extension 설정, screenshot, shell history에 복사하지 마세요. 개발자가 의도적으로 repository에서 API를
+수동 실행할 때만 `.env.local`과 `uv run --env-file .env.local ...` 경로를 사용합니다.
+
+## 3. API 시작
 
 설정을 마친 뒤 사용하는 동안 terminal을 열어 둡니다.
 
@@ -65,7 +107,8 @@ scripts/start-macos.command
 ```
 
 시작 launcher는 health check 뒤 기본 browser에서 `http://127.0.0.1:8765/app/`을 자동으로 엽니다.
-수동으로 실행하거나 custom env file을 사용할 때는 다음과 같습니다.
+일반 사용은 위의 start launcher만 사용하세요. 개발자가 repository 안의 `.env.local`을 의도적으로 만들어
+수동 실행하거나 custom env file을 사용할 때만 다음과 같습니다.
 
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
@@ -92,7 +135,7 @@ API_HOST=0.0.0.0
 network transport를 암호화하지 않으므로 신뢰할 수 있는 개인 네트워크에서만 사용하세요. 네이버 로그인과
 자동화 browser는 계속 PC에서만 실행됩니다.
 
-## 3. 웹앱 작업 공간
+## 4. 웹앱 작업 공간
 
 브라우저에서 `http://127.0.0.1:8765/app/`을 열면 다섯 작업 탭과 **태블릿 연결** 동작이 표시됩니다.
 
@@ -107,7 +150,7 @@ network transport를 암호화하지 않으므로 신뢰할 수 있는 개인 �
 해당 설정 화면으로 바로 이동해 해결하세요. 대기열에서 글을 고른 뒤 **이 글 처리하기**를 누르면
 본문 추출과 저장된 기본 provider의 댓글 후보 생성이 이어집니다.
 
-## 4. 첫 댓글 후보 만들기
+## 5. 첫 댓글 후보 만들기
 
 1. **설정 > 자동 탐색 설정**에서 내 블로그 ID를 저장하고 **지금 동기화**로 대기열을 채웁니다.
 2. **오늘의 작업**에서 처리할 이웃 글 또는 신규 이웃 후보를 선택합니다.
@@ -140,7 +183,7 @@ version이 바뀌면 다시 확인해야 하며, Captcha·로그인 제한 우�
 공감 control이 반응 선택 레이어를 여는 글에서는 기본 **공감** 항목을 추가로 선택하며, 이미 공감한
 글은 다시 누르지 않습니다.
 
-## 5. 자동 글 탐색 설정
+## 6. 자동 글 탐색 설정
 
 로컬 웹앱의 **설정 > 자동 탐색 설정**에서 내 블로그 ID(`blogId`)를 한 번 입력한 뒤
 **매일 자동으로 모으기**를 켜세요. 대기열은 **오늘의 작업**에서 이웃 새 글과 신규 이웃 후보로 나누어
@@ -153,12 +196,13 @@ version이 바뀌면 다시 확인해야 하며, Captcha·로그인 제한 우�
 설정되지 않은 경우에도 선호는 저장되지만, SMTP 설정 전에는 이메일을 보내지 않습니다.
 
 신규 이웃 검색도 사용하려면 [Naver Developers 검색 API](https://developers.naver.com/docs/serviceapi/search/blog/blog.md)에서
-application을 만든 뒤 private env file에 아래 두 값을 함께 넣고 API를 재시작하세요. 하나만 넣으면
-setup check와 API가 오류를 알려 주며, HTML 검색 결과를 대체로 읽지는 않습니다.
+**애플리케이션 등록**을 하고, **내 애플리케이션**에서 발급된 Client ID와 Client Secret을 확인하세요.
+등록할 때 검색 API의 Blog 사용 권한도 선택해야 합니다. private 환경 파일에 아래 두 값을 함께 넣고 API를
+재시작하세요. 하나만 넣으면 setup check와 API가 오류를 알려 주며, HTML 검색 결과를 대체로 읽지는 않습니다.
 
 ```dotenv
-NAVER_SEARCH_CLIENT_ID=<private-client-id>
-NAVER_SEARCH_CLIENT_SECRET=<private-client-secret>
+NAVER_SEARCH_CLIENT_ID=내_애플리케이션의_Client_ID
+NAVER_SEARCH_CLIENT_SECRET=내_애플리케이션의_Client_Secret
 ```
 
 검색어를 저장한 다음 **지금 동기화**를 누르면 공식 API의 최신 결과에서 후보를 가져옵니다.
@@ -167,16 +211,19 @@ NAVER_SEARCH_CLIENT_SECRET=<private-client-secret>
 읽거나 저장하지 않습니다. 자동 실행 동의가 꺼져 있으면 복사만 제공하며, 동의가 켜져 있어도 사용자가
 글별 실행 버튼을 누른 경우에만 공감·선택 댓글 등록·선택적 서로이웃 신청을 수행합니다.
 
-## 6. LLM provider 설정
+## 7. LLM provider 설정
 
 ### OpenAI
 
-기본 fake workflow를 확인한 뒤에만 private env file에 다음 값을 넣고 API를 재시작합니다.
+기본 fake workflow를 확인한 뒤에만 [환경 파일에 값 넣기](#2-환경-파일에-값-넣기)의 OpenAI 절차대로
+private 환경 파일에 다음 값을 넣고 API를 재시작합니다. API key는 [OpenAI API
+Quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request)에 따라 OpenAI Platform에서
+발급한 개인 key 전체를 사용합니다.
 
 ```dotenv
 APP_ENV=production
 COMMENT_GENERATOR_MODE=openai
-OPENAI_API_KEY=<private-key>
+OPENAI_API_KEY=발급받은_OpenAI_API_key_전체
 ```
 
 model을 바꾸려면 `OPENAI_MODEL`을 추가합니다.
@@ -217,7 +264,7 @@ key 값은 웹앱에 전달하지 않습니다.
 provider API에 전송됩니다. source URL은 전송하지 않습니다. API key를 웹앱 asset, shell history,
 screenshot, log 또는 commit에 남기지 마세요.
 
-## 7. 글쓰기 워크플로
+## 8. 글쓰기 워크플로
 
 **글 작성** 탭에서 내 글을 만드는 전체 흐름입니다. 자동 발행은 하지 않고 임시저장에서 멈추며,
 발행은 사용자가 네이버 에디터에서 직접 확인하고 클릭합니다.
@@ -250,7 +297,7 @@ screenshot, log 또는 commit에 남기지 마세요.
 | `body_tag_cap` | 본문에 삽입할 태그 상한 (1–50) | 20 |
 | `use_image_vision` | 이미지를 provider에 전송해 분석 (vision 지원 provider만) | `false` |
 
-## 8. 여러 글 처리 (세션 배치)
+## 9. 여러 글 처리 (세션 배치)
 
 **여러 글 처리** 탭에서 한 번 승인으로 여러 글을 이어서 처리합니다.
 
@@ -269,7 +316,7 @@ screenshot, log 또는 commit에 남기지 마세요.
 service를 다시 시작하면 이전의 pending/running batch는 `process_restarted`로 안전하게 중단됩니다.
 이전 batch를 자동 재개하지 않으므로, 결과를 확인한 뒤 필요한 글만 새로 선택해 승인하세요.
 
-## 9. 안전 정책과 무인 스케줄
+## 10. 안전 정책과 무인 스케줄
 
 ### 안전 정책 저장
 
@@ -305,7 +352,7 @@ service를 다시 시작하면 이전의 pending/running batch는 `process_resta
 하루에 한 번만 실행됩니다. 이미 실행했거나 다른 세션이 진행 중이면 건너뜁니다.
 조건이 하나라도 빠지면 무인 실행은 동작하지 않습니다.
 
-## 10. 업데이트
+## 11. 업데이트
 
 웹앱은 설치 launcher가 client bundle을 다시 build하므로, source update 뒤 setup launcher를 다시
 실행하고 service를 재시작하면 됩니다. 동결된 legacy extension을 함께 설치한 경우의 reload 절차는

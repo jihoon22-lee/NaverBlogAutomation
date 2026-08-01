@@ -39,6 +39,18 @@ Setup launcher는 웹앱 bundle을 준비하고 private 환경 파일을 만듭�
 첫 실행은 [시작하기](docs/getting-started.md), legacy extension은
 [별도 안내](docs/extension-legacy.md)를 따르세요.
 
+실제 AI를 사용하려면 setup 뒤 자동 생성된 private 환경 파일에 다음 세 값을 넣습니다. 앞의 두 값은
+그대로 입력하고, 마지막 값에는 OpenAI Platform에서 직접 발급한 개인 API key 전체를 넣어야 합니다.
+key 발급 위치·운영체제별 파일 여는 명령·재시작 방법은 [환경 파일에 값
+넣기](docs/getting-started.md#2-환경-파일에-값-넣기)에 복사 가능한 예시로 안내합니다. 기본 `fake` mode는
+API key 없이 화면과 흐름만 확인하는 용도입니다.
+
+```dotenv
+APP_ENV=production
+COMMENT_GENERATOR_MODE=openai
+OPENAI_API_KEY=발급받은_OpenAI_API_key_전체
+```
+
 Galaxy Tab·iPad는 기본 설치 후에도 PC와 같은 신뢰 Wi-Fi에서 선택적으로 연결할 수 있습니다. private
 env file에서 LAN mode를 명시적으로 켠 뒤 PC 화면의 일회용 코드로 pair합니다. 자세한 보안 경계와 설정은
 [시작하기](docs/getting-started.md#태블릿에서-열기-선택)를 참고하세요.
@@ -105,6 +117,8 @@ env file에 넣고 API를 재시작합니다. 하나만 설정해도 되고, 여
 웹앱 **설정 > LLM provider**에서 기본 provider와 model을 선택하고, `llm_budget` 설정으로
 일일 호출 상한(`daily_call_cap`)과 요청당 provider 상한(`per_request_provider_cap`)을 조절합니다.
 API key는 Python process 환경에만 존재하며, 웹앱과 extension에는 구성 여부만 표시됩니다.
+실제 key를 어디서 발급하고 어느 파일에 넣는지는 [환경 파일에 값
+넣기](docs/getting-started.md#2-환경-파일에-값-넣기)를 따르세요.
 
 ## 안전 정책과 무인 스케줄
 
