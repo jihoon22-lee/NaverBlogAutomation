@@ -21,7 +21,10 @@ from naver_blog_assistant.api.runtime import (
 from scripts._local_runtime import REPOSITORY_ROOT
 
 WEB_APP_URL = f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/app/"
-STARTUP_TIMEOUT_SECONDS = 12.0
+# The first import of optional LLM SDKs can be slow on mounted or virus-scanned filesystems.
+# Do not interrupt a healthy local startup before it has a realistic chance to bind its port.
+STARTUP_TIMEOUT_SECONDS = 60.0
+STARTUP_PROGRESS_SECONDS = 5.0
 
 OpenBrowser = Callable[[str], bool]
 LaunchProcess = Callable[[Sequence[str], Path], subprocess.Popen[bytes]]
@@ -39,13 +42,21 @@ def _is_healthy() -> bool:
 
 
 def _wait_for_health(process: subprocess.Popen[bytes]) -> bool:
-    """Wait briefly for a child process to bind, stopping when it exits first."""
+    """Wait for a child process to bind, stopping when it exits first."""
     deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    progress_deadline = time.monotonic() + STARTUP_PROGRESS_SECONDS
+    progress_reported = False
     while time.monotonic() < deadline:
         if _is_healthy():
             return True
         if process.poll() is not None:
             return False
+        if not progress_reported and time.monotonic() >= progress_deadline:
+            print(
+                "Local API를 준비하고 있습니다. 처음 실행은 최대 60초 걸릴 수 있습니다.",
+                file=sys.stderr,
+            )
+            progress_reported = True
         time.sleep(0.1)
     return False
 
@@ -96,7 +107,19 @@ def start_webapp(
     )
     try:
         if not _wait_for_health(process):
-            print("오류: Local API가 시작 시간 안에 준비되지 않았습니다.", file=sys.stderr)
+            exit_code = process.poll()
+            if exit_code is None:
+                print(
+                    "오류: Local API가 60초 안에 준비되지 않았습니다. "
+                    "네트워크 드라이브나 보안 검사 환경에서는 첫 시작이 느릴 수 있습니다.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "오류: Local API가 준비 전에 종료되었습니다 "
+                    f"(종료 코드: {exit_code}). 이 terminal 위쪽의 상세 오류를 확인해 주세요.",
+                    file=sys.stderr,
+                )
             _terminate(process)
             return 1
         if not open_browser(WEB_APP_URL):

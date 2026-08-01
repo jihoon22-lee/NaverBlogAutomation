@@ -30,6 +30,15 @@ is_wsl() {
   grep -qiE 'microsoft|wsl' /proc/sys/kernel/osrelease /proc/version 2>/dev/null
 }
 
+configure_project_environment() {
+  if is_wsl && [[ "$repository_root" =~ ^/mnt/[[:alpha:]]/ ]] \
+    && [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    export UV_PROJECT_ENVIRONMENT="$data_home/naver-blog-assistant/python-venv"
+    printf 'WSL의 Windows 드라이브에서 실행 중이므로 Python 환경을 Linux 파일 시스템에 준비합니다.\n'
+  fi
+}
+
 while (($# > 0)); do
   case "$1" in
     --extension-id)
@@ -61,6 +70,7 @@ require_command npm
 [[ -n "${HOME:-}" ]] || fail "사용자 home directory를 찾을 수 없습니다."
 
 cd "$repository_root"
+configure_project_environment
 if ((skip_dependencies == 0)); then
   printf '[1/4] Python dependency를 설치합니다.\n'
   uv sync --frozen
