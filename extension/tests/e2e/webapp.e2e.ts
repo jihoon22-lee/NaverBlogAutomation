@@ -50,10 +50,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator('[data-section="writing"]')).toHaveText("글쓰기");
       await expect(page.locator('[data-section="more"]')).toHaveText("더보기");
       await page.goto(`${apiOrigin}/app/#today`);
-      await expect(page.locator('[data-section="home"]')).toHaveAttribute(
-        "aria-current",
-        "page",
-      );
+      await expect(page.locator('[data-section="home"]')).toHaveAttribute("aria-current", "page");
 
       await page.locator('[data-section="workbench"]').click();
       await expect(page.locator(".queue-panel")).toBeVisible();
