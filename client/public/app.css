@@ -273,6 +273,7 @@ dt {
 }
 
 dd {
+  overflow-wrap: anywhere;
   margin: 0;
 }
 
@@ -562,6 +563,18 @@ button:disabled {
 .today-layout {
   align-items: start;
   grid-template-columns: minmax(19rem, 0.9fr) minmax(30rem, 1.4fr);
+}
+
+@media (max-width: 60rem) {
+  .today-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.today-layout > *,
+.queue-panel,
+.detail-panel {
+  min-width: 0;
 }
 
 .queue-item,
