@@ -1,6 +1,6 @@
 """Fail when the web app or the Python service reaches into the frozen extension.
 
-`extension/` is frozen at v0.5.6. Its DOM logic was copied into `client/src/page/` on purpose rather
+`extension/` is frozen at v0.6.0. Its DOM logic was copied into `client/src/page/` on purpose rather
 than shared, so a refactor of the web app can never regress the extension. This check keeps that
 boundary mechanical: as long as it passes, `client/` and `src/` can be split into their own
 repository with `git subtree split` without untangling imports first.

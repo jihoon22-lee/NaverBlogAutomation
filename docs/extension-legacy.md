@@ -1,6 +1,6 @@
 # Legacy Chrome extension
 
-Chrome extension v0.5.6은 동결 상태입니다. 새 기능과 기본 사용 흐름은 독립 실행 웹앱을 기준으로
+Chrome extension v0.6.0은 동결 상태입니다. 새 기능과 기본 사용 흐름은 독립 실행 웹앱을 기준으로
 개발됩니다. 이미 extension을 쓰고 있다면 계속 사용할 수 있지만, 보안 결함과 Chrome의 파괴적 변경을
 제외한 기능 추가는 하지 않습니다.
 
