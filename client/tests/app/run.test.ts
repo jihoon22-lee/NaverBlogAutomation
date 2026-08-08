@@ -150,18 +150,6 @@ describe("run stream decoding", () => {
     class BrowserEventSource {
       readonly addEventListener = addEventListener;
       readonly close = vi.fn();
-=======
-    const source = {
-      addEventListener: vi.fn((name: string, handler: (event: Event) => void) => {
-        listeners.set(name, handler);
-      }),
-      close: vi.fn(),
-    };
-    class BrowserEventSource {
-      constructor(_url: string) {
-        return source as unknown as BrowserEventSource;
-      }
->>>>>>> 037e6d4 (test(client): 작업 흐름 계약을 보강한다)
     }
     vi.stubGlobal("EventSource", BrowserEventSource);
     const onEvent = vi.fn();
