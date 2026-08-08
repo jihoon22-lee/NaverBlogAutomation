@@ -620,6 +620,7 @@ async function waitForHealth(
 
 async function terminate(apiProcess: ApiProcess): Promise<void> {
   if (apiProcess.exitCode !== null) {
+    signalProcessGroup(apiProcess, "SIGKILL");
     return;
   }
   signalProcessGroup(apiProcess, "SIGTERM");
@@ -633,6 +634,7 @@ async function terminate(apiProcess: ApiProcess): Promise<void> {
       await new Promise<void>((resolve) => apiProcess.once("exit", () => resolve()));
     }
   }
+  signalProcessGroup(apiProcess, "SIGKILL");
 }
 
 /** Avoid handing the next E2E case a still-listening child after its process has exited. */

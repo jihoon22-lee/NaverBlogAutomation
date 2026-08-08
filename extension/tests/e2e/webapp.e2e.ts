@@ -341,7 +341,12 @@ async function waitForHealth(apiProcess: ApiProcess, output: () => string): Prom
 }
 
 async function terminate(apiProcess: ApiProcess): Promise<void> {
-  if (apiProcess.exitCode !== null) return;
+  if (apiProcess.exitCode !== null) {
+    // `uv run` can exit before its API child; the detached process group still belongs to this
+    // test, so close that group before checking the listening socket.
+    signalProcessGroup(apiProcess, "SIGKILL");
+    return;
+  }
   signalProcessGroup(apiProcess, "SIGTERM");
   const exited = await Promise.race([
     new Promise<boolean>((resolve) => apiProcess.once("exit", () => resolve(true))),
@@ -353,6 +358,7 @@ async function terminate(apiProcess: ApiProcess): Promise<void> {
       await new Promise<void>((resolve) => apiProcess.once("exit", () => resolve()));
     }
   }
+  signalProcessGroup(apiProcess, "SIGKILL");
 }
 
 /** Avoid handing the next E2E case a still-listening child after its process has exited. */
