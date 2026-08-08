@@ -35,7 +35,10 @@ code head `74a309b` 기준으로 읽어야 한다.
 GitHub 저장소 visibility는 `PUBLIC`으로 확인했다. 로컬 수치는 실행 가능한 CI-equivalent
 evidence로만 기록하고, 최종 판정은 GitHub runner 결과를 따른다. public 전환 후 run
 `31259954396`에서 로컬 환경에서 설치하지 못했던 browser/system dependency도 포함해 전체
-required job이 성공했다.
+required job이 성공했다. 이어진 plan-only head의 run `31260134575`는 첫 시도에서 packaged
+System E2E가 API 포트 재사용 race로 실패했지만, GitHub의 실패 job 공식 rerun에서 System E2E와
+Quality gate를 포함한 10개 required job이 모두 다시 성공했다. 현재 PR checks가 보여 주는 결과를
+최종 기준으로 삼는다.
 
 ## 1. 범위 잠금과 완료 선언 규칙
 
@@ -442,6 +445,7 @@ PR URL을 갱신한다.
 | 2026-08-08 | Extension full CI-equivalent gate (latest) | 통과 | `npm --prefix extension run check`: 37 files/368 tests, statements 86.07%, branches 80.18%, functions 93.18%, lines 89.38%; build 포함, exit 0. |
 | 2026-08-08 | Cross-package static/boundary/artifact gate | 통과 | Ruff/format/ty, commit convention, extension boundary, non-empty page bundle, launcher invalid-ID smoke가 모두 exit 0이다. |
 | 2026-08-08 | GitHub Actions final gate | 통과 | 저장소 `PUBLIC` 확인 후 PR 2 head `29def06`을 run `31259954396`에서 실행했다. Commit convention, Python, Client, TypeScript, System E2E, Automation browser, Linux/Windows/macOS launcher, Quality gate 10개가 모두 success였다. |
+| 2026-08-08 | GitHub Actions plan-sync rerun | 통과 | plan-only head `b456759`의 run `31260134575`에서 첫 System E2E 시도는 API port lifecycle race로 실패했으나, 실패 job rerun 후 System E2E `93110122762`와 Quality gate `93110387845`를 포함한 required 10개가 모두 success였다. 현재 `gh pr checks 91`도 전부 pass다. |
 | 2026-08-08 | PR 2 aggregate Quality gate | 외부 blocker | run `31258132421`에서 Python·Client·TypeScript·System E2E·Automation browser·Linux/Windows/macOS launcher·Commit convention은 통과. `Quality gate` job은 runner/step/log 없이 시작되지 않았고 annotation이 GitHub account payment failure 또는 spending limit 초과를 명시했다. Billing 해결 전에는 code failure로 분류하지 않는다. |
 | 2026-08-08 | PR 2 CI account-blocked run snapshot | 외부 blocker | runs `31258384895`와 `31258503358`의 모든 job이 runner/step 없이 동일한 GitHub account payment failure 또는 spending limit annotation으로 종료했다. local gate와 run `31258132421`의 실제 code 결과는 유효하며, 계정 상태 복구 후 전체 run을 재실행해야 한다. |
 
@@ -464,11 +468,11 @@ PR URL을 갱신한다.
 | --- | --- | --- |
 | implementation head | `74a309b` (`fix(client): 댓글 글자수 기준을 일치시킨다`) | strict audit follow-up 6개 커밋까지 포함한 code head. 계획 문서 갱신 커밋은 별도 docs 단위다. |
 | PR 1 | [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), `feature/webapp-workbench` → `main`, head `5f3a2b1`, review-ready | PR 1 범위의 required checks가 green이면 A 단위 수용 |
-| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, code head `74a309b`, review-ready / CI green | 저장소가 `PUBLIC`으로 확인됐고 code+plan head `29def06`의 run `31259954396`에서 10개 required checks가 모두 success, merge state는 `CLEAN`이다. 이후 plan-only 문서 sync도 동일 branch에서 확인한다. |
+| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, code head `74a309b`, review-ready / CI green | 저장소가 `PUBLIC`으로 확인됐고 plan-sync run `31260134575`의 공식 failed-job rerun에서 10개 required checks가 모두 success, merge state는 `CLEAN`이다. |
 | local Python | `1468 passed, 8 skipped`, coverage 89.99% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
 | local client/extension | client 634, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
 | 외부 live | Naver staging smoke 1 skipped | `RUN_LIVE_NAVER=1`과 dedicated logged-in profile 없이는 실행하지 않음 |
-| merge 전 남은 일 | reviewer 승인, 실제 Naver smoke opt-in, merge/release handoff | PR 2 required checks는 run `31259954396`에서 green이며, 남은 항목은 외부 계정·review/운영 handoff다. |
+| merge 전 남은 일 | reviewer 승인, 실제 Naver smoke opt-in, merge/release handoff | PR 2 required checks는 run `31260134575` failed-job rerun에서 green이며, 남은 항목은 외부 계정·review/운영 handoff다. |
 
 문서 변경 이후의 커밋은 이 표의 implementation head를 갱신해야 한다. CI가 재실행 중일 때는
 `완료`로 미리 기록하지 않고 `재실행 중`으로 둔다. run `31259954396`에서 `gh pr checks 91`의
@@ -738,7 +742,7 @@ stacked PR을 review하는 동안에는 PR 1의 최신 contract가 PR 2에 반�
 ### 아직 완료로 표시하지 않는 것
 
 - [ ] 실제 Naver editor에서 documented signature로 block별 trusted input을 실행한 live smoke
-- [x] public 저장소의 PR 2 head에서 GitHub Actions required checks가 실제로 green인 상태 — run `31259954396`
+- [x] public 저장소의 PR 2 head에서 GitHub Actions required checks가 실제로 green인 상태 — run `31260134575` failed-job rerun 포함
 - [ ] reviewer가 PR 1/PR 2를 승인하고 merge한 상태
 - [ ] merge 후 main 기준으로 release/launcher 운영자가 private env 위치와 backup 정책을 확인한 상태
 
