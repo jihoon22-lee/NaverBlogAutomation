@@ -7,25 +7,27 @@
 
 import { ApiError, type DraftGenerationOptions, LocalApiClient } from "../api/client";
 import { TERMINAL_RUN_EVENTS, type RunStreamFactory, eventSourceStream } from "../api/run-stream";
-import type { PostDraft, PublishRun } from "../api/types";
+import type { BodyBlock, PostDraft, PublishRun } from "../api/types";
 import {
   type WritingOptions,
   type WritingState,
-  activeRevision,
   blocksFromText,
   initialWritingState,
   startWorking,
+  withAutoSaveAcknowledged,
   withAutoSave,
-  withBodyText,
+  withBlocks,
   withDeleteConfirmation,
   withDraft,
   withDraftTitle,
   withFailure,
+  withImageInsertionPoint,
   withLoaded,
   withNotice,
   withOptions,
   withRun,
   withSeed,
+  withStagingEvent,
   withWritingProfile,
   withoutDraft,
 } from "../state/writing";
@@ -50,6 +52,7 @@ type WritingApi = Pick<
   | "blogCategories"
   | "appSetting"
   | "composeDraft"
+  | "checkpointDraft"
   | "createDraft"
   | "deleteDraft"
   | "deleteDraftImage"
@@ -83,7 +86,7 @@ export class WritingController {
   #autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   #autoSaveInFlight = false;
   #bodyEditVersion = 0;
-  #pendingAutoSave: { text: string; version: number } | null = null;
+  #pendingAutoSave: { blocks: BodyBlock[]; version: number } | null = null;
 
   constructor(root: Element, options: WritingControllerOptions = {}) {
     this.#root = root;
@@ -170,18 +173,33 @@ export class WritingController {
     );
   }
 
-  async saveBody(text: string): Promise<PostDraft | null> {
+  async saveBlocks(blocks: BodyBlock[]): Promise<PostDraft | null> {
     this.#clearAutosave();
-    return this.#saveBody(text, { automatic: false });
+    return this.#saveBlocks(blocks, { automatic: false });
   }
 
-  async #saveBody(
-    text: string,
+  /** @deprecated Compatibility entrypoint for older integrations; the canvas calls saveBlocks. */
+  async saveBody(text: string): Promise<PostDraft | null> {
+    return this.saveBlocks(blocksFromText(text, this.#state.draft?.revisions.at(-1) ?? null));
+  }
+
+  /** @deprecated Compatibility entrypoint for older integrations; the canvas edits blocks directly. */
+  onBodyChange(text: string): void {
+    this.onBlocksChange(blocksFromText(text, this.#state.draft?.revisions.at(-1) ?? null));
+  }
+
+  async checkpoint(): Promise<PostDraft | null> {
+    const draft = this.#state.draft;
+    if (draft === null || this.#state.busy) return null;
+    return this.#guard(async () => this.#api.checkpointDraft(draft.id));
+  }
+
+  async #saveBlocks(
+    blocks: BodyBlock[],
     options: { automatic: boolean; version?: number },
   ): Promise<PostDraft | null> {
     const draft = this.#state.draft;
     if (draft === null || (this.#state.busy && !options.automatic)) return null;
-    const blocks = blocksFromText(text, activeRevision(this.#state));
     if (blocks.length === 0) {
       this.#update(withFailure(this.#state, "저장할 본문이 없습니다."));
       return null;
@@ -189,13 +207,39 @@ export class WritingController {
     if (options.automatic) this.#update(withAutoSave(this.#state, "saving"));
     else this.#update(startWorking(this.#state, "review"));
     try {
-      const saved = await this.#api.saveDraftBody(draft.id, { title: draft.title, blocks });
-      if (options.version === undefined || options.version === this.#bodyEditVersion) {
-        this.#update(withDraft(this.#state, saved));
-      }
+      const saved = await this.#api.saveDraftBody(draft.id, {
+        // withDraftTitle updates the visible draft immediately while retaining the old working
+        // copy for its optimistic base version.  Sending that stale copy title would silently
+        // discard a title-only autosave.
+        title: draft.title,
+        blocks,
+        ...(draft.workingCopy === null || draft.workingCopy === undefined
+          ? {}
+          : { baseContentVersion: draft.workingCopy.contentVersion }),
+      });
+      this.#update(
+        options.version === undefined || options.version === this.#bodyEditVersion
+          ? withDraft(this.#state, saved)
+          : withAutoSaveAcknowledged(this.#state, saved),
+      );
       return saved;
     } catch (error) {
-      if (options.automatic) {
+      if (error instanceof ApiError && error.code === "draft_content_conflict") {
+        // An edit made while this request was in flight may be queued below.  Replaying it with
+        // the freshly fetched version would silently overwrite the other device's content, which
+        // defeats optimistic concurrency.  Show that latest copy and require a new user edit.
+        if (options.automatic) this.#pendingAutoSave = null;
+        try {
+          this.#update(
+            withFailure(
+              withDraft(this.#state, await this.#api.draft(draft.id)),
+              "다른 기기의 최신 본문을 불러왔습니다. 변경 내용은 덮어쓰지 않았습니다.",
+            ),
+          );
+        } catch {
+          this.#update(withFailure(this.#state, describe(error)));
+        }
+      } else if (options.automatic) {
         this.#update(withAutoSave(this.#state, "failed"));
       } else {
         this.#update(withFailure(this.#state, describe(error)));
@@ -204,14 +248,14 @@ export class WritingController {
     }
   }
 
-  onBodyChange(text: string): void {
+  onBlocksChange(blocks: BodyBlock[]): void {
     this.#bodyEditVersion += 1;
-    this.#state = withBodyText(this.#state, text);
+    this.#state = withBlocks(this.#state, blocks);
     this.#clearAutosave();
     const version = this.#bodyEditVersion;
     this.#autosaveTimer = setTimeout(() => {
       this.#autosaveTimer = null;
-      void this.#queueAutoSave(text, version);
+      void this.#queueAutoSave(blocks, version);
     }, 700);
   }
 
@@ -223,7 +267,7 @@ export class WritingController {
     const version = this.#bodyEditVersion;
     this.#autosaveTimer = setTimeout(() => {
       this.#autosaveTimer = null;
-      void this.#queueAutoSave(this.#state.bodyText, version);
+      void this.#queueAutoSave(this.#state.blocks, version);
     }, 700);
   }
 
@@ -260,6 +304,25 @@ export class WritingController {
     if (draft === null || this.#state.busy) return null;
     this.#update(startWorking(this.#state, this.#state.phase));
     return this.#guard(async () => this.#api.deleteDraftImage(draft.id, imageId));
+  }
+
+  insertImage(imageId: string, position = this.#state.imageInsertAt): void {
+    this.onBlocksStructureChange([
+      ...this.#state.blocks.slice(0, position),
+      { type: "image", image_id: imageId, caption: "" },
+      ...this.#state.blocks.slice(position),
+    ]);
+  }
+
+  setImageInsertionPoint(position: number): void {
+    this.#state = withImageInsertionPoint(this.#state, position);
+    this.render();
+  }
+
+  /** Redraw only after inserts, deletes, moves, and block-type changes. */
+  onBlocksStructureChange(blocks: BodyBlock[]): void {
+    this.onBlocksChange(blocks);
+    this.render();
   }
 
   async toggleTag(tag: string): Promise<PostDraft | null> {
@@ -357,17 +420,21 @@ export class WritingController {
   #handlers(): WritingHandlers {
     return {
       onAddTags: (tags) => void this.addTags(tags),
-      onBodyChange: (text) => this.onBodyChange(text),
+      onBlocksChange: (blocks) => this.onBlocksChange(blocks),
+      onBlocksStructureChange: (blocks) => this.onBlocksStructureChange(blocks),
       onCompose: () => void this.compose(),
       onCompleteWithAi: () => void this.completeWithAi(),
       onCreateDraft: () => void this.createDraft(),
       onDeleteDraft: () => void this.deleteDraft(),
       onDeleteImage: (imageId) => void this.deleteImage(imageId),
       onGenerateTags: () => void this.generateTags(),
+      onInsertImage: (imageId, position) => this.insertImage(imageId, position),
+      onImageInsertionPointChange: (position) => this.setImageInsertionPoint(position),
       onOpenDraft: (draftId) => void this.openDraft(draftId),
       onOptionChange: (option, value) => this.setOption(option, value),
       onRefine: () => void this.refine(),
-      onSaveBody: (text) => void this.saveBody(text),
+      onSaveBlocks: (blocks) => void this.saveBlocks(blocks),
+      onCheckpoint: () => void this.checkpoint(),
       onSeedChange: (field, value) => this.setSeed(field, value),
       onStage: () => void this.stage(),
       onTitleChange: (title) => this.onTitleChange(title),
@@ -413,6 +480,10 @@ export class WritingController {
     this.#source = this.#stream(this.#api.stagingEventsUrl(draftId), {
       onError: () => this.#closeSource(),
       onEvent: (event) => {
+        if (event.event === "step_completed") {
+          this.#update(withStagingEvent(this.#state, event.payload));
+          return;
+        }
         if (!TERMINAL_RUN_EVENTS.has(event.event)) return;
         this.#closeSource();
         void this.#refresh(draftId);
@@ -439,20 +510,20 @@ export class WritingController {
     this.#pendingAutoSave = null;
   }
 
-  async #queueAutoSave(text: string, version: number): Promise<void> {
+  async #queueAutoSave(blocks: BodyBlock[], version: number): Promise<void> {
     if (this.#autoSaveInFlight) {
-      this.#pendingAutoSave = { text, version };
+      this.#pendingAutoSave = { blocks, version };
       return;
     }
     this.#autoSaveInFlight = true;
     try {
-      await this.#saveBody(text, { automatic: true, version });
+      await this.#saveBlocks(blocks, { automatic: true, version });
     } finally {
       this.#autoSaveInFlight = false;
     }
     const pending = this.#pendingAutoSave;
     this.#pendingAutoSave = null;
-    if (pending !== null) await this.#queueAutoSave(pending.text, pending.version);
+    if (pending !== null) await this.#queueAutoSave(pending.blocks, pending.version);
   }
 
   async #writingProfile(): Promise<{

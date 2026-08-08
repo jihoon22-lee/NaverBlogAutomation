@@ -104,7 +104,15 @@ const DRAFT_STATUSES = new Set([
   "abandoned",
 ]);
 const REVISION_KINDS = new Set(["seed", "composed", "refined", "user_edited"]);
-const BLOCK_KINDS = new Set(["heading", "paragraph", "quote", "image"]);
+const BLOCK_KINDS = new Set([
+  "heading",
+  "paragraph",
+  "quote",
+  "ordered_list",
+  "unordered_list",
+  "divider",
+  "image",
+]);
 const TAG_SOURCES = new Set(["generated", "user"]);
 const PUBLISH_STEPS = new Set<PublishStepName>(["title", "body", "images", "tags", "save"]);
 const READINESS_BLOCKERS = new Set<ReadinessBlockerCode>([
@@ -628,15 +636,22 @@ export class LocalApiClient {
 
   async saveDraftBody(
     id: string,
-    payload: { title: string; blocks: BodyBlock[]; summary?: string },
+    payload: { title: string; blocks: BodyBlock[]; summary?: string; baseContentVersion?: number },
   ): Promise<PostDraft> {
     return readPostDraft(
       await this.#request("PUT", `/api/v1/drafts/${id}/body`, {
         title: payload.title,
         blocks: payload.blocks,
         ...(payload.summary === undefined ? {} : { summary: payload.summary }),
+        ...(payload.baseContentVersion === undefined
+          ? {}
+          : { base_content_version: payload.baseContentVersion }),
       }),
     );
+  }
+
+  async checkpointDraft(id: string): Promise<PostDraft> {
+    return readPostDraft(await this.#request("POST", `/api/v1/drafts/${id}/checkpoint`));
   }
 
   async composeDraft(id: string, payload: DraftGenerationOptions): Promise<PostDraft> {
@@ -1180,6 +1195,90 @@ export function readAppSetting(body: unknown): AppSettingRecord {
   };
 }
 
+export function readRuntimeConfiguration(body: unknown): RuntimeConfiguration {
+  if (
+    !isRecord(body) ||
+    !isRecord(body.ai) ||
+    !isRecord(body.naver_search) ||
+    !isRecord(body.smtp)
+  ) {
+    throw contractError("runtime configuration");
+  }
+  if (!isRecord(body.browser) || !isRecord(body.network) || !Array.isArray(body.ai.providers)) {
+    throw contractError("runtime configuration");
+  }
+  const activeProvider = body.ai.active_provider;
+  const driver = body.browser.driver;
+  const accessMode = body.network.access_mode;
+  const security = body.smtp.security;
+  if (
+    activeProvider !== "openai" &&
+    activeProvider !== "gemini" &&
+    activeProvider !== "anthropic" &&
+    activeProvider !== "fake"
+  )
+    throw contractError("active_provider");
+  if (driver !== "patchright" && driver !== "playwright" && driver !== "fake") {
+    throw contractError("browser driver");
+  }
+  if (accessMode !== "local" && accessMode !== "lan") throw contractError("access_mode");
+  if (security !== "starttls" && security !== "ssl") throw contractError("smtp security");
+  return {
+    ai: {
+      activeProvider,
+      providers: body.ai.providers.map((value) => {
+        if (!isRecord(value) || !PROVIDERS.has(value.provider as LlmProviderName)) {
+          throw contractError("runtime provider");
+        }
+        return {
+          provider: value.provider as LlmProviderName,
+          configured: readBoolean(value.configured, "configured"),
+          model: readString(value.model, "model"),
+        };
+      }),
+    },
+    naverSearch: { configured: readBoolean(body.naver_search.configured, "naver configured") },
+    smtp: {
+      configured: readBoolean(body.smtp.configured, "smtp configured"),
+      host: readString(body.smtp.host, "smtp host"),
+      port: readCount(body.smtp.port, "smtp port"),
+      security,
+    },
+    browser: {
+      driver,
+      headless: readBoolean(body.browser.headless, "browser headless"),
+      channel: readString(body.browser.channel, "browser channel"),
+    },
+    network: { accessMode },
+    restartRequired: readBoolean(body.restart_required, "restart_required"),
+    launcherRestartAvailable: readBoolean(
+      body.launcher_restart_available,
+      "launcher_restart_available",
+    ),
+  };
+}
+
+export function readRuntimeData(body: unknown): RuntimeData {
+  if (!isRecord(body)) throw contractError("runtime data");
+  return {
+    databaseLocation: readString(body.database_location, "database_location"),
+    databaseFileCount: readCount(body.database_file_count, "database_file_count"),
+    mediaLocation: readString(body.media_location, "media_location"),
+    mediaFileCount: readCount(body.media_file_count, "media_file_count"),
+    fileCount: readCount(body.file_count, "file_count"),
+    sizeBytes: readCount(body.size_bytes, "size_bytes"),
+    resetAvailable: readBoolean(body.reset_available, "reset_available"),
+  };
+}
+
+export function readRuntimeDataReset(body: unknown): RuntimeDataReset {
+  if (!isRecord(body)) throw contractError("runtime data reset");
+  return {
+    backupLocation: readString(body.backup_location, "backup_location"),
+    restartRequired: readBoolean(body.restart_required, "restart_required"),
+  };
+}
+
 export function readEngagementRun(body: unknown): EngagementRun {
   if (!isRecord(body)) throw contractError("run");
   const source = body.source;
@@ -1471,6 +1570,7 @@ export function readPostDraft(body: unknown): PostDraft {
         createdAt: value.created_at === null ? null : readString(value.created_at, "created_at"),
       };
     }),
+    workingCopy: readWorkingCopy(body.working_copy) ?? null,
     images: body.images.map((value) => {
       if (!isRecord(value)) throw contractError("image");
       return {
@@ -1495,6 +1595,17 @@ export function readPostDraft(body: unknown): PostDraft {
     }),
     createdAt: body.created_at === null ? null : readString(body.created_at, "created_at"),
     updatedAt: body.updated_at === null ? null : readString(body.updated_at, "updated_at"),
+  };
+}
+
+function readWorkingCopy(value: unknown): PostDraft["workingCopy"] {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !Array.isArray(value.blocks)) throw contractError("working_copy");
+  return {
+    title: readString(value.title, "working title"),
+    blocks: value.blocks.map(readBlock),
+    summary: typeof value.summary === "string" ? value.summary : "",
+    contentVersion: readCount(value.content_version, "content_version"),
   };
 }
 

@@ -255,16 +255,22 @@ export type DraftStatus =
 
 export type RevisionKind = "seed" | "composed" | "refined" | "user_edited";
 
-export type BlockKind = "heading" | "paragraph" | "quote" | "image";
+export type BlockKind =
+  | "heading"
+  | "paragraph"
+  | "quote"
+  | "ordered_list"
+  | "unordered_list"
+  | "divider"
+  | "image";
 
 export type LlmProviderName = "openai" | "gemini" | "anthropic";
 
-export interface BodyBlock {
-  type: BlockKind;
-  text?: string;
-  image_id?: string;
-  caption?: string;
-}
+export type BodyBlock =
+  | { type: "heading" | "paragraph" | "quote"; text: string }
+  | { type: "ordered_list" | "unordered_list"; items: string[] }
+  | { type: "divider" }
+  | { type: "image"; image_id: string; caption?: string };
 
 export interface DraftImage {
   id: string;
@@ -295,6 +301,13 @@ export interface DraftTag {
   selected: boolean;
 }
 
+export interface DraftWorkingCopy {
+  title: string;
+  blocks: BodyBlock[];
+  summary: string;
+  contentVersion: number;
+}
+
 export interface PostDraft {
   id: string;
   title: string;
@@ -303,6 +316,7 @@ export interface PostDraft {
   useImageVision: boolean;
   seedText: string;
   revisions: DraftRevision[];
+  workingCopy?: DraftWorkingCopy | null;
   images: DraftImage[];
   tags: DraftTag[];
   createdAt: string | null;
