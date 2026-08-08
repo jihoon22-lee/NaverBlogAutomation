@@ -45,6 +45,16 @@ def test_rejects_a_group_readable_private_file(tmp_path: Path) -> None:
         configuration.update({"OPENAI_MODEL": "new"})
 
 
+def test_rejects_a_private_file_without_the_exact_owner_read_write_mode(tmp_path: Path) -> None:
+    target = tmp_path / "env"
+    private_file(target, "OPENAI_MODEL=old\n")
+    target.chmod(0o700)
+    configuration = RuntimeConfiguration(target, environment={})
+
+    with pytest.raises(RuntimeConfigurationError, match="0600"):
+        configuration.update({"OPENAI_MODEL": "new"})
+
+
 def test_rejects_a_group_readable_private_directory(tmp_path: Path) -> None:
     private = tmp_path / "private"
     private.mkdir()

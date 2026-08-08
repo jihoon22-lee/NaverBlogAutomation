@@ -196,7 +196,7 @@ class RuntimeConfiguration:
                 raise RuntimeConfigurationError(
                     "private configuration file is not owned by this user"
                 )
-            if stat.S_IMODE(details.st_mode) & 0o077:
+            if os.name == "posix" and stat.S_IMODE(details.st_mode) != 0o600:
                 raise RuntimeConfigurationError(
                     "private configuration file permissions must be 0600"
                 )
