@@ -16,6 +16,7 @@ import {
   startLoading,
   visiblePosts,
   withApprovedStep,
+  withDetailOpen,
   withFailure,
   withFilters,
   withLoaded,
@@ -84,6 +85,7 @@ describe("initialTodayState", () => {
     expect(state.phase).toBe("idle");
     expect(state.posts).toEqual([]);
     expect(state.selectedPostId).toBeNull();
+    expect(state.detailOpen).toBe(false);
     expect(state.error).toBeNull();
     expect(state.sourceFilter).toBe("neighbor");
   });
@@ -110,6 +112,7 @@ describe("withLoaded", () => {
 
     expect(state.phase).toBe("ready");
     expect(state.selectedPostId).toBe("1");
+    expect(state.detailOpen).toBe(true);
   });
 
   it("keeps a selection that still exists", () => {
@@ -165,6 +168,21 @@ describe("withSelection", () => {
     });
 
     expect(withSelection(state, "missing").selectedPostId).toBe("1");
+  });
+
+  it("opens the detail sheet when a person selects a queue item", () => {
+    const state = withDetailOpen(
+      withLoaded(initialTodayState(), {
+        posts: [post("1")],
+        service: SERVICE,
+        session: SESSION,
+      }),
+      false,
+    );
+
+    const selected = withSelection(state, "1");
+
+    expect(selected.detailOpen).toBe(true);
   });
 });
 

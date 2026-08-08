@@ -13,6 +13,7 @@ import type {
   EngagementStepName,
   SafetyStatus,
 } from "../api/types";
+import type { SettingsSection } from "../controllers/settings";
 import {
   batchPreflight,
   canContinueBatchPreflight,
@@ -33,7 +34,8 @@ export interface TodayHandlers {
   onOpenDirectUrl(url: string): void;
   onOpenWorkbench(): void;
   onOpenBatch(): void;
-  onOpenSettings(): void;
+  onOpenSettings(section?: SettingsSection): void;
+  onCloseDetail(): void;
   onPostStateChange(postId: string, state: DiscoveryState): void;
   onRefresh(): void;
   onSelectPost(postId: string): void;
@@ -161,7 +163,11 @@ export function renderHome(root: Element, state: TodayState, handlers: TodayHand
         );
       } else if (blocker !== "web_app_assets_missing") {
         item.append(document.createTextNode(" "));
-        item.append(button(document, `home-${blocker}`, "설정 열기", handlers.onOpenSettings));
+        item.append(
+          button(document, `home-${blocker}`, "설정 열기", () =>
+            handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
+          ),
+        );
       }
       list.append(item);
     }
@@ -307,7 +313,11 @@ function renderOnboarding(document: Document, state: TodayState, handlers: Today
       );
     } else if (blocker !== "web_app_assets_missing") {
       item.append(document.createTextNode(" "));
-      item.append(button(document, `onboarding-${blocker}`, "설정 열기", handlers.onOpenSettings));
+      item.append(
+        button(document, `onboarding-${blocker}`, "설정 열기", () =>
+          handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
+        ),
+      );
     }
     list.append(item);
   }
@@ -585,10 +595,29 @@ function renderDetail(
   if (post === null) return null;
   const section = document.createElement("section");
   section.className = "detail-panel";
+  section.dataset.detailOpen = String(state.detailOpen);
+  const close = button(document, "close-detail-sheet", "상세 닫기", handlers.onCloseDetail);
+  close.className = "detail-sheet-close";
+  section.append(close);
   const heading = document.createElement("h2");
   heading.id = "detail-title";
   heading.textContent = post.title;
   section.append(heading);
+
+  const badges = document.createElement("ul");
+  badges.className = "detail-badges";
+  for (const [kind, label] of [
+    ["source", `출처 · ${SOURCE_LABELS[post.source]}`],
+    ["context", `검색어 · ${post.sourceLabel ?? "확인 필요"}`],
+    ["author", `작성자 · ${post.publisherName ?? post.publisherBlogId ?? "확인 필요"}`],
+    ["published", `시각 · ${post.publishedAt ?? post.createdAt}`],
+  ] as const) {
+    const badge = document.createElement("li");
+    badge.dataset.badge = kind;
+    badge.textContent = label;
+    badges.append(badge);
+  }
+  section.append(badges);
 
   const list = document.createElement("dl");
   appendTerm(document, list, "출처", SOURCE_LABELS[post.source]);
@@ -640,6 +669,18 @@ function blockerLabel(blocker: string): string {
     safety_policy_missing: "자동 실행 안전 정책을 확인해야 합니다.",
   };
   return labels[blocker] ?? blocker;
+}
+
+function settingsSectionForBlocker(blocker: string): SettingsSection | undefined {
+  if (
+    blocker === "own_blog_id_missing" ||
+    blocker === "automation_consent_missing" ||
+    blocker === "safety_policy_missing"
+  ) {
+    return "automation";
+  }
+  if (blocker === "llm_provider_missing") return "connections";
+  return undefined;
 }
 
 function appendTerm(document: Document, list: Element, term: string, value: string): void {

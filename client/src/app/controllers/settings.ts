@@ -20,6 +20,8 @@ import type {
 } from "../api/types";
 import { renderSettings } from "../views/settings";
 
+export type SettingsSection = "defaults" | "automation" | "connections";
+
 const REFUSALS: Record<string, string> = {
   own_blog_id_missing: "내 블로그 ID를 먼저 저장하세요.",
   search_provider_unavailable:
@@ -33,7 +35,7 @@ const REFUSALS: Record<string, string> = {
 };
 
 export interface SettingsState {
-  section: "defaults" | "automation" | "connections";
+  section: SettingsSection;
   phase: "idle" | "loading" | "ready" | "saving" | "syncing" | "failed";
   settings: AutoDiscoverySettings | null;
   searches: SavedSearch[];
@@ -248,6 +250,11 @@ export class SettingsController {
 
   get state(): SettingsState {
     return this.#state;
+  }
+
+  /** Select the card group requested by an onboarding blocker or a deep link. */
+  setSection(section: SettingsSection): void {
+    this.#state = { ...this.#state, section };
   }
 
   /** Draw the settings screen for the current state. */

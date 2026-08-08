@@ -10,7 +10,7 @@ import type { ArticleExtraction } from "./api/types";
 import { ActivityController } from "./controllers/activity";
 import { CommentController } from "./controllers/comment";
 import { SessionController } from "./controllers/session";
-import { SettingsController } from "./controllers/settings";
+import { SettingsController, type SettingsSection } from "./controllers/settings";
 import { TodayController } from "./controllers/today";
 import { WritingController } from "./controllers/writing";
 import { createNavigation, focusWorkspace, type NavSection } from "./navigation";
@@ -39,7 +39,7 @@ export interface Workspace {
   showWorkbench(selectedPostId?: string): void;
   showSession(sessionId?: string): void;
   showActivity(): void;
-  showSettings(): void;
+  showSettings(section?: SettingsSection): void;
   /** @deprecated Historical route alias. Opens the workbench. */
   showToday(selectedPostId?: string): void;
   showWriting(draftId?: string): void;
@@ -97,7 +97,7 @@ export function createWorkspace(root: Element): Workspace {
         generate: true,
       }),
     onRemotePairingRequired: () => workspace.showRemotePairing?.(),
-    onSettingsRequested: () => workspace.showSettings?.(),
+    onSettingsRequested: (section) => workspace.showSettings?.(section),
     onWorkbenchRequested: () => workspace.showWorkbench?.(),
     onBatchRequested: ({ postIds, approvedSteps }) => {
       session.setSelectedPosts(postIds);
@@ -170,12 +170,14 @@ export function createWorkspace(root: Element): Workspace {
     });
     focusWorkspace(root);
   };
-  workspace.showSettings = () => {
+  workspace.showSettings = (section) => {
     setNavigationVisible(document, true);
     activeView = "settings";
-    setRoute(document, "#settings");
+    const query = section === undefined ? "" : `?section=${section}`;
+    setRoute(document, `#settings${query}`);
     session.close();
     navigation?.mark("more");
+    if (section !== undefined) appSettings.setSection(section);
     appSettings.render();
     focusWorkspace(root);
     void appSettings.load();
@@ -293,8 +295,15 @@ export function createWorkspace(root: Element): Workspace {
     } else if (route === "session" && activeView !== "session") {
       workspace.showSession?.(sessionRouteFromHash(hash));
     } else if (route === "activity" && activeView !== "activity") workspace.showActivity?.();
-    else if (route === "settings" && activeView !== "settings") workspace.showSettings?.();
-    else if (route === "more" && activeView !== "more") workspace.showMore?.();
+    else if (route === "settings") {
+      const section = settingsSectionFromHash(hash);
+      if (
+        activeView !== "settings" ||
+        (section !== undefined && appSettings.state.section !== section)
+      ) {
+        workspace.showSettings?.(section);
+      }
+    } else if (route === "more" && activeView !== "more") workspace.showMore?.();
     else if (route === "home" && activeView !== "home") workspace.showHome?.();
     else if (route === "workbench" && activeView !== "workbench") workspace.showWorkbench?.();
     else if (route === "post" && root.querySelector("#comment-status") === null) {
@@ -329,7 +338,8 @@ export function mount(documentRef: Document = document): Workspace | null {
   else if (route === "session")
     workspace.showSession(sessionRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
   else if (route === "activity") workspace.showActivity();
-  else if (route === "settings") workspace.showSettings();
+  else if (route === "settings")
+    workspace.showSettings(settingsSectionFromHash(documentRef.defaultView?.location.hash ?? ""));
   else if (route === "more") workspace.showMore();
   else if (route === "workbench") workspace.showWorkbench();
   else if (route === "home") workspace.showHome();
@@ -411,6 +421,14 @@ function sessionRouteFromHash(hash: string): string | undefined {
   const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
   const sessionId = path.startsWith("session/") ? path.slice("session/".length) : "";
   return sessionId.length === 0 ? undefined : sessionId;
+}
+
+function settingsSectionFromHash(hash: string): SettingsSection | undefined {
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+  const section = new URLSearchParams(query).get("section");
+  return section === "defaults" || section === "automation" || section === "connections"
+    ? section
+    : undefined;
 }
 
 function commentRouteFromHash(hash: string): {

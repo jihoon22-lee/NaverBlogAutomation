@@ -26,6 +26,8 @@ export interface TodayState {
   posts: DiscoveryPost[];
   query: string;
   readiness: AppReadiness | null;
+  /** Whether the selected detail is open on narrow screens. Desktop keeps it visible regardless. */
+  detailOpen: boolean;
   selectedPostId: string | null;
   service: ServiceStatus | null;
   session: BrowserSession | null;
@@ -52,6 +54,7 @@ export function initialTodayState(): TodayState {
     posts: [],
     query: "",
     readiness: null,
+    detailOpen: false,
     selectedPostId: null,
     service: null,
     session: null,
@@ -91,6 +94,9 @@ export function withLoaded(
     phase: "ready",
     posts,
     readiness: loaded.readiness ?? state.readiness,
+    // A first workbench load should show the selected card; subsequent refreshes preserve an
+    // explicit close on a tablet sheet.
+    detailOpen: selected !== null && (state.detailOpen || state.selectedPostId === null),
     selectedPostId: selected,
     service: loaded.service,
     session: loaded.session,
@@ -129,8 +135,12 @@ export function withSession(state: TodayState, session: BrowserSession): TodaySt
 
 export function withSelection(state: TodayState, postId: string): TodayState {
   return state.posts.some((post) => post.id === postId)
-    ? { ...state, selectedPostId: postId }
+    ? { ...state, detailOpen: true, selectedPostId: postId }
     : state;
+}
+
+export function withDetailOpen(state: TodayState, detailOpen: boolean): TodayState {
+  return { ...state, detailOpen };
 }
 
 export function withFilters(

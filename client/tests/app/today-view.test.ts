@@ -106,6 +106,7 @@ function text(selector: string): string {
 function handlers(): TodayHandlers {
   return {
     onCloseSession: vi.fn(),
+    onCloseDetail: vi.fn(),
     onFilterChange: vi.fn(),
     onFocusSession: vi.fn(),
     onLaunchSession: vi.fn(),
@@ -190,6 +191,9 @@ describe("home and onboarding views", () => {
     expect(document.getElementById("home-launch-browser")).not.toBeNull();
     expect(document.getElementById("home-focus-browser")).not.toBeNull();
     expect(document.getElementById("home-llm_provider_missing")).not.toBeNull();
+
+    (document.getElementById("home-llm_provider_missing") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenSettings).toHaveBeenCalledWith("connections");
   });
 
   it("renders the workbench service/onboarding shell without a selected detail", () => {
@@ -405,6 +409,22 @@ describe("selection and opening", () => {
     second.click();
 
     expect(text("#detail-title")).toBe("합성 제목 2");
+  });
+
+  it("renders detail badges and closes the narrow sheet without losing selection", async () => {
+    const client = api();
+    const controller = new TodayController(mountRoot(), { api: client as never });
+    await controller.load();
+
+    expect(document.querySelectorAll(".detail-badges [data-badge]")).toHaveLength(4);
+    expect(text('.detail-badges [data-badge="source"]')).toContain("이웃 새 글");
+    expect(controller.state.detailOpen).toBe(true);
+
+    (document.getElementById("close-detail-sheet") as HTMLButtonElement).click();
+
+    expect(controller.state.detailOpen).toBe(false);
+    expect(controller.state.selectedPostId).toBe("1");
+    expect(document.querySelector('.detail-panel[data-detail-open="false"]')).not.toBeNull();
   });
 
   it("extracts the selected post and reports the capture", async () => {

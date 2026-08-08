@@ -297,6 +297,12 @@ describe("createWorkspace", () => {
 
     expect(root.querySelector(".discovery-settings-panel")).not.toBeNull();
     expect(document.defaultView?.location.hash).toBe("#settings");
+
+    workspace.showSettings("connections");
+    expect(document.defaultView?.location.hash).toBe("#settings?section=connections");
+    expect(
+      root.querySelector('[data-settings-section="connections"]')?.hasAttribute("hidden"),
+    ).toBe(false);
   });
 
   it("follows shareable routes and refreshes their current screen after a tablet resumes", async () => {
