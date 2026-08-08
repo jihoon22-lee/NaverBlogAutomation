@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,7 @@ def test_live_naver_editor_signature_stages_without_publishing(tmp_path: Path) -
     channel = os.getenv("AUTOMATION_BROWSER_CHANNEL", "").strip() or None
     profile = resolve_profile_dir(
         configured=configured_profile,
-        platform=os.sys.platform,
+        platform=sys.platform,
         environment=os.environ,
         home=Path.home(),
     )
