@@ -232,6 +232,18 @@ describe("load", () => {
     expect(controller.state.phase).toBe("ready");
   });
 
+  it("offers every API-supported queue state in the status filter", async () => {
+    const controller = new TodayController(mountRoot(), { api: api() as never });
+
+    await controller.load();
+
+    expect(
+      Array.from(document.querySelectorAll<HTMLSelectElement>("#queue-state-filter option")).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["all", "queued", "opened", "skipped", "completed", "unavailable"]);
+  });
+
   it("marks the selected queue item with aria-pressed", async () => {
     const controller = new TodayController(mountRoot(), { api: api() as never });
 

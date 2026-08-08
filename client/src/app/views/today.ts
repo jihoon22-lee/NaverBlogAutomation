@@ -14,11 +14,11 @@ import type {
   SafetyStatus,
 } from "../api/types";
 import {
-  type TodayState,
   batchPreflight,
   canContinueBatchPreflight,
   canOpenSelected,
   selectedPost,
+  type TodayState,
   visiblePosts,
 } from "../state/today";
 
@@ -430,6 +430,8 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     ["queued", "대기"],
     ["opened", "열어봄"],
     ["skipped", "건너뜀"],
+    ["completed", "완료"],
+    ["unavailable", "사용 불가"],
   ]) {
     const option = document.createElement("option");
     option.value = value ?? "";
