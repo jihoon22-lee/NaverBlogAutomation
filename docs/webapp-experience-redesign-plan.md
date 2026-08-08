@@ -342,7 +342,7 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
-| PR 1 | `feature/workbench` | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `7f1856c` 태블릿 overflow, `631aa78` recommendation contract | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, 기존 packaged workflow E2E |
+| PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
 | PR 2 | `feature/webapp-experience-redesign` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
@@ -429,4 +429,4 @@ PR URL을 갱신한다.
 - [x] Local operations: automatic migration, export/reset·backup 수동 복구 범위, fixture rollback, hang protocol과 앱 소유 media root를 설명한다.
 - [x] API contract: runtime/data/staging response와 errors가 OpenAPI·Pydantic·client parser에 일치한다.
 - [x] 이 문서: 모든 ID에 완료/외부 대기와 실행한 검증의 최종 결과가 기록되어 있다.
-- [ ] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다. push/PR 생성 후 URL을 추가한다.
+- [ ] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다. PR 1은 [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)으로 생성했고, PR 2 생성 후 URL을 추가한다.
