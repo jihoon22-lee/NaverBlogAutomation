@@ -273,6 +273,14 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
                 detail=str(error),
             ) from error
         known = {image.id for image in draft.images}
+        referenced_images = [block.image_id for block in blocks if block.image_id is not None]
+        if len(referenced_images) != len(set(referenced_images)):
+            raise ApiError(
+                status=422,
+                code="duplicate_image_reference",
+                title="Duplicate image",
+                detail=WRITING_DETAILS["duplicate_image_reference"],
+            )
         for block in blocks:
             if block.image_id is not None and block.image_id not in known:
                 raise ApiError(

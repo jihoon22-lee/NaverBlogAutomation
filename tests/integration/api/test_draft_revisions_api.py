@@ -166,6 +166,28 @@ def test_an_uploaded_image_may_be_referenced(client: TestClient) -> None:
     assert response.json()["revisions"][0]["blocks"][0]["image_id"] == image_id
 
 
+def test_the_same_uploaded_image_cannot_appear_in_two_blocks(client: TestClient) -> None:
+    draft_id = create(client)
+    uploaded = client.post(
+        f"{DRAFTS}/{draft_id}/images", files={"file": ("a.png", PNG, "image/png")}
+    ).json()
+    image_id = uploaded["images"][0]["id"]
+
+    response = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={
+            "title": "제목",
+            "blocks": [
+                {"type": "image", "image_id": image_id, "caption": "첫 사진"},
+                {"type": "image", "image_id": image_id, "caption": "같은 사진"},
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "duplicate_image_reference"
+
+
 @pytest.mark.parametrize(
     "payload",
     [
