@@ -18,7 +18,7 @@
 | 구분 | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 사용자 기능 구현 | 완료 | 홈·작업함·댓글·batch·block studio·설정 센터·data management가 코드와 계약에 반영됨 | 없음 |
-| 로컬 자동 검증 | 완료 | Python `1462 passed`, client `626 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
+| 로컬 자동 검증 | 완료 | Python `1462 passed`, client `628 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
 | 보안/호환성 검증 | 완료 | runtime redaction/권한/symlink/pair 제한, OpenAPI parser parity, legacy route/endpoint 회귀 검증 | 실제 배포 환경의 운영자 확인만 남음 |
 | 실제 Naver editor 확인 | 외부 opt-in 대기 | 지원 block별 trusted input smoke harness와 fail-closed 경로 준비 | 전용 로그인 profile에서 `RUN_LIVE_NAVER=1` 실행 |
 | PR 전달 | 진행 중 | 기능 단위 Conventional Commit이 이미 분리됨 | 아래 8장의 PR 1/2 push 및 review-ready PR 생성 |
@@ -92,7 +92,7 @@ local/mock 검증은 완료했지만 실제 Naver 계정 또는 운영 launcher�
 | structured staging | unique capability probe, fail-closed `StagePost`, semantic prefix evidence, opt-in harness | 외부 대기 | mock/local trusted input과 negative matrix 통과; 실제 Naver signature smoke는 계정 필요 |
 | runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests, desktop data API/UI, supervisor | 완료 | write-only/atomic/private/pair/restart/export/reset 검증 및 settings/data E2E 통과 |
 | schedule/budget advanced settings | settings controller/view and app setting routes | 완료 | advanced disclosure, persistence/validation, paired restriction 테스트 통과 |
-| quality gates | targeted suites, full Python/client/extension, viewport E2E, artifact checks | 완료 | Python 1462/8 skip, client 626, extension 368, E2E 5, all required exits 0 |
+| quality gates | targeted suites, full Python/client/extension, viewport E2E, artifact checks | 완료 | Python 1462/8 skip, client 628, extension 368, E2E 5, all required exits 0 |
 
 현재 branch의 각 기능 단위는 Conventional Commit으로 분리되어 있다. PR 직전에는 `git diff`
 기반으로 각 단위에 속하지 않는 변경이 없는지 다시 확인하고, 이 문서의 quality gate 증거를 PR
@@ -411,9 +411,9 @@ PR URL을 갱신한다.
 | 2026-08-08 | Python 106-test 묶음 | 중단됨 | PID 1719554가 41개 출력 뒤 `p9_client_rpc` I/O 대기와 60초 무출력을 보여 종료했다. final summary가 없어 통과가 아니다. |
 | 2026-08-08 | Client non-coverage full suite | 중단됨 | PID 1713782(fork), 1714780(thread)가 `settings.test.ts` 35개 출력 뒤 60초 무출력으로 종료됐다. |
 | 2026-08-08 | Client non-coverage full suite 재시도 | 통과 | 26 files/608 tests가 final summary와 exit 0으로 종료했다. 이 기록은 이전 중단을 지우지 않으며 coverage gate는 별도다. |
-| 2026-08-08 | Client coverage full suite | 통과 | 625 tests가 종료했고 statements 90.00%, functions 81.41%, branches 80.19%, lines 92.03%로 모두 80% gate를 넘겼다. optional payload·remote device·block decoder·SSE/route resume tests로 실제 contract 경로를 보강했다. |
+| 2026-08-08 | Client coverage full suite (PR 1 merge 전) | 통과 | 625 tests가 종료했고 statements 90.00%, functions 81.41%, branches 80.19%, lines 92.03%로 모두 80% gate를 넘겼다. optional payload·remote device·block decoder·SSE/route resume tests로 실제 contract 경로를 보강했다. |
 | 2026-08-08 | Extension quality gate | 통과 | 37 files/368 tests passed; interim check output recorded statements 86.07%, branches 80.18%, functions 93.18%, lines 89.38%, exit 0. |
-| 2026-08-08 | Client final quality gate | 통과 | `npm --prefix client run check`: 626 tests, statements 89.99%, branches 80.16%, functions 81.41%, lines 92.02%; build 포함, exit 0. Biome의 기존 `document.cookie` 2 warning만 남음. |
+| 2026-08-08 | Client final quality gate (PR 1 merge 후) | 통과 | `npm --prefix client run check`: 628 tests, statements 90.57%, branches 80.69%, functions 81.50%, lines 92.67%; build 포함, exit 0. Biome의 기존 `document.cookie` 2 warning만 남음. |
 | 2026-08-08 | Extension final quality gate | 통과 | `npm --prefix extension run check`: 37 files/368 tests, statements 86.07%, branches 80.18%, functions 93.18%, lines 89.38%; build 포함, exit 0. |
 | 2026-08-08 | Python static final gate | 통과 | `uv run ruff format --check .`, `uv run ruff check .`, `uv run ty check` 각 exit 0; 235 files checked. |
 | 2026-08-08 | Python full final gate | 통과 | `timeout 1200 uv run pytest -vv`: `1462 passed, 8 skipped, 8 warnings in 420.56s`; total coverage 90.06% (branch requirement 85%). skips는 Playwright binary 4, Naver live 1, OpenAI live 3. |
