@@ -133,6 +133,34 @@ class TestCompose:
             BlockKind.IMAGE,
         ]
 
+    def test_it_preserves_every_supported_canonical_block_kind(self) -> None:
+        store = _Store(draft())
+        client = FakeStructuredClient(
+            payloads=[
+                composed(
+                    [
+                        {"type": "heading", "text": "소제목"},
+                        {"type": "quote", "text": "인용"},
+                        {"type": "ordered_list", "items": ["첫째", "둘째"]},
+                        {"type": "unordered_list", "items": ["하나", "둘"]},
+                        {"type": "divider"},
+                    ]
+                )
+            ]
+        )
+
+        run(ComposePost(store).compose(draft_id=DRAFT_ID, client=client))
+
+        recorded = store.revisions[0]
+        assert [block.kind for block in recorded["blocks"]] == [
+            BlockKind.HEADING,
+            BlockKind.QUOTE,
+            BlockKind.ORDERED_LIST,
+            BlockKind.UNORDERED_LIST,
+            BlockKind.DIVIDER,
+        ]
+        assert recorded["blocks"][2].items == ("첫째", "둘째")
+
     def test_it_sends_the_seed_and_references_as_untrusted_data(self) -> None:
         store = _Store(draft())
         client = FakeStructuredClient(payloads=[composed()])

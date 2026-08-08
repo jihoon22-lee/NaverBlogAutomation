@@ -248,8 +248,19 @@ def _blocks_for(draft: PostDraft, parsed: ComposedPost) -> tuple[BodyBlock, ...]
     used: set[str] = set()
     blocks: list[BodyBlock] = []
     for block in parsed.blocks:
-        if block.type != "image":
+        if block.type in {"heading", "paragraph", "quote"}:
             blocks.append(BodyBlock(kind=BlockKind(block.type), text=block.text.strip()))
+            continue
+        if block.type in {"ordered_list", "unordered_list"}:
+            blocks.append(
+                BodyBlock(
+                    kind=BlockKind(block.type),
+                    items=tuple(item.strip() for item in block.items),
+                )
+            )
+            continue
+        if block.type == "divider":
+            blocks.append(BodyBlock(kind=BlockKind.DIVIDER))
             continue
         if block.image_id not in known:
             raise WritingRefusedError("unknown_image_reference")
