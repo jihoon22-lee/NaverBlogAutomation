@@ -94,8 +94,16 @@ for (const viewport of VIEWPORTS) {
       }
       await page.locator("#skip-post-button").click();
       await expect(page.locator("#skip-post-button")).toHaveText("다시 대기");
+      if (viewport.name === "tablet portrait") {
+        await page.locator("#close-detail-sheet").click();
+        await expect(page.locator(".detail-panel")).toBeHidden();
+      }
       await page.locator('[data-segment="skipped"]').click();
       await expect(page.locator(`.queue-item[data-post-id="${postId}"]`)).toBeVisible();
+      if (viewport.name === "tablet portrait") {
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator(".detail-panel")).toBeVisible();
+      }
       await page.locator("#skip-post-button").click();
       await expect(page.locator("#skip-post-button")).toHaveText("이 글 건너뛰기");
       expect(errors).toEqual([]);
