@@ -39,7 +39,10 @@ from naver_blog_assistant.domain.writing import (
     normalize_tags,
     parse_body,
 )
-from naver_blog_assistant.infrastructure.database.post_draft_repository import DraftNotFoundError
+from naver_blog_assistant.infrastructure.database.post_draft_repository import (
+    DraftContentConflictError,
+    DraftNotFoundError,
+)
 from naver_blog_assistant.infrastructure.storage import DraftImageStore
 
 WRITING_DETAILS: dict[str, str] = {
@@ -252,6 +255,7 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
         response_model=DraftResponse,
         responses={
             404: problem_metadata("The draft does not exist."),
+            409: problem_metadata("A newer working copy was saved by another device."),
             422: problem_metadata("The edited body is unusable."),
         },
         tags=["Writing"],
@@ -260,7 +264,7 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
     async def save_body(draft_id: UUID, payload: DraftBodyRequest) -> DraftResponse:
         draft = _draft(draft_id)
         try:
-            blocks = parse_body(payload.blocks)
+            blocks = parse_body(payload.body_payload())
         except DomainValidationError as error:
             raise ApiError(
                 status=422,
@@ -269,6 +273,14 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
                 detail=str(error),
             ) from error
         known = {image.id for image in draft.images}
+        referenced_images = [block.image_id for block in blocks if block.image_id is not None]
+        if len(referenced_images) != len(set(referenced_images)):
+            raise ApiError(
+                status=422,
+                code="duplicate_image_reference",
+                title="Duplicate image",
+                detail=WRITING_DETAILS["duplicate_image_reference"],
+            )
         for block in blocks:
             if block.image_id is not None and block.image_id not in known:
                 raise ApiError(
@@ -277,8 +289,11 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
                     title="Unknown image",
                     detail=WRITING_DETAILS["unknown_image_reference"],
                 )
-        return DraftResponse.from_domain(
-            drafts.add_revision(
+        # The original endpoint deliberately remains checkpoint-oriented when a
+        # legacy caller omits a version.  The block canvas always supplies its
+        # optimistic version and therefore updates only the working copy.
+        if payload.base_content_version is None:
+            saved = drafts.add_revision(
                 draft_id=draft_id,
                 revision_id=uuid4(),
                 round_no=draft.next_round,
@@ -288,7 +303,49 @@ def register_draft_routes(  # noqa: C901 - one closure per documented endpoint
                 summary=payload.summary.strip(),
                 activate=True,
             )
-        )
+            return DraftResponse.from_domain(saved)
+        try:
+            saved = drafts.save_working_copy(
+                draft_id=draft_id,
+                title=payload.title.strip(),
+                blocks=blocks,
+                summary=payload.summary.strip(),
+                base_content_version=payload.base_content_version,
+            )
+        except DraftContentConflictError as error:
+            raise ApiError(
+                status=409,
+                code="draft_content_conflict",
+                title="Draft changed on another device",
+                detail=(
+                    "다른 기기에서 더 새롭게 저장되었습니다. 최신 본문을 불러온 뒤 다시 편집하세요."
+                ),
+            ) from error
+        return DraftResponse.from_domain(saved)
+
+    @app.post(
+        "/api/v1/drafts/{draft_id}/checkpoint",
+        response_model=DraftResponse,
+        responses={
+            404: problem_metadata("The draft does not exist."),
+            409: problem_metadata("The draft has no editable body to checkpoint."),
+            422: problem_metadata("The draft identifier is invalid."),
+        },
+        tags=["Writing"],
+        operation_id="checkpointPostDraft",
+    )
+    async def checkpoint_draft(draft_id: UUID) -> DraftResponse:
+        try:
+            return DraftResponse.from_domain(drafts.checkpoint_working_copy(draft_id))
+        except DraftNotFoundError as error:
+            raise _not_found() from error
+        except ValueError as error:
+            raise ApiError(
+                status=409,
+                code="working_copy_missing",
+                title="Working copy missing",
+                detail="저장할 본문이 없습니다. 먼저 본문을 생성하거나 편집하세요.",
+            ) from error
 
     @app.post(
         "/api/v1/drafts/{draft_id}/compose",

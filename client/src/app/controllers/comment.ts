@@ -13,14 +13,13 @@ import type {
   LlmProviderName,
   Recommendation,
 } from "../api/types";
-import { RunController } from "./run";
 import {
-  type CommentState,
   appendClosingPhrase,
+  type CommentState,
   canApprove,
   initialCommentState,
-  startRefining,
   startGenerating,
+  startRefining,
   withClosingPhrase,
   withComparedRecommendation,
   withDraft,
@@ -32,12 +31,13 @@ import {
   withNeighborMessage,
   withOptions,
   withProviderAvailability,
-  withReviewed,
   withRefinedDraft,
   withRefinementFailure,
+  withReviewed,
   withSelectedCandidate,
 } from "../state/comment";
 import { type CommentHandlers, renderComment } from "../views/comment";
+import { RunController } from "./run";
 
 const OPTION_KEYS: Record<string, keyof GenerationOptions> = {
   relationship_level: "relationshipLevel",
@@ -212,9 +212,7 @@ export class CommentController {
       onBack: () => this.#onBack(),
       onCopy: () => void this.copyDraft(),
       onCompare: () => void this.compareProviders(),
-      onDraftChange: (draft: string) => {
-        this.#state = withDraft(this.#state, draft);
-      },
+      onDraftChange: (draft: string) => this.#update(withDraft(this.#state, draft)),
       onExecute: () => void this.execute(),
       onGenerate: () => void this.generate(),
       onOptionChange: (option: string, value: string) => this.#setOption(option, value),

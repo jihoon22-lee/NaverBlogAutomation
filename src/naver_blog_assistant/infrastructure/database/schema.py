@@ -331,8 +331,6 @@ APP_SETTING_KINDS = (
     "automation_consent",
     "safety_policy",
     "schedule_policy",
-    "browser_profile",
-    "llm_providers",
     "llm_budget",
     "writing_profile",
 )
@@ -430,11 +428,16 @@ post_drafts = Table(
     Column("status", String(16), nullable=False),
     Column("use_image_vision", Boolean, nullable=False),
     Column("seed_text", Text, nullable=False),
+    Column("working_title", String(300), nullable=True),
+    Column("working_blocks_json", Text, nullable=True),
+    Column("working_summary", String(800), nullable=False, server_default=""),
+    Column("content_version", Integer, nullable=False, server_default="0"),
     Column("created_at", String(32), nullable=False),
     Column("updated_at", String(32), nullable=False),
     CheckConstraint(_allowed("status", DRAFT_STATUSES), name="ck_post_drafts_status"),
     CheckConstraint("length(title) > 0", name="ck_post_drafts_title"),
     CheckConstraint("category_no IS NULL OR category_no >= 0", name="ck_post_drafts_category_no"),
+    CheckConstraint("content_version >= 0", name="ck_post_drafts_content_version"),
 )
 
 post_draft_revisions = Table(

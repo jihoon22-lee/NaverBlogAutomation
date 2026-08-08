@@ -49,6 +49,10 @@ import type {
   PostDraft,
   PersonalizationMode,
   ProblemDetails,
+  RuntimeConfiguration,
+  RuntimeData,
+  RuntimeDataReset,
+  RuntimeSecretUpdate,
   PublishRun,
   PublishStep,
   PublishStepName,
@@ -104,7 +108,15 @@ const DRAFT_STATUSES = new Set([
   "abandoned",
 ]);
 const REVISION_KINDS = new Set(["seed", "composed", "refined", "user_edited"]);
-const BLOCK_KINDS = new Set(["heading", "paragraph", "quote", "image"]);
+const BLOCK_KINDS = new Set([
+  "heading",
+  "paragraph",
+  "quote",
+  "ordered_list",
+  "unordered_list",
+  "divider",
+  "image",
+]);
 const TAG_SOURCES = new Set(["generated", "user"]);
 const PUBLISH_STEPS = new Set<PublishStepName>(["title", "body", "images", "tags", "save"]);
 const READINESS_BLOCKERS = new Set<ReadinessBlockerCode>([
@@ -481,6 +493,97 @@ export class LocalApiClient {
     return readAppSetting(await this.#request("PUT", `/api/v1/settings/${kind}`, { payload }));
   }
 
+  async runtimeConfiguration(): Promise<RuntimeConfiguration> {
+    return readRuntimeConfiguration(await this.#request("GET", "/api/v1/runtime/configuration"));
+  }
+
+  async patchRuntimeConfiguration(patch: {
+    activeProvider?: "openai" | "gemini" | "anthropic" | "fake";
+    openaiModel?: string;
+    geminiModel?: string;
+    anthropicModel?: string;
+    openaiApiKey?: RuntimeSecretUpdate;
+    geminiApiKey?: RuntimeSecretUpdate;
+    anthropicApiKey?: RuntimeSecretUpdate;
+    naverSearchClientId?: RuntimeSecretUpdate;
+    naverSearchClientSecret?: RuntimeSecretUpdate;
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpSecurity?: "starttls" | "ssl";
+    smtpUsername?: RuntimeSecretUpdate;
+    smtpPassword?: RuntimeSecretUpdate;
+    digestEmailFrom?: string;
+    digestEmailTo?: string;
+    browserDriver?: "patchright" | "playwright" | "fake";
+    browserHeadless?: boolean;
+    browserChannel?: string;
+    accessMode?: "local" | "lan";
+  }): Promise<RuntimeConfiguration> {
+    const body = await this.#request("PATCH", "/api/v1/runtime/configuration", {
+      ...(patch.activeProvider === undefined ? {} : { active_provider: patch.activeProvider }),
+      ...(patch.openaiModel === undefined ? {} : { openai_model: patch.openaiModel }),
+      ...(patch.geminiModel === undefined ? {} : { gemini_model: patch.geminiModel }),
+      ...(patch.anthropicModel === undefined ? {} : { anthropic_model: patch.anthropicModel }),
+      ...(patch.openaiApiKey === undefined ? {} : { openai_api_key: patch.openaiApiKey }),
+      ...(patch.geminiApiKey === undefined ? {} : { gemini_api_key: patch.geminiApiKey }),
+      ...(patch.anthropicApiKey === undefined ? {} : { anthropic_api_key: patch.anthropicApiKey }),
+      ...(patch.naverSearchClientId === undefined
+        ? {}
+        : { naver_search_client_id: patch.naverSearchClientId }),
+      ...(patch.naverSearchClientSecret === undefined
+        ? {}
+        : { naver_search_client_secret: patch.naverSearchClientSecret }),
+      ...(patch.smtpHost === undefined ? {} : { smtp_host: patch.smtpHost }),
+      ...(patch.smtpPort === undefined ? {} : { smtp_port: patch.smtpPort }),
+      ...(patch.smtpSecurity === undefined ? {} : { smtp_security: patch.smtpSecurity }),
+      ...(patch.smtpUsername === undefined ? {} : { smtp_username: patch.smtpUsername }),
+      ...(patch.smtpPassword === undefined ? {} : { smtp_password: patch.smtpPassword }),
+      ...(patch.digestEmailFrom === undefined ? {} : { digest_email_from: patch.digestEmailFrom }),
+      ...(patch.digestEmailTo === undefined ? {} : { digest_email_to: patch.digestEmailTo }),
+      ...(patch.browserDriver === undefined ? {} : { browser_driver: patch.browserDriver }),
+      ...(patch.browserHeadless === undefined ? {} : { browser_headless: patch.browserHeadless }),
+      ...(patch.browserChannel === undefined ? {} : { browser_channel: patch.browserChannel }),
+      ...(patch.accessMode === undefined ? {} : { access_mode: patch.accessMode }),
+    });
+    return readRuntimeConfiguration(body);
+  }
+
+  async restartRuntime(): Promise<RuntimeConfiguration> {
+    return readRuntimeConfiguration(await this.#request("POST", "/api/v1/runtime/restart"));
+  }
+
+  async runtimeData(): Promise<RuntimeData> {
+    return readRuntimeData(await this.#request("GET", "/api/v1/runtime/data"));
+  }
+
+  async exportRuntimeData(): Promise<Blob> {
+    const headers = new Headers();
+    const csrfToken = readCsrfCookie();
+    if (csrfToken !== null) headers.set("X-NBA-CSRF", csrfToken);
+    let response: Response;
+    try {
+      response = await this.#fetch(`${this.#base}/api/v1/runtime/data/export`, {
+        method: "POST",
+        headers,
+      });
+    } catch {
+      throw new ApiError("로컬 서비스에 연결할 수 없습니다.", { status: null });
+    }
+    if (!response.ok) {
+      throw new ApiError("로컬 서비스가 요청을 거부했습니다.", {
+        problem: await readProblem(response),
+        status: response.status,
+      });
+    }
+    return response.blob();
+  }
+
+  async resetRuntimeData(confirmation: string): Promise<RuntimeDataReset> {
+    return readRuntimeDataReset(
+      await this.#request("POST", "/api/v1/runtime/data/reset", { confirmation }),
+    );
+  }
+
   /** Approve exactly one queued post for execution. The service answers before the run finishes. */
   async startEngagementRun(
     discoveryPostId: string,
@@ -628,15 +731,22 @@ export class LocalApiClient {
 
   async saveDraftBody(
     id: string,
-    payload: { title: string; blocks: BodyBlock[]; summary?: string },
+    payload: { title: string; blocks: BodyBlock[]; summary?: string; baseContentVersion?: number },
   ): Promise<PostDraft> {
     return readPostDraft(
       await this.#request("PUT", `/api/v1/drafts/${id}/body`, {
         title: payload.title,
         blocks: payload.blocks,
         ...(payload.summary === undefined ? {} : { summary: payload.summary }),
+        ...(payload.baseContentVersion === undefined
+          ? {}
+          : { base_content_version: payload.baseContentVersion }),
       }),
     );
+  }
+
+  async checkpointDraft(id: string): Promise<PostDraft> {
+    return readPostDraft(await this.#request("POST", `/api/v1/drafts/${id}/checkpoint`));
   }
 
   async composeDraft(id: string, payload: DraftGenerationOptions): Promise<PostDraft> {
@@ -887,7 +997,9 @@ export function readServiceStatus(body: unknown): ServiceStatus {
   if (environment !== "production" && environment !== "development" && environment !== "test") {
     throw contractError("app_environment");
   }
-  if (mode !== "openai" && mode !== "fake") throw contractError("generator_mode");
+  if (mode !== "openai" && mode !== "gemini" && mode !== "anthropic" && mode !== "fake") {
+    throw contractError("generator_mode");
+  }
   return {
     status: "ready",
     apiVersion: readString(body.api_version, "api_version"),
@@ -1180,6 +1292,92 @@ export function readAppSetting(body: unknown): AppSettingRecord {
   };
 }
 
+export function readRuntimeConfiguration(body: unknown): RuntimeConfiguration {
+  if (
+    !isRecord(body) ||
+    !isRecord(body.ai) ||
+    !isRecord(body.naver_search) ||
+    !isRecord(body.smtp)
+  ) {
+    throw contractError("runtime configuration");
+  }
+  if (!isRecord(body.browser) || !isRecord(body.network) || !Array.isArray(body.ai.providers)) {
+    throw contractError("runtime configuration");
+  }
+  const activeProvider = body.ai.active_provider;
+  const driver = body.browser.driver;
+  const accessMode = body.network.access_mode;
+  const security = body.smtp.security;
+  if (
+    activeProvider !== "openai" &&
+    activeProvider !== "gemini" &&
+    activeProvider !== "anthropic" &&
+    activeProvider !== "fake"
+  )
+    throw contractError("active_provider");
+  if (driver !== "patchright" && driver !== "playwright" && driver !== "fake") {
+    throw contractError("browser driver");
+  }
+  if (accessMode !== "local" && accessMode !== "lan") throw contractError("access_mode");
+  if (security !== "starttls" && security !== "ssl") throw contractError("smtp security");
+  return {
+    ai: {
+      activeProvider,
+      providers: body.ai.providers.map((value) => {
+        if (!isRecord(value) || !PROVIDERS.has(value.provider as LlmProviderName)) {
+          throw contractError("runtime provider");
+        }
+        return {
+          provider: value.provider as LlmProviderName,
+          configured: readBoolean(value.configured, "configured"),
+          model: readString(value.model, "model"),
+        };
+      }),
+    },
+    naverSearch: { configured: readBoolean(body.naver_search.configured, "naver configured") },
+    smtp: {
+      configured: readBoolean(body.smtp.configured, "smtp configured"),
+      host: readText(body.smtp.host, "smtp host"),
+      port: readCount(body.smtp.port, "smtp port"),
+      security,
+      digestEmailFrom: readText(body.smtp.digest_email_from, "digest_email_from"),
+      digestEmailTo: readText(body.smtp.digest_email_to, "digest_email_to"),
+    },
+    browser: {
+      driver,
+      headless: readBoolean(body.browser.headless, "browser headless"),
+      channel: readText(body.browser.channel, "browser channel"),
+    },
+    network: { accessMode },
+    restartRequired: readBoolean(body.restart_required, "restart_required"),
+    launcherRestartAvailable: readBoolean(
+      body.launcher_restart_available,
+      "launcher_restart_available",
+    ),
+  };
+}
+
+export function readRuntimeData(body: unknown): RuntimeData {
+  if (!isRecord(body)) throw contractError("runtime data");
+  return {
+    databaseLocation: readString(body.database_location, "database_location"),
+    databaseFileCount: readCount(body.database_file_count, "database_file_count"),
+    mediaLocation: readString(body.media_location, "media_location"),
+    mediaFileCount: readCount(body.media_file_count, "media_file_count"),
+    fileCount: readCount(body.file_count, "file_count"),
+    sizeBytes: readCount(body.size_bytes, "size_bytes"),
+    resetAvailable: readBoolean(body.reset_available, "reset_available"),
+  };
+}
+
+export function readRuntimeDataReset(body: unknown): RuntimeDataReset {
+  if (!isRecord(body)) throw contractError("runtime data reset");
+  return {
+    backupLocation: readString(body.backup_location, "backup_location"),
+    restartRequired: readBoolean(body.restart_required, "restart_required"),
+  };
+}
+
 export function readEngagementRun(body: unknown): EngagementRun {
   if (!isRecord(body)) throw contractError("run");
   const source = body.source;
@@ -1432,11 +1630,20 @@ function readBlock(value: unknown): BodyBlock {
   if (!isRecord(value)) throw contractError("block");
   const kind = value.type;
   if (!BLOCK_KINDS.has(kind as string)) throw contractError("block type");
-  const block: BodyBlock = { type: kind as BodyBlock["type"] };
-  if (typeof value.text === "string") block.text = value.text;
-  if (typeof value.image_id === "string") block.image_id = value.image_id;
-  if (typeof value.caption === "string") block.caption = value.caption;
-  return block;
+  if (kind === "image") {
+    const block: BodyBlock = { type: "image", image_id: readString(value.image_id, "image_id") };
+    if (typeof value.caption === "string") block.caption = value.caption;
+    return block;
+  }
+  if (kind === "ordered_list" || kind === "unordered_list") {
+    if (!Array.isArray(value.items)) throw contractError("list items");
+    return { type: kind, items: value.items.map((item) => readString(item, "list item")) };
+  }
+  if (kind === "divider") return { type: "divider" };
+  return {
+    type: kind as "heading" | "paragraph" | "quote",
+    text: readString(value.text, "text"),
+  };
 }
 
 export function readPostDraft(body: unknown): PostDraft {
@@ -1471,6 +1678,7 @@ export function readPostDraft(body: unknown): PostDraft {
         createdAt: value.created_at === null ? null : readString(value.created_at, "created_at"),
       };
     }),
+    workingCopy: readWorkingCopy(body.working_copy) ?? null,
     images: body.images.map((value) => {
       if (!isRecord(value)) throw contractError("image");
       return {
@@ -1495,6 +1703,17 @@ export function readPostDraft(body: unknown): PostDraft {
     }),
     createdAt: body.created_at === null ? null : readString(body.created_at, "created_at"),
     updatedAt: body.updated_at === null ? null : readString(body.updated_at, "updated_at"),
+  };
+}
+
+function readWorkingCopy(value: unknown): PostDraft["workingCopy"] {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !Array.isArray(value.blocks)) throw contractError("working_copy");
+  return {
+    title: readString(value.title, "working title"),
+    blocks: value.blocks.map(readBlock),
+    summary: typeof value.summary === "string" ? value.summary : "",
+    contentVersion: readCount(value.content_version, "content_version"),
   };
 }
 

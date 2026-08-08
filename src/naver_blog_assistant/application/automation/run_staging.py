@@ -216,15 +216,18 @@ class StagePostService:
                 self._runs.transition_step(
                     run_id, name, outcome.state, result_code=outcome.result_code
                 )
+                payload: dict[str, Any] = {
+                    "run_id": str(run_id),
+                    "step": name.value,
+                    "state": outcome.state.value,
+                    "result_code": outcome.result_code,
+                }
+                if outcome.detail is not None:
+                    payload["detail"] = outcome.detail
                 channel.publish(
                     RunEvent(
                         "step_completed",
-                        {
-                            "run_id": str(run_id),
-                            "step": name.value,
-                            "state": outcome.state.value,
-                            "result_code": outcome.result_code,
-                        },
+                        payload,
                     )
                 )
 
@@ -255,6 +258,10 @@ class StagePostService:
         task = asyncio.create_task(self._background(run_id, request))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    def has_active_tasks(self) -> bool:
+        """Report whether a staging coroutine is still using the automation browser."""
+        return any(not task.done() for task in self._tasks)
 
     async def _background(self, run_id: UUID, request: StagingRequest) -> None:
         await self.run(run_id, request)

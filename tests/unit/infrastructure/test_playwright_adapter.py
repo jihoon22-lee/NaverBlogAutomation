@@ -63,6 +63,9 @@ class _StubLocator:
     async def type(self, text: str, delay: float) -> None:  # noqa: A003 - library method name
         self._record("type", text, delay)
 
+    async def press(self, key: str, *, timeout: float) -> None:
+        self._record("press", key, timeout)
+
     async def select_option(self, value: str, *, timeout: float) -> None:
         self._record("select_option", value, timeout)
 
@@ -202,7 +205,7 @@ def test_click_failure_maps_to_a_browser_operation_error() -> None:
         asyncio.run(PlaywrightPage(_StubPage(failing=True)).click("#like"))
 
 
-def test_typing_clears_the_field_before_sending_key_events() -> None:
+def test_typing_replaces_the_field_with_trusted_key_events() -> None:
     stub = _StubPage()
 
     asyncio.run(PlaywrightPage(stub).type_text("#editor", "댓글", timeout_seconds=2))
@@ -210,16 +213,33 @@ def test_typing_clears_the_field_before_sending_key_events() -> None:
     assert [action[0] for action in stub.actions] == [
         "scroll_into_view",
         "click",
-        "fill",
+        "press",
+        "press",
         "type",
     ]
-    assert stub.actions[2] == ("fill", "#editor", "", 2_000)
-    assert stub.actions[3] == ("type", "#editor", "댓글", 25)
+    assert stub.actions[2] == ("press", "#editor", "ControlOrMeta+A", 2_000)
+    assert stub.actions[3] == ("press", "#editor", "Backspace", 2_000)
+    assert stub.actions[4] == ("type", "#editor", "댓글", 25)
 
 
 def test_typing_failure_maps_to_a_browser_operation_error() -> None:
     with pytest.raises(BrowserOperationError, match="trusted typing failed"):
         asyncio.run(PlaywrightPage(_StubPage(failing=True)).type_text("#editor", "댓글"))
+
+
+def test_appending_and_pressing_keep_the_existing_caret_without_an_editor_click() -> None:
+    stub = _StubPage()
+    page = PlaywrightPage(stub)
+
+    asyncio.run(page.append_text("#editor", "다음 문단", timeout_seconds=2))
+    asyncio.run(page.press_key("#editor", "Enter", timeout_seconds=2))
+
+    assert stub.actions == [
+        ("scroll_into_view", "#editor", 2_000),
+        ("type", "#editor", "다음 문단", 25),
+        ("scroll_into_view", "#editor", 2_000),
+        ("press", "#editor", "Enter", 2_000),
+    ]
 
 
 def test_selecting_an_option_passes_the_value_and_timeout() -> None:

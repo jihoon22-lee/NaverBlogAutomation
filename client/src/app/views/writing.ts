@@ -6,7 +6,7 @@
  * line is a live region.
  */
 
-import type { LlmProviderName, PostDraft, PublishStep } from "../api/types";
+import type { BodyBlock, LlmProviderName, PostDraft, PublishStep } from "../api/types";
 import {
   type WritingState,
   activeRevision,
@@ -17,17 +17,24 @@ import {
 
 export interface WritingHandlers {
   onAddTags(tags: string[]): void;
-  onBodyChange(text: string): void;
+  onBlocksChange?(blocks: BodyBlock[]): void;
+  /** Commit a structural block change and redraw the canvas without disrupting text input. */
+  onBlocksStructureChange?(blocks: BodyBlock[]): void;
+  onBodyChange?(text: string): void;
+  onCheckpoint?(): void;
   onCompose(): void;
   onCompleteWithAi(): void;
   onCreateDraft(): void;
   onDeleteDraft(): void;
   onDeleteImage(imageId: string): void;
   onGenerateTags(): void;
+  onInsertImage?(imageId: string, position: number): void;
+  onImageInsertionPointChange?(position: number): void;
   onOptionChange(option: string, value: string): void;
   onOpenDraft(draftId: string): void;
   onRefine(): void;
-  onSaveBody(text: string): void;
+  onSaveBlocks?(blocks: BodyBlock[]): void;
+  onSaveBody?(text: string): void;
   onSeedChange(field: "title" | "text" | "category", value: string): void;
   onStage(): void;
   onSyncCategories(): void;
@@ -89,7 +96,7 @@ export function renderWriting(root: Element, state: WritingState, handlers: Writ
   if (state.draft === null) return;
   root.append(renderImages(document, state, handlers));
   root.append(renderOptions(document, state, handlers));
-  if (activeRevision(state) !== null) {
+  if (state.blocks.length > 0 || activeRevision(state) !== null) {
     root.append(renderBody(document, state, handlers));
     root.append(renderTags(document, state, handlers));
     root.append(renderStaging(document, state, handlers));
@@ -241,10 +248,19 @@ function renderImages(document: Document, state: WritingState, handlers: Writing
     remove.dataset.imageId = image.id;
     remove.textContent = "삭제";
     remove.addEventListener("click", () => handlers.onDeleteImage(image.id));
-    item.append(name, remove);
+    const insert = document.createElement("button");
+    insert.type = "button";
+    insert.className = "image-insert";
+    insert.textContent = "본문에 넣기";
+    insert.addEventListener("click", () => handlers.onInsertImage?.(image.id, state.imageInsertAt));
+    item.append(name, insert, remove);
     list.append(item);
   }
   section.append(list);
+  const insertion = document.createElement("p");
+  insertion.className = "image-insertion-note";
+  insertion.textContent = `새 이미지는 ${state.imageInsertAt + 1}번째 block 위치에 넣습니다.`;
+  section.append(insertion);
   return section;
 }
 
@@ -311,7 +327,6 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
         }`;
   section.append(meta);
 
-  const label = document.createElement("label");
   const titleLabel = document.createElement("label");
   titleLabel.htmlFor = "draft-title";
   titleLabel.textContent = "제목";
@@ -323,24 +338,22 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
   title.addEventListener("input", () => handlers.onTitleChange(title.value));
   section.append(titleLabel, title);
 
-  label.htmlFor = "body-text";
-  label.textContent = "본문 내용";
-  const editor = document.createElement("textarea");
-  editor.id = "body-text";
-  editor.rows = 12;
-  editor.value = state.bodyText;
-  editor.addEventListener("input", () => handlers.onBodyChange(editor.value));
-  section.append(label, editor);
+  section.append(renderEditorTools(document, state));
+  section.append(renderBlockCanvas(document, state.blocks, state.imageInsertAt, handlers));
 
   const actions = document.createElement("div");
   actions.className = "body-actions";
-  const save = button(document, "save-body-button", "편집 저장", () =>
-    handlers.onSaveBody(editor.value),
+  const save = button(document, "save-body-button", "지금 저장", () =>
+    handlers.onSaveBlocks?.(state.blocks),
   );
   save.disabled = state.busy;
+  const checkpoint = button(document, "checkpoint-body-button", "revision으로 남기기", () =>
+    handlers.onCheckpoint?.(),
+  );
+  checkpoint.disabled = state.busy;
   const refine = button(document, "refine-button", "다듬기 요청", handlers.onRefine);
   refine.disabled = !canGenerate(state);
-  actions.append(save, refine);
+  actions.append(save, checkpoint, refine);
   section.append(actions);
 
   const autosave = document.createElement("p");
@@ -367,6 +380,321 @@ function renderBody(document: Document, state: WritingState, handlers: WritingHa
   section.append(renderRevisionHistory(document, state, handlers));
   section.append(renderRevisionDiff(document, state));
   return section;
+}
+
+function renderEditorTools(document: Document, state: WritingState): Element {
+  const panel = document.createElement("div");
+  panel.className = "editor-assist-panel";
+  const outline = document.createElement("nav");
+  outline.className = "editor-outline";
+  outline.setAttribute("aria-label", "글 outline");
+  const outlineTitle = document.createElement("strong");
+  outlineTitle.textContent = "Outline";
+  outline.append(outlineTitle);
+  state.blocks.forEach((block, index) => {
+    if (block.type !== "heading") return;
+    const item = button(document, `outline-${index}`, block.text || `소제목 ${index + 1}`, () => {
+      document.querySelector<HTMLElement>(`[data-block-index="${index}"] textarea`)?.focus();
+    });
+    item.className = "outline-item";
+    outline.append(item);
+  });
+  if (outline.querySelectorAll("button").length === 0) {
+    const empty = document.createElement("span");
+    empty.textContent = "소제목을 추가하면 outline이 생깁니다.";
+    outline.append(empty);
+  }
+  const preview = document.createElement("details");
+  preview.className = "editor-preview";
+  const summary = document.createElement("summary");
+  summary.textContent = "네이버 반영 전 미리보기";
+  const content = document.createElement("div");
+  content.append(renderBlockPreview(document, state.blocks));
+  preview.append(summary, content);
+  panel.append(outline, preview);
+  const help = document.createElement("p");
+  help.className = "editor-shortcut-hint";
+  help.textContent =
+    "Ctrl/⌘ + Alt + 1, 2, 3으로 현재 block을 소제목·문단·인용으로 바꿀 수 있습니다.";
+  panel.append(help);
+  return panel;
+}
+
+function renderBlockPreview(document: Document, blocks: BodyBlock[]): Element {
+  const fragment = document.createElement("div");
+  fragment.className = "block-preview-content";
+  for (const block of blocks) {
+    if (block.type === "heading") {
+      const value = document.createElement("h3");
+      value.textContent = block.text;
+      fragment.append(value);
+    } else if (block.type === "paragraph") {
+      const value = document.createElement("p");
+      value.textContent = block.text;
+      fragment.append(value);
+    } else if (block.type === "quote") {
+      const value = document.createElement("blockquote");
+      value.textContent = block.text;
+      fragment.append(value);
+    } else if (block.type === "ordered_list" || block.type === "unordered_list") {
+      const list = document.createElement(block.type === "ordered_list" ? "ol" : "ul");
+      for (const item of block.items) {
+        const value = document.createElement("li");
+        value.textContent = item;
+        list.append(value);
+      }
+      fragment.append(list);
+    } else if (block.type === "divider") {
+      fragment.append(document.createElement("hr"));
+    } else if (block.type === "image") {
+      const figure = document.createElement("figure");
+      const placeholder = document.createElement("div");
+      placeholder.className = "image-preview-placeholder";
+      placeholder.textContent = "이미지";
+      const caption = document.createElement("figcaption");
+      caption.textContent = block.caption ?? "";
+      figure.append(placeholder, caption);
+      fragment.append(figure);
+    }
+  }
+  return fragment;
+}
+
+/** Render a Naver-style block canvas: controls change one block, never flatten the whole body. */
+function renderBlockCanvas(
+  document: Document,
+  blocks: BodyBlock[],
+  imageInsertAt: number,
+  handlers: WritingHandlers,
+): Element {
+  const canvas = document.createElement("div");
+  canvas.className = "block-canvas";
+  canvas.setAttribute("aria-label", "본문 블록 편집기");
+  const commit = (next: BodyBlock[]) => handlers.onBlocksChange?.(next);
+  const commitStructure = (next: BodyBlock[]) =>
+    (handlers.onBlocksStructureChange ?? handlers.onBlocksChange)?.(next);
+  canvas.append(renderImageInsertionPoint(document, 0, imageInsertAt, handlers));
+  blocks.forEach((block, index) => {
+    const row = document.createElement("article");
+    row.className = `editor-block editor-block-${block.type}`;
+    row.dataset.blockIndex = String(index);
+    row.draggable = true;
+    row.addEventListener("dragstart", (event) =>
+      event.dataTransfer?.setData("text/plain", String(index)),
+    );
+    row.addEventListener("dragover", (event) => event.preventDefault());
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const from = Number.parseInt(event.dataTransfer?.getData("text/plain") ?? "", 10);
+      if (!Number.isNaN(from)) commitStructure(moveBlockTo(blocks, from, index));
+    });
+    const tools = document.createElement("div");
+    tools.className = "block-tools";
+    const type = document.createElement("select");
+    type.setAttribute("aria-label", `${index + 1}번째 블록 형식`);
+    for (const [value, label] of BLOCK_TYPES) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = block.type === value;
+      type.append(option);
+    }
+    type.addEventListener("change", () =>
+      commitStructure(replaceAt(blocks, index, retypeBlock(block, type.value))),
+    );
+    tools.append(type);
+    tools.append(
+      smallButton(
+        document,
+        "위로",
+        () => commitStructure(moveBlock(blocks, index, -1)),
+        index === 0,
+      ),
+      smallButton(
+        document,
+        "아래로",
+        () => commitStructure(moveBlock(blocks, index, 1)),
+        index === blocks.length - 1,
+      ),
+      smallButton(document, "복제", () =>
+        commitStructure(insertAt(blocks, index + 1, copyBlock(block))),
+      ),
+      smallButton(document, "삭제", () =>
+        commitStructure(blocks.filter((_, item) => item !== index)),
+      ),
+    );
+    row.append(tools);
+    if (block.type === "divider") {
+      const divider = document.createElement("hr");
+      divider.setAttribute("aria-label", "구분선 블록");
+      row.append(divider);
+    } else if (block.type === "image") {
+      const caption = document.createElement("input");
+      caption.type = "text";
+      caption.value = block.caption ?? "";
+      caption.placeholder = "이미지 설명";
+      caption.addEventListener("input", () =>
+        commit(replaceAt(blocks, index, { ...block, caption: caption.value })),
+      );
+      const hint = document.createElement("p");
+      hint.textContent = `이미지 ${block.image_id}`;
+      row.append(hint, caption);
+    } else if (block.type === "ordered_list" || block.type === "unordered_list") {
+      const list = document.createElement("textarea");
+      list.rows = Math.max(2, block.items.length);
+      list.value = block.items.join("\n");
+      list.placeholder = "항목마다 한 줄씩 입력";
+      list.addEventListener("input", () =>
+        commit(
+          replaceAt(blocks, index, {
+            ...block,
+            items: list.value
+              .split("\n")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          }),
+        ),
+      );
+      row.append(list);
+    } else if (block.type === "heading" || block.type === "paragraph" || block.type === "quote") {
+      const text = document.createElement("textarea");
+      text.rows = block.type === "heading" ? 2 : 4;
+      text.value = block.text;
+      text.placeholder = block.type === "heading" ? "소제목" : "내용을 입력하세요";
+      text.addEventListener("input", () =>
+        commit(replaceAt(blocks, index, { ...block, text: text.value })),
+      );
+      text.addEventListener("keydown", (event) => {
+        if (!(event.altKey && (event.ctrlKey || event.metaKey))) return;
+        const kind =
+          event.key === "1"
+            ? "heading"
+            : event.key === "2"
+              ? "paragraph"
+              : event.key === "3"
+                ? "quote"
+                : null;
+        if (kind === null) return;
+        event.preventDefault();
+        commitStructure(replaceAt(blocks, index, retypeBlock(block, kind)));
+      });
+      row.append(text);
+    }
+    canvas.append(row);
+    canvas.append(renderImageInsertionPoint(document, index + 1, imageInsertAt, handlers));
+  });
+  const insert = document.createElement("div");
+  insert.className = "block-insert";
+  for (const [kind, label] of BLOCK_TYPES.filter(([kind]) => kind !== "image")) {
+    insert.append(
+      smallButton(document, `+ ${label}`, () => commitStructure([...blocks, newBlock(kind)])),
+    );
+  }
+  canvas.append(insert);
+  return canvas;
+}
+
+function renderImageInsertionPoint(
+  document: Document,
+  position: number,
+  selected: number,
+  handlers: WritingHandlers,
+): HTMLButtonElement {
+  const point = button(
+    document,
+    `image-insert-at-${position}`,
+    selected === position ? "이미지 위치" : "여기에 이미지 삽입",
+    () => handlers.onImageInsertionPointChange?.(position),
+  );
+  point.className = "image-insertion-point";
+  point.setAttribute("aria-pressed", String(selected === position));
+  return point;
+}
+
+const BLOCK_TYPES: readonly [BodyBlock["type"], string][] = [
+  ["paragraph", "문단"],
+  ["heading", "소제목"],
+  ["quote", "인용"],
+  ["ordered_list", "순서 목록"],
+  ["unordered_list", "목록"],
+  ["divider", "구분선"],
+  ["image", "이미지"],
+];
+
+function newBlock(kind: BodyBlock["type"]): BodyBlock {
+  if (kind === "divider") return { type: "divider" };
+  if (kind === "ordered_list" || kind === "unordered_list") return { type: kind, items: [""] };
+  if (kind === "image") return { type: "image", image_id: "", caption: "" };
+  return { type: kind, text: "" };
+}
+
+function retypeBlock(block: BodyBlock, kind: string): BodyBlock {
+  if (!BLOCK_TYPES.some(([value]) => value === kind)) return block;
+  const text = blockText(block);
+  const next = newBlock(kind as BodyBlock["type"]);
+  if (next.type === "image") return { ...next, caption: text };
+  if (next.type === "ordered_list" || next.type === "unordered_list") {
+    return { ...next, items: text ? text.split("\n").filter(Boolean) : [""] };
+  }
+  if (next.type === "divider") return next;
+  return { type: next.type, text };
+}
+
+function blockText(block: BodyBlock): string {
+  if (block.type === "image") return block.caption ?? "";
+  if (block.type === "divider") return "";
+  if (block.type === "ordered_list" || block.type === "unordered_list") {
+    return block.items.join("\n");
+  }
+  return "text" in block ? block.text : "";
+}
+
+function copyBlock(block: BodyBlock): BodyBlock {
+  return block.type === "ordered_list" || block.type === "unordered_list"
+    ? { ...block, items: [...block.items] }
+    : { ...block };
+}
+
+function replaceAt(blocks: BodyBlock[], index: number, block: BodyBlock): BodyBlock[] {
+  return blocks.map((item, position) => (position === index ? block : item));
+}
+
+function insertAt(blocks: BodyBlock[], index: number, block: BodyBlock): BodyBlock[] {
+  return [...blocks.slice(0, index), block, ...blocks.slice(index)];
+}
+
+function moveBlock(blocks: BodyBlock[], index: number, offset: number): BodyBlock[] {
+  const target = index + offset;
+  if (target < 0 || target >= blocks.length) return blocks;
+  const next = [...blocks];
+  const current = next[index];
+  const other = next[target];
+  if (current === undefined || other === undefined) return blocks;
+  next[index] = other;
+  next[target] = current;
+  return next;
+}
+
+function moveBlockTo(blocks: BodyBlock[], from: number, to: number): BodyBlock[] {
+  if (from < 0 || from >= blocks.length || to < 0 || to >= blocks.length || from === to)
+    return blocks;
+  const next = [...blocks];
+  const [moving] = next.splice(from, 1);
+  if (moving === undefined) return blocks;
+  next.splice(to, 0, moving);
+  return next;
+}
+
+function smallButton(
+  document: Document,
+  label: string,
+  action: () => void,
+  disabled = false,
+): HTMLButtonElement {
+  const result = button(document, "", label, action);
+  result.className = "block-button";
+  result.disabled = disabled;
+  return result;
 }
 
 function renderRevisionDiff(document: Document, state: WritingState): Element {
@@ -498,7 +826,10 @@ function renderStaging(
   remove.disabled = state.busy;
   section.append(remove);
 
-  if (state.run !== null) section.append(renderSteps(document, state.run.steps));
+  if (state.run !== null) {
+    section.append(renderSteps(document, state.run.steps));
+    section.append(renderVerificationChecklist(document, state));
+  }
   return section;
 }
 
@@ -523,6 +854,41 @@ function renderSteps(document: Document, steps: PublishStep[]): Element {
     list.append(item);
   }
   return list;
+}
+
+/** Keep the final Naver review explicit; the stream deliberately contains no draft text. */
+function renderVerificationChecklist(document: Document, state: WritingState): Element {
+  const section = document.createElement("section");
+  section.className = "staging-verification";
+  section.dataset.testid = "staging-verification-checklist";
+  section.append(heading(document, "네이버에서 직접 확인"));
+
+  const lead = document.createElement("p");
+  lead.textContent = "자동화는 임시저장까지만 수행했습니다. 발행 전에 아래 항목을 확인하세요.";
+  section.append(lead);
+
+  const list = document.createElement("ol");
+  const verification = state.stagingBodyVerification;
+  const bodyStatus =
+    verification === null
+      ? "본문 단계가 완료되면 요청 범위와 검증된 prefix를 표시합니다."
+      : `요청한 ${verification.requestedRange.start}~${verification.requestedRange.end}번 block 중 앞 ${verification.observedPrefixCount}개를 순서대로 검증했습니다.`;
+  const imageCount = state.blocks.filter((block) => block.type === "image").length;
+  const tagCount = state.draft?.tags.filter((tag) => tag.selected).length ?? 0;
+  const checks = [
+    `제목: 저장된 제목과 맞는지 확인합니다.`,
+    `본문 block 순서와 종류: ${bodyStatus}`,
+    `이미지와 캡션: ${imageCount}개 이미지의 위치와 캡션을 확인합니다.`,
+    `태그: 선택한 ${tagCount}개 태그가 반영됐는지 확인합니다.`,
+    "임시저장 완료 표지: 저장 상태를 확인한 뒤, 발행 여부는 네이버에서 직접 결정합니다.",
+  ];
+  for (const check of checks) {
+    const item = document.createElement("li");
+    item.textContent = check;
+    list.append(item);
+  }
+  section.append(list);
+  return section;
 }
 
 function optionGroup(

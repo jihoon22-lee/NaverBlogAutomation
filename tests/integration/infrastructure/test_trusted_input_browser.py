@@ -148,6 +148,34 @@ def test_typing_replaces_an_occupied_field_without_appending(tmp_path: Path) -> 
     assert _run(scenario) == "새 댓글"
 
 
+def test_append_and_enter_keep_trusted_input_at_the_existing_caret(tmp_path: Path) -> None:
+    driver = _driver_or_skip()
+    url = _document(tmp_path, INTERACTIVE_PAGE)
+
+    async def scenario() -> dict[str, Any]:
+        context = await driver.launch(profile_dir=tmp_path / "profile", headless=True)
+        try:
+            page = await context.new_page()
+            await page.goto(url)
+            await page.type_text("#editor", "첫 줄")
+            await page.append_text("#editor", " 다음")
+            await page.press_key("#editor", "Enter")
+            await page.append_text("#editor", "둘째 줄")
+            return await page.evaluate(
+                "() => {"
+                " const editor = document.getElementById('editor');"
+                " return { trusted: editor.dataset.inputTrusted, value: editor.value };"
+                "}"
+            )
+        finally:
+            await context.close()
+
+    observed = _run(scenario)
+
+    assert observed["trusted"] == "true"
+    assert observed["value"] == "첫 줄 다음\n둘째 줄"
+
+
 def test_a_missing_target_fails_closed_instead_of_guessing(tmp_path: Path) -> None:
     driver = _driver_or_skip()
     url = _document(tmp_path, INTERACTIVE_PAGE)

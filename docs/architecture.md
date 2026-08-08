@@ -3,7 +3,7 @@
 Status: 현재 구현을 반영한 개정본, 갱신 2026-08-01
 
 이 문서는 v0.6 이후의 실제 런타임 구조를 기술합니다. 현재 제품 범위와 다음 구현 순서는
-[`webapp-first-delivery-plan.md`](webapp-first-delivery-plan.md)에, PR 1–8이 만든 원래 Side Panel
+[`webapp-experience-redesign-plan.md`](webapp-experience-redesign-plan.md)에, PR 1–8이 만든 원래 Side Panel
 아키텍처와 delivery boundary는 [`archive/delivery-plan.md`](archive/delivery-plan.md)에 남아 있습니다.
 
 ## 목적과 경계
@@ -43,14 +43,16 @@ UI입니다. 과거 Chrome Side Panel extension은 v0.5.6에서 동결(FROZEN)�
 TypeScript SPA로 빌드되며 같은 loopback 서비스에서 static으로 제공됩니다. CORS 추가
 설정 없이 같은 origin에서 API를 호출합니다.
 
-워크스페이스에는 **오늘의 작업(Today)**, **여러 글 처리(Session)**, **글 작성(Writing)**,
-**최근 작업(Activity)**, **설정(Settings)** 다섯 탭이 있으며, 한 번에 하나만 표시합니다.
+워크스페이스의 primary navigation은 **홈(Home)**, **작업함(Workbench)**, **글쓰기(Writing)**,
+**더보기(More)** 네 항목이며, 한 번에 하나만 표시합니다. 세션 배치, 이력, 일반 설정은 작업함과
+더보기의 세부 화면으로 열린다.
 
-- **Today** — 탐색 대기열 상태, 큐 동기화, 개별 글 처리 시작.
+- **Home / Workbench** — 준비 상태, 탐색 대기열 상태, 큐 동기화, 개별 글 처리와 세션 배치 시작.
 - **Comment** — 추출 뒤 기본 후보를 생성하고, 선택·AI 빠른 다듬기·복사·한 번의 실행 승인을 제공합니다.
 - **Session** — 세션 배치 승인, SSE 기반 진행 추적, 취소.
-- **Writing** — 초안 생성과 AI 완성, title·body 자동 저장, revision 비교, 태그 생성, 임시저장 실행.
-- **Activity** — 저장된 recommendation·배치·초안을 다시 열고 개인화 예시와 로컬 기록을 정리합니다.
+- **Writing** — 초안 생성과 AI 완성, title·block working copy 자동 저장, revision checkpoint, 태그 생성,
+  임시저장 실행.
+- **More** — 저장된 recommendation·배치·초안을 다시 열고 개인화 예시와 로컬 기록, 설정을 정리합니다.
 
 SPA는 secret이나 API key를 보유하지 않으며, LLM provider 설정 여부만 표시합니다.
 
@@ -194,7 +196,7 @@ infrastructure/llm/
 | 참고 글 본문 (글쓰기용) | FastAPI 메모리 → LLM provider 전송 | generation 완료 시 해제 |
 | SPA UI 상태 | 브라우저 메모리 | 탭 수명 |
 | 추천·교류 실행·세션·초안·설정 | SQLite | 명시 삭제까지 |
-| 초안 이미지 bytes | 로컬 filesystem (`DRAFT_MEDIA_DIR`) | 초안 삭제까지 |
+| 초안 이미지 bytes | 앱 소유 database 인접 `media/` filesystem | 초안 삭제까지 |
 | LLM API Key | Python process 환경변수 | 프로세스 수명 |
 | `NAVER_SEARCH_CLIENT_ID`/`SECRET` | Python process 환경변수 | 프로세스 수명 |
 | LLM 호출 기록 (attempts) | SQLite | 예산 계산용, 일별 |
@@ -209,8 +211,9 @@ infrastructure/llm/
   내 블로그 참고 글 본문(최대 4,000자 × 설정된 건수)을 provider에 전달합니다. 댓글
   생성 시에도 대상 글 본문이 provider에 전달됩니다. 전송된 본문은 SQLite나 로그에
   저장되지 않습니다.
-- **초안 이미지는 로컬 filesystem에만 존재합니다.** `DraftImageStore`가 관리하는 runtime
-  directory(`DRAFT_MEDIA_DIR` 또는 기본 경로)에 generated UUID 이름으로 저장됩니다.
+- **초안 이미지는 로컬 filesystem에만 존재합니다.** `DraftImageStore`가 열려 있는 SQLite database
+  인접의 앱 소유 `media/` directory에 generated UUID 이름으로 저장합니다. 웹 UI와 runtime API는
+  storage path를 받지 않습니다.
   원본 파일명은 sanitize되며, response에 bytes가 포함되지 않습니다. `use_image_vision:
   true`를 설정한 경우에만 이미지가 provider에 전달됩니다.
 - FastAPI는 loopback에만 bind하며, CORS는 선언된 origin만 허용합니다. 브라우저

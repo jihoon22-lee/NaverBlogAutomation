@@ -261,12 +261,22 @@ function renderCandidates(
   list.className = "candidate-list";
   for (const candidate of recommendation.candidates) {
     const item = document.createElement("li");
+    item.className = "candidate-card";
     const select = document.createElement("button");
     select.type = "button";
     select.className = "candidate-item";
     select.dataset.candidateId = candidate.id;
     select.setAttribute("aria-pressed", String(candidate.id === state.selectedCandidateId));
-    select.textContent = `${TONE_LABELS[candidate.tone] ?? candidate.tone} · ${candidate.comment}`;
+    const tone = document.createElement("span");
+    tone.className = "candidate-tone";
+    tone.textContent = TONE_LABELS[candidate.tone] ?? candidate.tone;
+    const comment = document.createElement("span");
+    comment.className = "candidate-comment";
+    comment.textContent = candidate.comment;
+    const evidence = document.createElement("span");
+    evidence.className = "candidate-evidence";
+    evidence.textContent = `근거: ${candidate.referencedDetail}`;
+    select.append(tone, comment, evidence);
     select.addEventListener("click", () => handlers.onSelectCandidate(candidate.id));
     item.append(select);
     list.append(item);

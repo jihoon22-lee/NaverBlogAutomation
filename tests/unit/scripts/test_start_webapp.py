@@ -93,3 +93,34 @@ def test_start_webapp_prints_server_reported_tablet_addresses(monkeypatch, capsy
 
     assert result == 0
     assert "http://192.168.1.20:8765/app/" in capsys.readouterr().out
+
+
+def test_start_webapp_restarts_a_supervised_child_after_a_runtime_marker(
+    monkeypatch, tmp_path: Path
+) -> None:
+    environment = tmp_path / "env"
+    first = Mock()
+    first.poll.return_value = None
+    second = Mock()
+    second.poll.return_value = 0
+    marker = tmp_path / ".env.restart"
+    launches = Mock(side_effect=[first, second])
+
+    calls = 0
+
+    def ready(_process: Mock) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            marker.write_text("restart\n", encoding="ascii")
+        return True
+
+    monkeypatch.setattr(start_webapp.subprocess, "Popen", launches)
+    monkeypatch.setattr(start_webapp, "_wait_for_health", ready)
+    monkeypatch.setattr(start_webapp, "_read_readiness", lambda: {"access_mode": "local"})
+
+    assert start_webapp.start_webapp(environment_file=environment, open_browser=Mock()) == 0
+    assert launches.call_count == 2
+    assert launches.call_args_list[0].kwargs["env"]["NBA_RUNTIME_CONFIG_FILE"] == str(environment)
+    assert launches.call_args_list[0].kwargs["env"]["NBA_SUPERVISOR_RESTART_FILE"] == str(marker)
+    first.send_signal.assert_called_once()

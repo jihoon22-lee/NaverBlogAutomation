@@ -9,12 +9,10 @@ import pytest
 from naver_blog_assistant.application import GenerationUnavailableError
 from naver_blog_assistant.domain import (
     DEFAULT_GENERATION_PREFERENCES,
-    AppSettingKind,
     CapturedPost,
     DomainValidationError,
     LlmProvider,
     ModelSelection,
-    normalize_setting_payload,
 )
 from naver_blog_assistant.infrastructure.generators.comment_prompt import (
     STRUCTURED_FORMATS,
@@ -65,45 +63,6 @@ class TestModelSelection:
     def test_it_requires_a_known_provider(self) -> None:
         with pytest.raises(DomainValidationError, match="LlmProvider"):
             ModelSelection(provider=cast(LlmProvider, "openai"), model="gpt")
-
-
-class TestProviderSettings:
-    def test_the_default_lists_every_provider(self) -> None:
-        stored = normalize_setting_payload(
-            AppSettingKind.LLM_PROVIDERS,
-            {
-                "default_provider": "openai",
-                "models": {"openai": "gpt-test", "gemini": "g", "anthropic": "c"},
-            },
-        )
-
-        assert stored["default_provider"] == "openai"
-        assert list(stored["models"]) == ["anthropic", "gemini", "openai"]
-
-    def test_it_trims_a_model_name(self) -> None:
-        stored = normalize_setting_payload(
-            AppSettingKind.LLM_PROVIDERS,
-            {"default_provider": "gemini", "models": {"gemini": "  gemini-test  "}},
-        )
-
-        assert stored["models"] == {"gemini": "gemini-test"}
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            {"default_provider": "mistral", "models": {"openai": "gpt"}},
-            {"default_provider": "openai", "models": {"mistral": "m"}},
-            {"default_provider": "openai", "models": {}},
-            {"default_provider": "openai", "models": "gpt"},
-            {"default_provider": "openai", "models": {"openai": 1}},
-            {"default_provider": "gemini", "models": {"openai": "gpt"}},
-            {"models": {"openai": "gpt"}},
-            {"default_provider": "openai", "models": {"openai": "gpt"}, "extra": True},
-        ],
-    )
-    def test_it_rejects_a_malformed_payload(self, value: dict[str, object]) -> None:
-        with pytest.raises(DomainValidationError):
-            normalize_setting_payload(AppSettingKind.LLM_PROVIDERS, value)
 
 
 class TestProviderRegistry:

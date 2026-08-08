@@ -17,9 +17,11 @@ import {
 } from "./comment";
 import {
   type EditorProbe,
+  type EditorBlockSnapshot,
   type EditorSaveProbe,
   probeEditor,
   probeEditorSave,
+  readEditorBlocks,
   readEditorText,
 } from "./editor";
 import { type LikeProbe, probeLike, probeLikeOption } from "./like";
@@ -41,7 +43,7 @@ import {
 } from "./mutual-neighbor";
 
 export const PAGE_BUNDLE_NAMESPACE = "__nbaPage";
-export const PAGE_BUNDLE_VERSION = 3;
+export const PAGE_BUNDLE_VERSION = 5;
 
 export interface PageBundle {
   captchaVisible(): boolean;
@@ -52,6 +54,7 @@ export interface PageBundle {
   probeCategoryPostList(): BlogPostListProbe;
   probeEditor(): EditorProbe;
   probeEditorSave(): EditorSaveProbe;
+  readEditorBlocks(selector: string): EditorBlockSnapshot[] | null;
   probeComment(expectedValue: string): CommentProbe;
   probeLike(): LikeProbe;
   probeMyBlogCategories(): BlogCategoryListProbe;
@@ -76,6 +79,7 @@ export function createPageBundle(): PageBundle {
     probeComment,
     probeEditor,
     probeEditorSave,
+    readEditorBlocks,
     probeLike,
     probeLikeOption,
     probeMyBlogCategories,

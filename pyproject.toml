@@ -65,7 +65,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 addopts = "-ra --strict-markers --timeout=60 --timeout-method=thread --cov=naver_blog_assistant --cov-branch --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["live_openai: opt-in test that makes a real OpenAI API request"]
+markers = [
+    "live_openai: opt-in test that makes a real OpenAI API request",
+    "live_naver: opt-in test that stages a synthetic draft in a logged-in Naver test profile",
+]
 
 [tool.coverage.run]
 branch = true

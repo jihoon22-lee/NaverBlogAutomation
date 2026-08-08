@@ -235,21 +235,23 @@ class SqliteDiscoveryRepository:
         self,
         source: DiscoverySource,
         *,
-        limit: int = 100,
+        limit: int | None = 100,
         include_states: tuple[DiscoveryState, ...] | None = None,
     ) -> tuple[DiscoveredPost, ...]:
         """List one source, optionally including recovered/skipped items for the web workbench."""
         states = include_states or (DiscoveryState.QUEUED, DiscoveryState.OPENED)
         with self._engine.connect() as connection:
-            rows = connection.execute(
+            statement = (
                 select(discovered_posts)
                 .where(discovered_posts.c.source == source.value)
                 .where(discovered_posts.c.state.in_([state.value for state in states]))
                 .order_by(
                     discovered_posts.c.published_at.desc(), discovered_posts.c.created_at.desc()
                 )
-                .limit(limit)
-            ).mappings()
+            )
+            if limit is not None:
+                statement = statement.limit(limit)
+            rows = connection.execute(statement).mappings()
             return tuple(_post(row) for row in rows)
 
     def get_post(self, post_id: UUID) -> DiscoveredPost | None:

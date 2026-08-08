@@ -57,6 +57,7 @@ class StepOutcome:
 
     state: PublishStepState
     result_code: str
+    detail: dict[str, int] | None = None
 
     @property
     def blocking(self) -> bool:
@@ -98,10 +99,14 @@ def staging_request(
     revision = draft.active_revision
     if revision is None:
         raise StagingBlockedError("no_active_revision")
+    # A revision is an intentional checkpoint.  The canvas, however, saves its
+    # current blocks independently so staging must use that newest confirmed
+    # working copy rather than silently reverting to the last checkpoint.
+    working_copy = draft.working_copy
     return StagingRequest(
         blog_id=owner,
-        title=revision.title,
-        blocks=revision.blocks,
+        title=working_copy.title if working_copy is not None else revision.title,
+        blocks=working_copy.blocks if working_copy is not None else revision.blocks,
         images=draft.images,
         tags=tuple(tags),
         media_root=media_root,
@@ -205,45 +210,137 @@ class StagePost:
     ) -> StepOutcome:
         selector = probe.get("bodySelector")
         if not isinstance(selector, str):
-            return StepOutcome(PublishStepState.FAILED, "not_found")
-        text = body_text(request.blocks)
-        if not text:
-            return StepOutcome(PublishStepState.FAILED, "body_empty")
-        return await self._fill(page, selector, text, "body")
+            return _body_outcome(PublishStepState.FAILED, "not_found", request)
+        root_selector = probe.get("editorRootSelector", selector)
+        if not isinstance(root_selector, str):
+            return _body_outcome(PublishStepState.FAILED, "editor_root_not_found", request)
+        if not request.blocks:
+            return _body_outcome(PublishStepState.FAILED, "no_body_blocks", request)
+
+        # Resolve every image before mutating the editor.  A broken media reference must not leave
+        # a partial document behind merely because it happened late in the requested block order.
+        images = {image.id: image for image in request.images}
+        referenced_images = [block for block in request.blocks if block.kind is BlockKind.IMAGE]
+        if len(images) != len(request.images):
+            return _body_outcome(PublishStepState.FAILED, "duplicate_image_reference", request)
+        for block in referenced_images:
+            if block.image_id not in images:
+                return _body_outcome(PublishStepState.FAILED, "image_reference_missing", request)
+            image = images[block.image_id]
+            path = (request.media_root / image.stored_path).resolve()
+            if not path.is_file() or request.media_root.resolve() not in path.parents:
+                return _body_outcome(PublishStepState.FAILED, "image_file_missing", request)
+
+        # Clear exactly once, then use toolbar click + trusted key input for every individual block.
+        # This is intentionally not a text rendering fallback: absence of the required control stops
+        # the run before Save, even if the editor would happen to display similar plain text.
+        await page.type_text(selector, "")
+        expected: list[BodyBlock] = []
+        for index, block in enumerate(request.blocks):
+            if index > 0:
+                await page.press_key(selector, "Enter")
+            outcome = await self._append_block(
+                page, probe, selector, block, images, request.media_root.resolve()
+            )
+            if outcome is not None:
+                return _body_outcome(
+                    outcome.state, outcome.result_code, request, observed_prefix_count=len(expected)
+                )
+            expected.append(block)
+            observed = await self._probe(page, "readEditorBlocks", root_selector)
+            if not isinstance(observed, list):
+                return _body_outcome(
+                    PublishStepState.FAILED,
+                    f"block_{index + 1}_unsupported_editor_structure",
+                    request,
+                    observed_prefix_count=len(expected),
+                )
+            if not _blocks_match(tuple(expected), observed):
+                return _body_outcome(
+                    PublishStepState.UNCONFIRMED,
+                    f"block_{index + 1}_order_unconfirmed",
+                    request,
+                    observed_prefix_count=index,
+                )
+        return _body_outcome(
+            PublishStepState.SUCCEEDED,
+            f"blocks_staged_{len(expected)}",
+            request,
+            observed_prefix_count=len(expected),
+        )
+
+    async def _append_block(
+        self,
+        page: PageHandle,
+        probe: dict[str, Any],
+        body_selector: str,
+        block: BodyBlock,
+        images: dict[Any, DraftImage],
+        media_root: Path,
+    ) -> StepOutcome | None:
+        """Perform the one trusted action sequence for one canonical body block."""
+        if block.kind is BlockKind.IMAGE:
+            input_selector = probe.get("imageInputSelector")
+            if not isinstance(input_selector, str):
+                return StepOutcome(PublishStepState.FAILED, "image_input_not_found")
+            image = images.get(block.image_id)
+            if image is None:
+                return StepOutcome(PublishStepState.FAILED, "image_reference_missing")
+            # The current caret belongs to the preceding block action.  Do not click the editor
+            # root here: a click can move the caret to a visually convenient but semantically wrong
+            # location.  The subsequent semantic prefix check proves the attachment's position.
+            image_path = str((media_root / image.stored_path).resolve())
+            await page.set_input_files(input_selector, [image_path])
+            await self._sleep(page, CONFIRMATION_INTERVAL_SECONDS)
+            if block.caption:
+                refreshed = await self._probe(page, "probeEditor")
+                caption_selector = (
+                    refreshed.get("imageCaptionSelector") if isinstance(refreshed, dict) else None
+                )
+                if not isinstance(caption_selector, str):
+                    return StepOutcome(PublishStepState.FAILED, "image_caption_control_not_found")
+                await page.type_text(caption_selector, block.caption)
+            return None
+
+        if block.kind is not BlockKind.PARAGRAPH:
+            actions = probe.get("blockActionSelectors")
+            selector = actions.get(block.kind.value) if isinstance(actions, dict) else None
+            if not isinstance(selector, str):
+                return StepOutcome(
+                    PublishStepState.FAILED, f"block_{block.kind.value}_control_not_found"
+                )
+            await page.click(selector)
+
+        if block.kind is BlockKind.DIVIDER:
+            return None
+        if block.kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            await page.append_text(body_selector, "\n".join(block.items))
+            return None
+        await page.append_text(body_selector, block.text)
+        return None
 
     async def _images(
         self, page: PageHandle, probe: dict[str, Any], request: StagingRequest
     ) -> StepOutcome:
-        referenced = [
-            image
-            for image in request.images
-            if any(block.image_id == image.id for block in request.blocks)
-        ]
-        if not referenced:
+        del page, probe
+        if not any(block.kind is BlockKind.IMAGE for block in request.blocks):
             return StepOutcome(PublishStepState.SKIPPED, "no_images")
-        selector = probe.get("imageInputSelector")
-        if not isinstance(selector, str):
-            return StepOutcome(PublishStepState.FAILED, "image_input_not_found")
-        paths: list[str] = []
-        for image in referenced:
-            path = (request.media_root / image.stored_path).resolve()
-            if not path.is_file():
-                return StepOutcome(PublishStepState.FAILED, "image_file_missing")
-            paths.append(str(path))
-        await page.set_input_files(selector, paths)
-        await self._sleep(page, CONFIRMATION_INTERVAL_SECONDS)
-        return StepOutcome(PublishStepState.SUCCEEDED, "images_attached")
+        # Image attachment happens at its requested body index inside `_body`; separating it into
+        # a later append-only pass would destroy that ordering guarantee.
+        return StepOutcome(PublishStepState.SUCCEEDED, "images_staged_with_blocks")
 
     async def _tags(
         self, page: PageHandle, probe: dict[str, Any], request: StagingRequest
     ) -> StepOutcome:
         if not request.tags:
             return StepOutcome(PublishStepState.SKIPPED, "no_tags")
-        selector = probe.get("bodySelector")
+        selector = probe.get("tagInputSelector")
         if not isinstance(selector, str):
-            return StepOutcome(PublishStepState.FAILED, "not_found")
-        await page.type_text(selector, tag_text(request.tags))
-        return StepOutcome(PublishStepState.SUCCEEDED, "tags_appended")
+            return StepOutcome(PublishStepState.FAILED, "tag_input_not_found")
+        for tag in request.tags:
+            await page.append_text(selector, tag)
+            await page.press_key(selector, "Enter")
+        return StepOutcome(PublishStepState.SUCCEEDED, "tags_staged")
 
     async def _save(self, page: PageHandle, probe: dict[str, Any]) -> StepOutcome:
         selector = probe.get("saveSelector")
@@ -292,6 +389,45 @@ def body_text(blocks: tuple[BodyBlock, ...]) -> str:
 def tag_text(tags: Sequence[str]) -> str:
     """Render the tags as the body tag input expects them."""
     return "\n\n" + " ".join(f"#{tag}" for tag in tags)
+
+
+def _body_outcome(
+    state: PublishStepState,
+    result_code: str,
+    request: StagingRequest,
+    *,
+    observed_prefix_count: int = 0,
+) -> StepOutcome:
+    """Describe body verification without exposing block text or image identifiers to SSE."""
+    return StepOutcome(
+        state,
+        result_code,
+        detail={
+            "requested_range_start": 1,
+            "requested_range_end": len(request.blocks),
+            "observed_prefix_count": max(0, observed_prefix_count),
+        },
+    )
+
+
+def _blocks_match(expected: tuple[BodyBlock, ...], observed: list[Any]) -> bool:
+    """Compare only explicit semantic fields, never guessed presentation details."""
+    if len(expected) != len(observed):
+        return False
+    for block, snapshot in zip(expected, observed, strict=True):
+        if not isinstance(snapshot, dict) or snapshot.get("type") != block.kind.value:
+            return False
+        if block.kind in {BlockKind.HEADING, BlockKind.PARAGRAPH, BlockKind.QUOTE}:
+            if snapshot.get("text") != block.text:
+                return False
+        elif block.kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            if snapshot.get("items") != list(block.items):
+                return False
+        elif block.kind is BlockKind.IMAGE and snapshot.get("caption", "") != block.caption:
+            # The Naver DOM does not expose our private image UUID.  Position and caption still
+            # prove that the requested image block survived at this point in the sequence.
+            return False
+    return True
 
 
 def _as_int(value: object) -> int:

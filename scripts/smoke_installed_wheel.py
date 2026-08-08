@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.infrastructure.browser import PAGE_PROBES, load_page_bundle
 
-EXPECTED_MIGRATION_HEAD = "20260801_0020"
+EXPECTED_MIGRATION_HEAD = "20260808_0022"
 CHECKED_IN_CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml"
 
 

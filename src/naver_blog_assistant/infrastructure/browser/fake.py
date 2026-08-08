@@ -65,8 +65,11 @@ class FakePage:
     results: dict[str, Any] = field(default_factory=dict)
     navigations: list[str] = field(default_factory=list)
     evaluations: list[tuple[str, Any]] = field(default_factory=list)
+    actions: list[tuple[str, str]] = field(default_factory=list)
     clicks: list[str] = field(default_factory=list)
     typed: list[tuple[str, str]] = field(default_factory=list)
+    appended: list[tuple[str, str]] = field(default_factory=list)
+    pressed: list[tuple[str, str]] = field(default_factory=list)
     selected: list[tuple[str, str]] = field(default_factory=list)
     scrolls: list[int] = field(default_factory=list)
     waits: list[float] = field(default_factory=list)
@@ -131,6 +134,7 @@ class FakePage:
         failure = self.action_failures.get(selector) or self.click_failure
         if failure is not None:
             raise BrowserOperationError(failure)
+        self.actions.append(("click", selector))
         self.clicks.append(selector)
 
     async def type_text(
@@ -142,7 +146,32 @@ class FakePage:
         failure = self.action_failures.get(selector) or self.type_failure
         if failure is not None:
             raise BrowserOperationError(failure)
+        self.actions.append(("type", selector))
         self.typed.append((selector, text))
+
+    async def append_text(
+        self, selector: str, text: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        del timeout_seconds
+        if self.closed:
+            raise BrowserOperationError("page is already closed")
+        failure = self.action_failures.get(selector) or self.type_failure
+        if failure is not None:
+            raise BrowserOperationError(failure)
+        self.actions.append(("append", selector))
+        self.appended.append((selector, text))
+
+    async def press_key(
+        self, selector: str, key: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        del timeout_seconds
+        if self.closed:
+            raise BrowserOperationError("page is already closed")
+        failure = self.action_failures.get(selector)
+        if failure is not None:
+            raise BrowserOperationError(failure)
+        self.actions.append(("press", selector))
+        self.pressed.append((selector, key))
 
     async def select_option(
         self, selector: str, value: str, *, timeout_seconds: float | None = None
@@ -164,6 +193,7 @@ class FakePage:
         failure = self.action_failures.get(selector)
         if failure is not None:
             raise BrowserOperationError(failure)
+        self.actions.append(("files", selector))
         self.attachments.append((selector, tuple(paths)))
 
     async def scroll_by(self, pixels: int) -> None:

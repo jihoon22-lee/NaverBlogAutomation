@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { probeEditor, probeEditorSave, readEditorText } from "../../src/page/editor";
+import {
+  probeEditor,
+  probeEditorSave,
+  readEditorBlocks,
+  readEditorText,
+} from "../../src/page/editor";
 import { setBody } from "../fixtures/naver";
 
 const EDITOR = `
@@ -23,6 +28,15 @@ const RESTORE = `
     <button class="se-popup-alert-cancel">취소</button>
   </div>
   ${EDITOR}
+`;
+
+const BLOCK_ACTIONS = `
+  <button aria-label="소제목">소제목</button>
+  <button aria-label="인용구">인용구</button>
+  <button aria-label="번호 목록">번호 목록</button>
+  <button aria-label="글머리 기호">글머리 기호</button>
+  <button aria-label="구분선">구분선</button>
+  <input aria-label="태그 입력" />
 `;
 
 beforeEach(() => {
@@ -109,6 +123,37 @@ describe("probeEditor", () => {
     expect(probe.stage).toBe("ready");
     expect(probe.imageInputSelector).toBeNull();
   });
+
+  it("exposes only unambiguous block action and tag controls", () => {
+    setBody(`${EDITOR}${BLOCK_ACTIONS}`);
+
+    const probe = probeEditor();
+
+    expect(probe.stage).toBe("ready");
+    for (const selector of Object.values(probe.blockActionSelectors)) {
+      expect(document.querySelectorAll(selector)).toHaveLength(1);
+    }
+    expect(Object.keys(probe.blockActionSelectors).sort()).toEqual([
+      "divider",
+      "heading",
+      "ordered_list",
+      "quote",
+      "unordered_list",
+    ]);
+    expect(document.querySelectorAll(probe.tagInputSelector as string)).toHaveLength(1);
+  });
+
+  it("withholds ambiguous toolbar and file controls instead of choosing the first one", () => {
+    setBody(
+      `${EDITOR}${BLOCK_ACTIONS}<button aria-label="인용구">인용구</button><input type="file" accept="image/*" />`,
+    );
+
+    const probe = probeEditor();
+
+    expect(probe.stage).toBe("ready");
+    expect(probe.blockActionSelectors.quote).toBeUndefined();
+    expect(probe.imageInputSelector).toBeNull();
+  });
 });
 
 describe("probeEditorSave", () => {
@@ -158,5 +203,33 @@ describe("readEditorText", () => {
 
   it("returns an empty string for a missing element", () => {
     expect(readEditorText("#missing")).toBe("");
+  });
+});
+
+describe("readEditorBlocks", () => {
+  it("returns an explicit semantic snapshot in document order", () => {
+    setBody(`
+      <div id="body">
+        <h2>소제목</h2><p>문단</p><blockquote>인용</blockquote>
+        <ol><li>첫째</li><li>둘째</li></ol><ul><li>목록</li></ul><hr />
+        <figure><img src="x.png" /><figcaption>사진 설명</figcaption></figure>
+      </div>
+    `);
+
+    expect(readEditorBlocks("#body")).toEqual([
+      { type: "heading", text: "소제목" },
+      { type: "paragraph", text: "문단" },
+      { type: "quote", text: "인용" },
+      { type: "ordered_list", items: ["첫째", "둘째"] },
+      { type: "unordered_list", items: ["목록"] },
+      { type: "divider" },
+      { type: "image", caption: "사진 설명" },
+    ]);
+  });
+
+  it("refuses an editor whose child structure is not recognized", () => {
+    setBody('<div id="body"><span>평문</span></div>');
+
+    expect(readEditorBlocks("#body")).toBeNull();
   });
 });

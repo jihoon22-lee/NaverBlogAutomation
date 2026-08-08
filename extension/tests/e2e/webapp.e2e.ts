@@ -21,51 +21,182 @@ interface RunningApi {
   dispose(): Promise<void>;
 }
 
-test("packaged web app opens the workbench and selects an ordered batch without the legacy extension", async () => {
-  let api: RunningApi | null = null;
-  let browser: Browser | null = null;
-  try {
-    api = await startApi();
-    const postId = await seedQueuedPost();
-    browser = await chromium.launch({ channel: "chromium", headless: true });
-    const page = await browser.newPage({ viewport: { width: 768, height: 1024 } });
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
+const VIEWPORTS = [
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "tablet portrait", width: 768, height: 1024 },
+  { name: "tablet landscape", width: 1024, height: 768 },
+] as const;
 
-    await page.goto(`${apiOrigin}/app/`);
-    await expect(page.locator("#workspace-status")).toContainText("오늘의 블로그 작업");
-    await page.locator('[data-section="workbench"]').click();
-    await expect(page.locator("#workspace-status")).toContainText("대기 중인 글");
-    await page.locator(`input#queue-batch-${postId}`).check();
-    await page.locator("#open-batch-preview").click();
-    await expect(page.locator("#session-queue-selection")).toBeVisible();
+for (const viewport of VIEWPORTS) {
+  test(`packaged web app resumes the workbench at ${viewport.name}`, async () => {
+    let api: RunningApi | null = null;
+    let browser: Browser | null = null;
+    try {
+      api = await startApi();
+      const postId = await seedQueuedPost();
+      const draftId = await seedDraft();
+      browser = await chromium.launch({ channel: "chromium", headless: true });
+      const page = await browser.newPage({
+        viewport: { width: viewport.width, height: viewport.height },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
 
-    const choice = page.locator(`input[data-post-id="${postId}"]`);
-    await choice.check();
-    await expect(page.locator("#start-session-button")).toBeEnabled();
-    const approval = page.waitForRequest(
-      (request) =>
-        request.method() === "POST" &&
-        new URL(request.url()).pathname === "/api/v1/automation/sessions",
-    );
-    await page.locator("#start-session-button").click();
-    const request = await approval;
+      await page.goto(`${apiOrigin}/app/`);
+      await expect(page.locator("#workspace-status")).toContainText("오늘의 블로그 작업");
+      await expect(page.locator("#workspace-nav button[data-section]")).toHaveCount(4);
+      await expect(page.locator('[data-section="home"]')).toHaveText("홈");
+      await expect(page.locator('[data-section="workbench"]')).toHaveText("작업함");
+      await expect(page.locator('[data-section="writing"]')).toHaveText("글쓰기");
+      await expect(page.locator('[data-section="more"]')).toHaveText("더보기");
+      await page.goto(`${apiOrigin}/app/#today`);
+      await expect(page.locator('[data-section="home"]')).toHaveAttribute("aria-current", "page");
 
-    expect(request.postDataJSON()).toMatchObject({
-      approved_steps: ["like", "comment"],
-      max_posts: 1,
-      post_ids: [postId],
-      sources: ["neighbor"],
-    });
-    expect(errors).toEqual([]);
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-    ).toBe(true);
-  } finally {
-    await browser?.close();
-    await api?.dispose();
-  }
-});
+      await page.locator('[data-section="workbench"]').click();
+      await expect(page.locator(".queue-panel")).toBeVisible();
+      await expect(page.locator(`#queue-batch-${postId}`)).toBeVisible();
+      await page.locator(`#queue-batch-${postId}`).check();
+      await expect(page.locator(".queue-batch-preview")).toContainText("선택 순서대로 1건");
+      await expect(page.locator("#open-batch-preview")).toBeEnabled();
+      await page.locator("#open-batch-preview").click();
+      await expect(page.locator("#session-queue-selection")).toBeVisible();
+
+      const choice = page.locator(`input[data-post-id="${postId}"]`);
+      await choice.check();
+      await expect(page.locator("#start-session-button")).toBeEnabled();
+      const approval = page.waitForRequest(
+        (request) =>
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === "/api/v1/automation/sessions",
+      );
+      await page.locator("#start-session-button").click();
+      const request = await approval;
+
+      expect(request.postDataJSON()).toMatchObject({
+        approved_steps: ["like", "comment"],
+        max_posts: 1,
+        post_ids: [postId],
+        sources: ["neighbor"],
+      });
+      await page.locator("#back-to-workbench-button").click();
+      if (viewport.name === "tablet portrait") {
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+      }
+      await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
+      await expect(page.locator("#open-post-button")).toBeDisabled();
+      await expect(page.locator("#skip-post-button")).toBeVisible();
+      if (viewport.name === "tablet portrait") {
+        await expect(page.locator("#close-detail-sheet")).toBeVisible();
+        await page.locator("#close-detail-sheet").click();
+        await expect(page.locator(".detail-panel")).toBeHidden();
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator(".detail-panel")).toBeVisible();
+      }
+      await page.locator("#skip-post-button").click();
+      await expect(page.locator("#skip-post-button")).toHaveText("다시 대기");
+      if (viewport.name === "tablet portrait") {
+        await page.locator("#close-detail-sheet").click();
+        await expect(page.locator(".detail-panel")).toBeHidden();
+      }
+      await page.locator('[data-segment="skipped"]').click();
+      await expect(page.locator(`.queue-item[data-post-id="${postId}"]`)).toBeVisible();
+      if (viewport.name === "tablet portrait") {
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator(".detail-panel")).toBeVisible();
+      }
+      await page.locator("#skip-post-button").click();
+      await expect(page.locator("#skip-post-button")).toHaveText("이 글 건너뛰기");
+      expect(errors).toEqual([]);
+      const overflow = await page.evaluate(() => {
+        const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
+          .map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            id: element.id,
+            className: element.className,
+            left: Math.round(element.getBoundingClientRect().left),
+            right: Math.round(element.getBoundingClientRect().right),
+          }))
+          .filter(({ left, right }) => left < 0 || right > window.innerWidth)
+          .slice(0, 10);
+        return {
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+          offenders,
+        };
+      });
+      expect(overflow.documentWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(
+        overflow.viewportWidth,
+      );
+      const gridColumnCount = await page.evaluate(() => {
+        const layout = document.querySelector<HTMLElement>(".today-layout");
+        return layout === null
+          ? null
+          : getComputedStyle(layout).gridTemplateColumns.trim().split(/\s+/).length;
+      });
+      expect(gridColumnCount).not.toBeNull();
+      if (viewport.name === "tablet portrait") expect(gridColumnCount).toBe(1);
+      else expect(gridColumnCount).toBeGreaterThan(1);
+
+      await page.locator('[data-section="more"]').click();
+      await expect(page.locator(".more-menu-panel")).toBeVisible();
+      await expect(page.locator("#more-settings")).toBeVisible();
+
+      await page.locator('[data-section="writing"]').click();
+      await expect(page.locator("#writing-status")).toContainText("본문");
+      await page.locator(`[data-draft-id="${draftId}"]`).click();
+      await expect(page.locator("#draft-title")).toHaveValue("웹앱 편집 합성 초안");
+      await expect(page.locator(".block-canvas .editor-block")).toHaveCount(2);
+      const autosave = page.waitForRequest(
+        (request) =>
+          request.method() === "PUT" &&
+          new URL(request.url()).pathname === `/api/v1/drafts/${draftId}/body`,
+      );
+      await page.locator('[data-block-index="0"] textarea').fill("수정된 첫 문단");
+      const autosaveRequest = await autosave;
+      expect(autosaveRequest.postDataJSON()).toMatchObject({
+        blocks: [
+          { type: "paragraph", text: "수정된 첫 문단" },
+          { type: "heading", text: "확인할 소제목" },
+        ],
+      });
+      await page.locator(".editor-preview summary").click();
+      await expect(page.locator(".block-preview-content")).toContainText("수정된 첫 문단");
+
+      await page.locator('[data-section="more"]').click();
+      await expect(page.locator("#more-settings")).toBeVisible();
+      await page.locator("#more-settings").click();
+      await expect(page.locator(".settings-navigation")).toBeVisible();
+      await expect(page.locator("#runtime-openai-key")).toHaveAttribute("type", "password");
+      await page.locator('.settings-navigation-item[data-settings-section="connections"]').click();
+      await expect(page.locator(".runtime-data-panel")).toBeVisible();
+      const download = page.waitForEvent("download");
+      await page.locator("#export-runtime-data-button").click();
+      await expect((await download).suggestedFilename()).toBe("naver-blog-assistant-data.zip");
+      await page.locator(".runtime-data-reset summary").click();
+      await expect(page.locator("#runtime-data-reset-confirmation")).toBeVisible();
+      await expect(page.locator("#reset-runtime-data-button")).toBeDisabled();
+
+      const shellCache = await page.evaluate(async () => {
+        if (!("serviceWorker" in navigator)) return { registered: false, apiCached: false };
+        await navigator.serviceWorker.ready;
+        const entries = (await caches.keys()).flatMap(async (name) => {
+          const cache = await caches.open(name);
+          return (await cache.keys()).map((request) => new URL(request.url).pathname);
+        });
+        const paths = (await Promise.all(entries)).flat();
+        return {
+          registered: true,
+          apiCached: paths.some((path) => path.startsWith("/api/")),
+          shellCached: paths.includes("/app/app.js"),
+        };
+      });
+      expect(shellCache).toMatchObject({ registered: true, apiCached: false, shellCached: true });
+    } finally {
+      await browser?.close();
+      await api?.dispose();
+    }
+  });
+}
 
 async function seedQueuedPost(): Promise<string> {
   await apiJson("/api/v1/settings/automation_consent", {
@@ -110,6 +241,25 @@ async function seedQueuedPost(): Promise<string> {
   return postId;
 }
 
+async function seedDraft(): Promise<string> {
+  const draft = await apiJson<{ id: string }>("/api/v1/drafts", {
+    method: "POST",
+    body: { title: "웹앱 편집 합성 초안", seed_text: "작업함과 글쓰기 흐름을 확인합니다." },
+  });
+  await apiJson(`/api/v1/drafts/${draft.id}/body`, {
+    method: "PUT",
+    body: {
+      title: "웹앱 편집 합성 초안",
+      blocks: [
+        { type: "paragraph", text: "첫 문단" },
+        { type: "heading", text: "확인할 소제목" },
+      ],
+      summary: "웹앱 E2E working copy",
+    },
+  });
+  return draft.id;
+}
+
 async function apiJson<T = unknown>(
   path: string,
   options: { body?: object; method?: "GET" | "POST" | "PUT" } = {},
@@ -148,12 +298,14 @@ async function startApi(): Promise<RunningApi> {
     await waitForHealth(apiProcess, () => output);
   } catch (error) {
     await terminate(apiProcess);
+    await waitForPortClosed();
     await rm(directory, { force: true, recursive: true });
     throw error;
   }
   return {
     async dispose(): Promise<void> {
       await terminate(apiProcess);
+      await waitForPortClosed();
       await rm(directory, { force: true, recursive: true });
     },
   };
@@ -174,6 +326,8 @@ function safeApiEnvironment(databasePath: string): NodeJS.ProcessEnv {
     COMMENT_GENERATOR_MODE: "fake",
     DATABASE_URL: `sqlite:///${databasePath}`,
     OPENAI_API_KEY: "",
+    NBA_RUNTIME_CONFIG_FILE: join(dirname(databasePath), "runtime.env"),
+    NBA_SUPERVISOR_RESTART_FILE: join(dirname(databasePath), "restart.marker"),
   };
 }
 
@@ -195,7 +349,12 @@ async function waitForHealth(apiProcess: ApiProcess, output: () => string): Prom
 }
 
 async function terminate(apiProcess: ApiProcess): Promise<void> {
-  if (apiProcess.exitCode !== null) return;
+  if (apiProcess.exitCode !== null) {
+    // `uv run` can exit before its API child; the detached process group still belongs to this
+    // test, so close that group before checking the listening socket.
+    signalProcessGroup(apiProcess, "SIGKILL");
+    return;
+  }
   signalProcessGroup(apiProcess, "SIGTERM");
   const exited = await Promise.race([
     new Promise<boolean>((resolve) => apiProcess.once("exit", () => resolve(true))),
@@ -207,6 +366,21 @@ async function terminate(apiProcess: ApiProcess): Promise<void> {
       await new Promise<void>((resolve) => apiProcess.once("exit", () => resolve()));
     }
   }
+  signalProcessGroup(apiProcess, "SIGKILL");
+}
+
+/** Avoid handing the next E2E case a still-listening child after its process has exited. */
+async function waitForPortClosed(): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(250) });
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Local API port 8765 remained open after the E2E child exited.");
 }
 
 function signalProcessGroup(apiProcess: ApiProcess, signal: NodeJS.Signals): void {

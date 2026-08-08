@@ -6,15 +6,16 @@
 ## Runtime Contract
 
 기본 local web app은 `127.0.0.1:8765`에서만 실행되며 `/app/`과 API는 같은 origin을 사용합니다.
-따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 private env file에
-`WEBAPP_ACCESS_MODE=lan`, `API_HOST=0.0.0.0`을 함께 설정합니다. 이 경우에도 service는 발견한
-private IPv4 address와 loopback Host만 받으며, 태블릿은 PC에서 만든 일회용 code로 pair해야 합니다.
+따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 PC의 **더보기 > 설정 >
+연결 및 앱**에서 access mode를 LAN으로 저장하고, **저장한 설정 적용**으로 supervised restart를
+승인합니다. service가 `WEBAPP_ACCESS_MODE=lan`과 일치하는 `API_HOST=0.0.0.0`을 private env file에
+함께 기록하며, port는 `8765`으로 고정합니다. 이 경우에도 service는 발견한 private IPv4 address와
+loopback Host만 받으며, 태블릿은 PC에서 만든 일회용 code로 pair해야 합니다.
 공용 Wi-Fi, port forwarding, public hosting은 지원하지 않습니다.
 
-웹앱의 **오늘의 작업**, **여러 글 처리**, **글 작성**, **설정**은 같은 PC-owned automation browser를
-사용합니다. 네이버 로그인은 automation browser 창에서 직접 처리하며, 웹앱·태블릿에 계정 비밀번호나
-cookie를 입력하지 않습니다. legacy extension의 별도 실행 조건은 [Extension Legacy](extension-legacy.md)를
-따르세요.
+웹앱의 **홈**, **작업함**, **글쓰기**, **더보기**는 같은 PC-owned automation browser를 사용합니다.
+네이버 로그인은 automation browser 창에서 직접 처리하며, 웹앱·태블릿에 계정 비밀번호나 cookie를
+입력하지 않습니다. legacy extension의 별도 실행 조건은 [Extension Legacy](extension-legacy.md)를 따르세요.
 
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
@@ -53,23 +54,19 @@ Database에 포함된 주요 table 목록:
 | `automatic_discovery_settings` / `automatic_discovery_runs` | 자동 탐색 설정·실행 기록 |
 | `remote_device_sessions` | paired 태블릿의 token·CSRF hash, 만료·해제 상태 |
 
-현재 migration head는 `20260801_0020_automation_session_posts`입니다.
+현재 migration head는 `20260808_0022_runtime_setting_cleanup`입니다.
 
-### 초안 이미지 보관 (DRAFT_MEDIA_DIR)
+### 초안 이미지 보관 (앱 소유 media directory)
 
 글쓰기 워크플로에서 업로드한 이미지는 filesystem에 별도 보관됩니다.
 
-- **경로:** 환경변수 `DRAFT_MEDIA_DIR`이 설정되어 있으면 해당 경로, 없으면 database 디렉터리
-  아래 `media/`(기본값 `data/media/`)를 사용합니다.
+- **경로:** 열려 있는 SQLite database 디렉터리 아래 `media/`를 앱이 결정합니다. 웹앱과 runtime API는
+  media path 입력을 받지 않습니다.
 - **구조:** `<media_root>/drafts/<draft_id>/<uuid>.<ext>` 형태로 초안별 디렉터리에 저장됩니다.
 - **내용:** JPEG, PNG, WebP, GIF 이미지만 허용하며 파일당 10 MiB 이하입니다.
-- **삭제:** 초안을 삭제하면 해당 draft의 모든 이미지 파일과 디렉터리가 제거됩니다.
-  전체를 수동으로 삭제하려면 API를 종료한 뒤 `<media_root>/drafts/` 디렉터리를 삭제합니다.
-
-```bash
-# 예: 기본 경로의 모든 초안 이미지 삭제
-rm -rf data/media/drafts/
-```
+- **삭제:** 초안을 삭제하면 해당 draft의 모든 이미지 파일과 디렉터리가 제거됩니다. 전체 데이터
+  초기화는 아래의 PC 웹앱 **데이터 관리** 절차를 사용합니다. 파일을 직접 삭제하면 database와
+  media의 참조가 어긋날 수 있으므로 지원하지 않습니다.
 
 글 탐색 대기열의 RSS·검색 후보, 일일 요약, SMTP 설정과 별도 보관 정책은
 [글 탐색 대기열](discovery.md)을 참고하세요.
@@ -90,19 +87,64 @@ uv run --frozen --env-file .env.local python -m scripts.clear_local_data
 uv run --frozen --env-file .env.local python -m scripts.clear_local_data --confirm
 ```
 
+## Webapp Migration, Export, and Reset
+
+서비스는 시작할 때 `.env.local`에 지정된 SQLite database를 migration head까지 자동 upgrade합니다.
+따라서 운영 database에 `uv run alembic ...`를 직접 실행하지 마세요. `alembic.ini`의 기본 URL은
+실제 private runtime 경로와 다를 수 있습니다.
+
+이번 working-copy migration은 `20260808_0021_draft_working_copy`입니다. 기존 활성 revision의
+title·block·summary를 working copy로 한 번 backfill하고 `content_version=1`로 시작합니다. SQLite
+table 재작성으로 revision을 잃지 않도록 additive column migration을 사용합니다. 이어지는
+`20260808_0022_runtime_setting_cleanup`은 더 이상 쓰지 않는 `browser_profile`과 `llm_providers`
+SQLite 설정만 제거합니다.
+
+업데이트 전에는 PC의 **더보기 > 설정 > 연결 및 앱 > 데이터 관리**에서 export를 내려받아 보관하세요.
+export는 browser, batch, 네이버 임시저장 작업이 모두 idle일 때만 가능하며 다음만 ZIP에 넣습니다.
+
+- SQLite DB와 존재하는 `-wal`/`-shm` 파일
+- 초안 media 파일
+
+private dotenv, API key, SMTP credential, browser profile은 export에 포함되지 않습니다. 다운로드한 ZIP은
+별도 안전한 저장소에 보관합니다. 현재 구현에는 export를 자동으로 보관하는 server directory나
+보존 기간 정책이 없습니다.
+
+**안전한 초기화**는 같은 PC 화면에서 대상 DB/WAL/SHM 및 media file 수를 확인하고 `RESET LOCAL DATA`를
+입력할 때만 사용할 수 있습니다. launcher(`scripts/start_webapp.py`)로 실행 중이고 작업이 idle이면
+데이터를 삭제하지 않고 app data root 아래 `.nba-data-backups/<timestamp>-<id>/`로 이동한 뒤 restart를
+요청합니다. 백업 위치는 응답 화면에 표시됩니다. 이 backup은 자동 삭제하지 않으므로, 복구가 필요한
+기간에는 사용자가 보관하고 불필요해진 뒤에만 OS의 보안 정책에 따라 제거합니다.
+
+복구는 자동 UI 기능이 아직 없습니다. service를 완전히 종료한 뒤, 초기화 응답의 backup 안에 있는
+`database.sqlite3`(및 함께 존재하면 `database.sqlite3-wal`, `database.sqlite3-shm`)와 `media/`를
+원래 data root로 되돌리는 수동 운영 절차입니다. 현재 새 data가 생겼다면 먼저 별도로 export하고,
+대상 경로·권한·symlink 여부를 확인한 뒤에만 수행하세요. runtime dotenv와 browser login은 이 backup에
+없으므로 별도로 다시 설정하거나 로그인해야 합니다.
+
+코드 수준 downgrade는 운영 복구 수단이 아닙니다. `0020 → 0021 → 0020 → 0021` fixture test가 immutable
+revision 보존과 backfill을 검증하지만, 운영 문제는 먼저 export/backup을 확보한 뒤 지원되는 build로
+복원하는 방식으로 처리합니다.
+
+## Test Timeout and Hang Protocol
+
+테스트는 종료 summary와 exit code가 모두 있을 때만 통과로 기록합니다. 각 실행에는 timeout을 두고,
+60초 동안 새 출력이 없으면 process 상태를 확인한 뒤 종료합니다. 이 경우에는 부분 출력이 모두
+성공처럼 보여도 `중단됨`으로 기록하며, hang 원인과 PID·마지막 출력 지점을 남깁니다. 전체 test/coverage
+gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
+
 ## Troubleshooting
 
 ### 기본 연결·설정
 
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
   `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
-- **태블릿 연결 code를 만들 수 없음:** PC service를 종료하고 `WEBAPP_ACCESS_MODE=lan`과
-  `API_HOST=0.0.0.0`을 함께 설정한 뒤 다시 시작합니다. 태블릿과 PC가 같은 private Wi-Fi인지도
-  확인하세요.
+- **태블릿 연결 code를 만들 수 없음:** PC의 **더보기 > 설정 > 연결 및 앱**에서 access mode를
+  **신뢰 Wi-Fi**로 저장하고 **저장한 설정 적용**을 누르세요. 태블릿과 PC가 같은 private Wi-Fi인지도
+  확인하세요. launcher 없이 수동 API로 실행 중이면 그 화면의 재시작 안내에 따라 직접 다시 시작합니다.
 - **태블릿에서 계속 pairing 화면이 보임:** PC 웹앱에서 새 5분 code를 만든 뒤 다시 입력합니다. code는
   한 번 성공하면 즉시 폐기되며, 기기를 해제한 경우에도 새 code가 필요합니다.
-- **연결 표시는 정상이지만 최근 작업이 비어 있음:** 기록은 현재 configured `DATABASE_URL`에만
-  저장됩니다. 다른 env file로 API를 시작했는지 확인하고 **최근 작업 > 새로고침**을 누릅니다.
+- **연결 표시는 정상이지만 이력이 비어 있음:** 기록은 현재 실행 중인 앱 data root의 SQLite에만
+  저장됩니다. 다른 private env file로 API를 시작했는지 확인하고 **더보기 > 이력 > 새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
 
@@ -125,12 +167,13 @@ uv run --frozen --env-file .env.local python -m scripts.clear_local_data --confi
   공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
   마지막 동기화 상태에 이유를 표시합니다. 여러 저장 검색어의 신규 후보 수는 합계이므로 50개를 넘을 수
   있으며, 이는 정상 동기화 결과입니다.
-- **저장한 신규 이웃 검색어를 지우고 싶음:** **설정 > 신규 이웃 검색어**의 삭제 버튼을 사용합니다.
+- **저장한 신규 이웃 검색어를 지우고 싶음:** **더보기 > 설정 > 탐색 및 자동화 > 신규 이웃 검색어**의
+  삭제 버튼을 사용합니다.
   삭제해도 기존에 수집된 후보 글은 유지됩니다.
 
 ### 공감·댓글·서로이웃 실행
 
-- **자동 실행 동의가 없어 진행되지 않음:** **설정 > 자동 실행과 안전**으로 자동 이동합니다.
+- **자동 실행 동의가 없어 진행되지 않음:** **더보기 > 설정 > 탐색 및 자동화**로 자동 이동합니다.
   범위와 약관을 확인해 동의하거나, 댓글 작성으로 돌아가 댓글을 복사해 직접 붙여넣습니다.
 - **수동 댓글 등록:** 후보를 선택해 다듬은 뒤 승인된 댓글을 복사하고 네이버 입력란에 직접 붙여넣습니다.
   HTTP 태블릿 연결에서는 코드/댓글이 선택되면 길게 눌러 직접 복사할 수 있습니다.
@@ -241,6 +284,23 @@ Live OpenAI smoke는 실제 비용과 외부 전송이 발생합니다. Private 
 RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \
   pytest --no-cov -m live_openai tests/live
 ```
+
+네이버 editor의 실제 DOM signature는 별도 테스트 계정과 이미 로그인된 전용 browser profile이
+있을 때만 확인합니다. 아래 smoke는 합성 제목·본문을 네이버 임시저장까지 입력하고 `draft_saved`
+결과를 검증한 뒤 멈춥니다. 발행은 하지 않지만 테스트 계정에 초안이 생기므로 실행 전에 대상과
+정리 방법을 확인하세요. 본문·cookie·screenshot은 출력하지 않습니다.
+
+```bash
+RUN_LIVE_NAVER=1 \
+NAVER_LIVE_BLOG_ID='your-test-blog-id' \
+AUTOMATION_PROFILE_DIR='/path/to/signed-in-test-profile' \
+uv run pytest --no-cov -m live_naver tests/live/test_naver_staging_smoke.py
+```
+
+`AUTOMATION_DRIVER`(기본 `patchright`), `AUTOMATION_BROWSER_CHANNEL`, `LIVE_NAVER_HEADLESS=1`을
+필요할 때만 추가합니다. probe가 `editor_ambiguous`, `*_unconfirmed` 또는 unsupported code를
+반환하면 네이버 markup이 바뀐 것이므로 지원 완료로 표시하지 말고 sanitized fixture와 adapter
+검증을 먼저 갱신합니다.
 
 Manual Naver/OpenAI smoke는 본인이 공개 전송과 실제 교류를 허용한 테스트 글에서만 수행합니다.
 Preview 확인, generation, 후보 선택, 편집과 copy를 먼저 검증합니다. 실제 공감·댓글

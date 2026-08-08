@@ -9,6 +9,8 @@ import type {
   DiscoveryNeighbor,
   DiscoverySearchRefresh,
   DiscoverySyncResult,
+  RuntimeConfiguration,
+  RuntimeData,
   SavedSearch,
 } from "../../src/app/api/types";
 import { ApiError } from "../../src/app/api/client";
@@ -69,6 +71,40 @@ const SEARCH_REFRESH: DiscoverySearchRefresh = {
   detail: "공식 네이버 검색 API에서 검색 후보 4개를 확인했습니다.",
 };
 
+const RUNTIME: RuntimeConfiguration = {
+  ai: {
+    activeProvider: "openai",
+    providers: [
+      { provider: "openai", configured: true, model: "gpt-test" },
+      { provider: "gemini", configured: false, model: "gemini-test" },
+      { provider: "anthropic", configured: false, model: "claude-test" },
+    ],
+  },
+  naverSearch: { configured: true },
+  smtp: {
+    configured: true,
+    host: "smtp.example.test",
+    port: 465,
+    security: "ssl",
+    digestEmailFrom: "sender@example.test",
+    digestEmailTo: "recipient@example.test",
+  },
+  browser: { driver: "patchright", headless: false, channel: "" },
+  network: { accessMode: "local" },
+  restartRequired: false,
+  launcherRestartAvailable: true,
+};
+
+const RUNTIME_DATA: RuntimeData = {
+  databaseLocation: "/private/app/database.sqlite3",
+  databaseFileCount: 2,
+  mediaLocation: "/private/app/media",
+  mediaFileCount: 4,
+  fileCount: 6,
+  sizeBytes: 4096,
+  resetAvailable: true,
+};
+
 interface Api {
   appSetting: ReturnType<typeof vi.fn>;
   autoDiscoverySettings: ReturnType<typeof vi.fn>;
@@ -83,6 +119,13 @@ interface Api {
   refreshSavedSearch: ReturnType<typeof vi.fn>;
   digestSettings: ReturnType<typeof vi.fn>;
   saveDigestSettings: ReturnType<typeof vi.fn>;
+  runtimeConfiguration?: ReturnType<typeof vi.fn>;
+  patchRuntimeConfiguration?: ReturnType<typeof vi.fn>;
+  restartRuntime?: ReturnType<typeof vi.fn>;
+  runtimeData?: ReturnType<typeof vi.fn>;
+  exportRuntimeData?: ReturnType<typeof vi.fn>;
+  resetRuntimeData?: ReturnType<typeof vi.fn>;
+  status?: ReturnType<typeof vi.fn>;
 }
 
 function harness(overrides: Partial<Api> = {}): {
@@ -245,6 +288,222 @@ describe("discovery settings", () => {
     controller.render();
 
     expect(text(root)).toContain("공개된 metadata만 모읍니다");
+  });
+});
+
+describe("desktop runtime configuration", () => {
+  it("keeps configured secrets write-only while allowing a replacement", async () => {
+    const patchRuntimeConfiguration = vi.fn(async () => ({ ...RUNTIME, restartRequired: true }));
+    const { root, controller } = harness({
+      patchRuntimeConfiguration,
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+    });
+    await controller.load();
+    controller.render();
+
+    const openaiKey = root.querySelector<HTMLInputElement>("#runtime-openai-key");
+    expect(openaiKey?.value).toBe("");
+    expect(root.textContent).not.toContain("private-value");
+    expect(root.querySelector<HTMLInputElement>("#runtime-digest-email-from")?.value).toBe(
+      "sender@example.test",
+    );
+    type(root, "#runtime-openai-key", "private-value");
+    click(root, "#save-runtime-configuration-button");
+    await Promise.resolve();
+
+    expect(patchRuntimeConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ openaiApiKey: { replace: "private-value" } }),
+    );
+    expect(root.textContent).not.toContain("private-value");
+  });
+
+  it("sends an explicit clear intent without making a saved secret visible", async () => {
+    const patchRuntimeConfiguration = vi.fn(async () => ({ ...RUNTIME, restartRequired: true }));
+    const { root, controller } = harness({
+      patchRuntimeConfiguration,
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+    });
+    await controller.load();
+    controller.render();
+
+    const clear = root.querySelector<HTMLInputElement>("#runtime-openai-key-clear");
+    if (clear === null) throw new Error("missing clear secret control");
+    clear.click();
+    expect(root.querySelector<HTMLInputElement>("#runtime-openai-key")?.disabled).toBe(true);
+    click(root, "#save-runtime-configuration-button");
+    await Promise.resolve();
+
+    expect(patchRuntimeConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ openaiApiKey: { clear: true } }),
+    );
+  });
+
+  it("shows exact reset targets only to the desktop client", async () => {
+    const { root, controller } = harness({
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+    });
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("SQLite DB/WAL/SHM 2개 · 초안 미디어 4개");
+    expect(text(root)).not.toContain("DATABASE_URL");
+    expect((root.querySelector("#reset-runtime-data-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    type(root, "#runtime-data-reset-confirmation", "RESET LOCAL DATA");
+    controller.render();
+    expect((root.querySelector("#reset-runtime-data-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it("does not expose data controls when the client is paired", async () => {
+    const { root, controller } = harness({
+      runtimeConfiguration: vi.fn(async () => {
+        throw new ApiError("desktop only", { status: 403 });
+      }),
+      runtimeData: vi.fn(async () => {
+        throw new ApiError("desktop only", { status: 403 });
+      }),
+    });
+    await controller.load();
+    controller.render();
+
+    expect(text(root)).toContain("연결된 PC에서만 데이터 위치와 내보내기를 확인할 수 있습니다.");
+    expect(root.querySelector("#export-runtime-data-button")).toBeNull();
+    expect(root.querySelector("#reset-runtime-data-button")).toBeNull();
+  });
+
+  it("saves digest addresses and an intentional empty SMTP host", async () => {
+    const patchRuntimeConfiguration = vi.fn(async () => RUNTIME);
+    const { root, controller } = harness({
+      patchRuntimeConfiguration,
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+    });
+    await controller.load();
+    controller.render();
+
+    type(root, "#runtime-smtp-host", "");
+    type(root, "#runtime-digest-email-from", "new-sender@example.test");
+    type(root, "#runtime-digest-email-to", "new-recipient@example.test");
+    await controller.saveRuntimeConfiguration();
+
+    expect(patchRuntimeConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        smtpHost: "",
+        digestEmailFrom: "new-sender@example.test",
+        digestEmailTo: "new-recipient@example.test",
+      }),
+    );
+  });
+
+  it("renders a runtime save failure without retaining the write-only value", async () => {
+    const { root, controller } = harness({
+      patchRuntimeConfiguration: vi.fn(async () => {
+        throw new ApiError("not saved", { status: 422 });
+      }),
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+    });
+    await controller.load();
+    controller.render();
+    type(root, "#runtime-openai-key", "private-value");
+
+    await controller.saveRuntimeConfiguration();
+    controller.render();
+
+    expect(text(root)).toContain("not saved");
+    expect(text(root)).not.toContain("private-value");
+  });
+
+  it("downloads a desktop data export without adding paths to settings", async () => {
+    const objectUrl = vi.fn(() => "blob:export");
+    const revoke = vi.fn();
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal("URL", { createObjectURL: objectUrl, revokeObjectURL: revoke });
+    const exportRuntimeData = vi.fn(async () => new Blob(["archive"]));
+    const { controller } = harness({
+      exportRuntimeData,
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+    });
+    await controller.load();
+
+    await controller.exportRuntimeData();
+
+    expect(exportRuntimeData).toHaveBeenCalledOnce();
+    expect(objectUrl).toHaveBeenCalledOnce();
+    expect(download).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledWith("blob:export");
+    download.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a rejected restart without polling the service", async () => {
+    const restartRuntime = vi.fn(async () => {
+      throw new ApiError("restart busy", { status: 409 });
+    });
+    const { controller } = harness({
+      restartRuntime,
+      runtimeConfiguration: vi.fn(async () => ({ ...RUNTIME, restartRequired: true })),
+    });
+    await controller.load();
+
+    await controller.restartRuntime();
+
+    expect(restartRuntime).toHaveBeenCalledOnce();
+    expect(controller.state.error).toContain("restart busy");
+  });
+
+  it("keeps the restart notice when the replacement never becomes ready", async () => {
+    vi.useFakeTimers();
+    const { controller } = harness({
+      resetRuntimeData: vi.fn(async () => ({ backupLocation: "/backup", restartRequired: true })),
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+      status: vi.fn(async () => {
+        throw new Error("restarting");
+      }),
+    });
+    await controller.load();
+
+    const reset = controller.resetRuntimeData();
+    await vi.runAllTimersAsync();
+    await reset;
+
+    expect(controller.state.notice).toContain("잠시 후 화면을 새로고침하세요");
+    vi.useRealTimers();
+  });
+});
+
+describe("advanced automation settings", () => {
+  it("persists schedule and AI budget in one explicit save", async () => {
+    const { root, controller, api } = harness();
+    await controller.load();
+    controller.render();
+
+    const mode = root.querySelector<HTMLSelectElement>("#schedule-mode");
+    const hour = root.querySelector<HTMLInputElement>("#schedule-hour");
+    const calls = root.querySelector<HTMLInputElement>("#llm-daily-call-cap");
+    if (mode === null || hour === null || calls === null)
+      throw new Error("missing advanced fields");
+    mode.value = "schedule";
+    mode.dispatchEvent(new Event("change"));
+    hour.value = "21";
+    hour.dispatchEvent(new Event("change"));
+    calls.value = "80";
+    calls.dispatchEvent(new Event("change"));
+
+    await controller.saveScheduleAndBudget();
+
+    expect(api.saveAppSetting).toHaveBeenCalledWith(
+      "schedule_policy",
+      expect.objectContaining({ mode: "schedule", hour: 21 }),
+    );
+    expect(api.saveAppSetting).toHaveBeenCalledWith(
+      "llm_budget",
+      expect.objectContaining({ daily_call_cap: 80 }),
+    );
   });
 });
 
@@ -683,6 +942,10 @@ describe("comment, safety, and writing defaults", () => {
       onSaveDigest: vi.fn(),
       onSaveNeighbor: vi.fn(),
       onSaveWritingSettings: vi.fn(),
+      onSectionChange: vi.fn(),
+      onScheduleFieldChange: vi.fn(),
+      onBudgetFieldChange: vi.fn(),
+      onSaveScheduleAndBudget: vi.fn(),
       onSync: vi.fn(),
       onToggleNeighbor: vi.fn(),
       onWritingFieldChange: vi.fn(),

@@ -16,6 +16,7 @@ from naver_blog_assistant.domain.writing import (
     DraftImage,
     DraftRevision,
     DraftTag,
+    DraftWorkingCopy,
     PostDraft,
     body_payload,
 )
@@ -73,12 +74,54 @@ class DraftGenerationRequest(StrictDraftModel):
     request: Annotated[str, StringConstraints(max_length=2_000)] = ""
 
 
+class TextBodyBlockRequest(StrictDraftModel):
+    """One canonical textual block, including the legacy heading/paragraph/quote forms."""
+
+    type: Literal["heading", "paragraph", "quote"]
+    text: Annotated[str, StringConstraints(min_length=1, max_length=4_000)]
+
+
+class ListBodyBlockRequest(StrictDraftModel):
+    """One ordered or unordered list; its individual lines are not flattened to prose."""
+
+    type: Literal["ordered_list", "unordered_list"]
+    items: Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=4_000)]],
+        Field(min_length=1, max_length=100),
+    ]
+
+
+class DividerBodyBlockRequest(StrictDraftModel):
+    """A semantic visual separator without text content."""
+
+    type: Literal["divider"]
+
+
+class ImageBodyBlockRequest(StrictDraftModel):
+    """A reference to one already uploaded image at its exact body position."""
+
+    type: Literal["image"]
+    image_id: UUID
+    caption: Annotated[str, StringConstraints(max_length=4_000)] = ""
+
+
+BodyBlockRequest = Annotated[
+    TextBodyBlockRequest | ListBodyBlockRequest | DividerBodyBlockRequest | ImageBodyBlockRequest,
+    Field(discriminator="type"),
+]
+
+
 class DraftBodyRequest(StrictDraftModel):
-    """Store the body the user edited by hand as a new revision."""
+    """Save a debounced working copy without creating a revision on every keystroke."""
 
     title: Annotated[str, StringConstraints(min_length=1, max_length=MAX_DRAFT_TITLE_LENGTH)]
-    blocks: Annotated[list[dict[str, Any]], Field(min_length=1, max_length=MAX_BLOCKS)]
+    blocks: Annotated[list[BodyBlockRequest], Field(min_length=1, max_length=MAX_BLOCKS)]
     summary: Annotated[str, StringConstraints(max_length=800)] = ""
+    base_content_version: Annotated[int | None, Field(ge=0)] = None
+
+    def body_payload(self) -> list[dict[str, Any]]:
+        """Provide the domain parser a plain, canonical discriminated-block payload."""
+        return [block.model_dump() for block in self.blocks]
 
 
 class DraftTagPatchRequest(StrictDraftModel):
@@ -146,6 +189,24 @@ class DraftRevisionResponse(StrictDraftModel):
         )
 
 
+class DraftWorkingCopyResponse(StrictDraftModel):
+    """The current editable content and the version required for its next save."""
+
+    title: str
+    blocks: Annotated[list[dict[str, Any]], Field(max_length=MAX_BLOCKS)]
+    summary: str
+    content_version: Annotated[int, Field(ge=0)]
+
+    @classmethod
+    def from_domain(cls, working_copy: DraftWorkingCopy) -> Self:
+        return cls(
+            title=working_copy.title,
+            blocks=body_payload(working_copy.blocks),
+            summary=working_copy.summary,
+            content_version=working_copy.content_version,
+        )
+
+
 class DraftTagResponse(StrictDraftModel):
     """One tag attached to a draft."""
 
@@ -171,6 +232,7 @@ class DraftResponse(StrictDraftModel):
     use_image_vision: bool
     seed_text: str
     revisions: list[DraftRevisionResponse]
+    working_copy: DraftWorkingCopyResponse | None
     images: list[DraftImageResponse]
     tags: list[DraftTagResponse]
     created_at: datetime | None
@@ -186,6 +248,11 @@ class DraftResponse(StrictDraftModel):
             use_image_vision=draft.use_image_vision,
             seed_text=draft.seed_text,
             revisions=[DraftRevisionResponse.from_domain(revision) for revision in draft.revisions],
+            working_copy=(
+                None
+                if draft.working_copy is None
+                else DraftWorkingCopyResponse.from_domain(draft.working_copy)
+            ),
             images=[DraftImageResponse.from_domain(image) for image in draft.images],
             tags=[DraftTagResponse.from_domain(tag) for tag in draft.tags],
             created_at=draft.created_at,

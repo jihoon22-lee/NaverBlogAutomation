@@ -101,6 +101,7 @@ from naver_blog_assistant.domain.settings import (
     default_setting,
     normalize_setting_payload,
 )
+from naver_blog_assistant.domain.writing import DraftWorkingCopy
 
 __all__ = [
     "CandidateSelectionError",
@@ -186,4 +187,5 @@ __all__ = [
     "SessionTrigger",
     "approved_steps_for",
     "assert_batch_transition",
+    "DraftWorkingCopy",
 ]

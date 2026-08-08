@@ -106,6 +106,7 @@ function text(selector: string): string {
 function handlers(): TodayHandlers {
   return {
     onCloseSession: vi.fn(),
+    onCloseDetail: vi.fn(),
     onFilterChange: vi.fn(),
     onFocusSession: vi.fn(),
     onLaunchSession: vi.fn(),
@@ -190,6 +191,9 @@ describe("home and onboarding views", () => {
     expect(document.getElementById("home-launch-browser")).not.toBeNull();
     expect(document.getElementById("home-focus-browser")).not.toBeNull();
     expect(document.getElementById("home-llm_provider_missing")).not.toBeNull();
+
+    (document.getElementById("home-llm_provider_missing") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenSettings).toHaveBeenCalledWith("connections");
   });
 
   it("renders the workbench service/onboarding shell without a selected detail", () => {
@@ -230,6 +234,34 @@ describe("load", () => {
     expect(document.querySelectorAll(".queue-item")).toHaveLength(1);
     expect(text("#detail-title")).toBe("합성 제목 1");
     expect(controller.state.phase).toBe("ready");
+  });
+
+  it("disables detail actions while the queue is refreshing", async () => {
+    const root = mountRoot();
+    const state = {
+      ...initialTodayState(),
+      phase: "loading" as const,
+      posts: [post("1")],
+      selectedPostId: "1",
+      session: READY_SESSION,
+    };
+
+    renderToday(root, state, handlers());
+
+    expect((document.getElementById("open-post-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById("skip-post-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers every API-supported queue state in the status filter", async () => {
+    const controller = new TodayController(mountRoot(), { api: api() as never });
+
+    await controller.load();
+
+    expect(
+      Array.from(document.querySelectorAll<HTMLSelectElement>("#queue-state-filter option")).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["all", "queued", "opened", "skipped", "completed", "unavailable"]);
   });
 
   it("marks the selected queue item with aria-pressed", async () => {
@@ -393,6 +425,25 @@ describe("selection and opening", () => {
     second.click();
 
     expect(text("#detail-title")).toBe("합성 제목 2");
+  });
+
+  it("renders detail badges and closes the narrow sheet without losing selection", async () => {
+    const client = api();
+    const controller = new TodayController(mountRoot(), { api: client as never });
+    await controller.load();
+
+    expect(document.querySelectorAll(".detail-badges [data-badge]")).toHaveLength(4);
+    expect(text('.detail-badges [data-badge="source"]')).toContain("이웃 새 글");
+    expect(controller.state.detailOpen).toBe(false);
+
+    (document.querySelector(".queue-item") as HTMLButtonElement).click();
+    expect(controller.state.detailOpen).toBe(true);
+
+    (document.getElementById("close-detail-sheet") as HTMLButtonElement).click();
+
+    expect(controller.state.detailOpen).toBe(false);
+    expect(controller.state.selectedPostId).toBe("1");
+    expect(document.querySelector('.detail-panel[data-detail-open="false"]')).not.toBeNull();
   });
 
   it("extracts the selected post and reports the capture", async () => {

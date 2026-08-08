@@ -14,17 +14,19 @@ import {
   queueCounts,
   selectedPost,
   startLoading,
+  visiblePosts,
+  withApprovedStep,
+  withDetailOpen,
   withFailure,
   withFilters,
-  withApprovedStep,
   withLoaded,
   withMorePosts,
   withPostSelection,
+  withPostState,
   withQuery,
   withSelection,
   withSession,
   withSort,
-  visiblePosts,
 } from "../../src/app/state/today";
 
 const SERVICE: ServiceStatus = {
@@ -83,6 +85,7 @@ describe("initialTodayState", () => {
     expect(state.phase).toBe("idle");
     expect(state.posts).toEqual([]);
     expect(state.selectedPostId).toBeNull();
+    expect(state.detailOpen).toBe(false);
     expect(state.error).toBeNull();
     expect(state.sourceFilter).toBe("neighbor");
   });
@@ -109,6 +112,7 @@ describe("withLoaded", () => {
 
     expect(state.phase).toBe("ready");
     expect(state.selectedPostId).toBe("1");
+    expect(state.detailOpen).toBe(false);
   });
 
   it("keeps a selection that still exists", () => {
@@ -165,6 +169,21 @@ describe("withSelection", () => {
 
     expect(withSelection(state, "missing").selectedPostId).toBe("1");
   });
+
+  it("opens the detail sheet when a person selects a queue item", () => {
+    const state = withDetailOpen(
+      withLoaded(initialTodayState(), {
+        posts: [post("1")],
+        service: SERVICE,
+        session: SESSION,
+      }),
+      false,
+    );
+
+    const selected = withSelection(state, "1");
+
+    expect(selected.detailOpen).toBe(true);
+  });
 });
 
 describe("withMorePosts", () => {
@@ -211,6 +230,39 @@ describe("queueCounts", () => {
 
   it("returns zeros for an empty queue", () => {
     expect(queueCounts([])).toEqual({ neighbor: 0, search: 0, total: 0 });
+  });
+});
+
+describe("withPostState", () => {
+  it("keeps workbench counts in sync when a post is skipped and restored", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [post("neighbor"), post("search", "search")],
+      counts: { neighbor: 1, search: 1, skipped: 0, total: 2 },
+      service: SERVICE,
+      session: SESSION,
+    });
+
+    const skipped = withPostState(loaded, { ...post("neighbor"), state: "skipped" });
+    expect(skipped.counts).toEqual({ neighbor: 0, search: 1, skipped: 1, total: 2 });
+
+    const restored = withPostState(skipped, { ...post("neighbor"), state: "queued" });
+    expect(restored.counts).toEqual({ neighbor: 1, search: 1, skipped: 0, total: 2 });
+  });
+
+  it("removes completed or unavailable posts from the actionable counts", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [post("neighbor")],
+      counts: { neighbor: 1, search: 0, skipped: 0, total: 1 },
+      service: SERVICE,
+      session: SESSION,
+    });
+
+    expect(withPostState(loaded, { ...post("neighbor"), state: "completed" }).counts).toEqual({
+      neighbor: 0,
+      search: 0,
+      skipped: 0,
+      total: 0,
+    });
   });
 });
 

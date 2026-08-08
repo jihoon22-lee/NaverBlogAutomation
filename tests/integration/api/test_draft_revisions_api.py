@@ -30,7 +30,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         automation_driver="fake",
         automation_headless=True,
         automation_profile_dir=str(tmp_path / "profile"),
-        draft_media_dir=str(tmp_path / "media"),
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -69,6 +68,36 @@ def test_repeated_edits_keep_the_revision_order(client: TestClient) -> None:
     revisions = client.get(f"{DRAFTS}/{draft_id}").json()["revisions"]
     assert [revision["round_no"] for revision in revisions] == [1, 2, 3]
     assert [revision["is_active"] for revision in revisions] == [False, False, True]
+
+
+def test_versioned_canvas_saves_a_working_copy_and_refuses_a_stale_device(
+    client: TestClient,
+) -> None:
+    draft_id = create(client)
+    checkpoint = client.put(f"{DRAFTS}/{draft_id}/body", json=body("첫 checkpoint"))
+    assert checkpoint.status_code == 200
+    version = checkpoint.json()["working_copy"]["content_version"]
+
+    saved = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={**body("자동 저장 문단"), "base_content_version": version},
+    )
+    assert saved.status_code == 200, saved.text
+    assert len(saved.json()["revisions"]) == 1
+    assert saved.json()["working_copy"]["blocks"][0]["text"] == "자동 저장 문단"
+    assert saved.json()["working_copy"]["content_version"] == version + 1
+
+    stale = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={**body("다른 기기의 오래된 편집"), "base_content_version": version},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "draft_content_conflict"
+
+    checkpointed = client.post(f"{DRAFTS}/{draft_id}/checkpoint")
+    assert checkpointed.status_code == 200
+    assert len(checkpointed.json()["revisions"]) == 2
+    assert checkpointed.json()["revisions"][-1]["blocks"][0]["text"] == "자동 저장 문단"
 
 
 def test_an_earlier_revision_can_be_restored(client: TestClient) -> None:
@@ -135,6 +164,28 @@ def test_an_uploaded_image_may_be_referenced(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["revisions"][0]["blocks"][0]["image_id"] == image_id
+
+
+def test_the_same_uploaded_image_cannot_appear_in_two_blocks(client: TestClient) -> None:
+    draft_id = create(client)
+    uploaded = client.post(
+        f"{DRAFTS}/{draft_id}/images", files={"file": ("a.png", PNG, "image/png")}
+    ).json()
+    image_id = uploaded["images"][0]["id"]
+
+    response = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={
+            "title": "제목",
+            "blocks": [
+                {"type": "image", "image_id": image_id, "caption": "첫 사진"},
+                {"type": "image", "image_id": image_id, "caption": "같은 사진"},
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "duplicate_image_reference"
 
 
 @pytest.mark.parametrize(

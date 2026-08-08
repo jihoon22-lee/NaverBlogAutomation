@@ -23,6 +23,7 @@ import {
   withLoaded,
   withMorePosts,
   withApprovedStep,
+  withDetailOpen,
   withFilters,
   withPostSelection,
   withPostState,
@@ -31,6 +32,7 @@ import {
   withSession,
   withSort,
 } from "../state/today";
+import type { SettingsSection } from "./settings";
 import { type TodayHandlers, renderHome, renderToday } from "../views/today";
 
 type TodayApi = Pick<
@@ -57,7 +59,7 @@ export interface TodayControllerOptions {
   onDirectUrlOpened?: (url: string) => void;
   onExtracted?: (extraction: ArticleExtraction, post: DiscoveryPost | null) => void;
   onRemotePairingRequired?: () => void;
-  onSettingsRequested?: () => void;
+  onSettingsRequested?: (section?: SettingsSection) => void;
   onWorkbenchRequested?: () => void;
   onBatchRequested?: (request: BatchPreflightRequest) => void;
 }
@@ -69,7 +71,7 @@ export class TodayController {
   readonly #root: Element;
   readonly #onExtracted: (extraction: ArticleExtraction, post: DiscoveryPost | null) => void;
   readonly #onRemotePairingRequired: () => void;
-  readonly #onSettingsRequested: () => void;
+  readonly #onSettingsRequested: (section?: SettingsSection) => void;
   readonly #onWorkbenchRequested: () => void;
   readonly #onBatchRequested: (request: BatchPreflightRequest) => void;
   #state: TodayState = initialTodayState();
@@ -139,6 +141,9 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      // The request result was rendered while the guard was still set. Render once more after
+      // releasing it so a newly visible action cannot be silently ignored by a fast next click.
+      this.render();
     }
   }
 
@@ -168,6 +173,7 @@ export class TodayController {
           postIds: this.#state.selectedPostIds,
         }),
       onOpenSettings: this.#onSettingsRequested,
+      onCloseDetail: () => this.#update(withDetailOpen(this.#state, false)),
       onPostStateChange: (postId, state) => void this.changePostState(postId, state),
       onRefresh: () => void this.load(),
       onSelectPost: (postId: string) => this.#update(withSelection(this.#state, postId)),
@@ -189,6 +195,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -212,6 +219,7 @@ export class TodayController {
       return null;
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -226,6 +234,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -275,6 +284,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -329,6 +339,7 @@ export class TodayController {
       return null;
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 

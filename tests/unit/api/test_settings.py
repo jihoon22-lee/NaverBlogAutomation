@@ -64,6 +64,14 @@ def test_extension_origin_is_optional_for_the_independent_web_app() -> None:
     assert settings.extension_origin == ""
 
 
+def test_selected_non_openai_provider_requires_its_own_key() -> None:
+    settings = ApiSettings(generator_mode="gemini", gemini_api_key="test-key")
+
+    assert settings.generator_mode == "gemini"
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        ApiSettings(generator_mode="gemini")
+
+
 def test_automation_defaults_to_patchright_in_a_visible_window() -> None:
     settings = ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key")
 

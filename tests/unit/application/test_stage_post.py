@@ -26,6 +26,7 @@ from naver_blog_assistant.domain.writing import (
     DraftImage,
     DraftRevision,
     DraftTag,
+    DraftWorkingCopy,
     PostDraft,
     RevisionKind,
 )
@@ -40,9 +41,19 @@ READY = {
     "stage": "ready",
     "titleSelector": "#title",
     "bodySelector": "#body",
+    "editorRootSelector": "#editor-root",
     "imageInputSelector": "#file",
+    "imageCaptionSelector": "#caption",
     "saveSelector": "#save",
+    "tagInputSelector": "#tags",
     "restoreCancelSelector": None,
+    "blockActionSelectors": {
+        "heading": "#heading",
+        "quote": "#quote",
+        "ordered_list": "#ordered-list",
+        "unordered_list": "#unordered-list",
+        "divider": "#divider",
+    },
 }
 
 
@@ -55,6 +66,35 @@ def blocks(*, with_image: bool = False) -> tuple[BodyBlock, ...]:
     if not with_image:
         return body
     return (*body, BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID, caption="사진 설명"))
+
+
+def supported_blocks() -> tuple[BodyBlock, ...]:
+    return (
+        BodyBlock(kind=BlockKind.PARAGRAPH, text="도입 문단"),
+        BodyBlock(kind=BlockKind.HEADING, text="소제목"),
+        BodyBlock(kind=BlockKind.QUOTE, text="인용문"),
+        BodyBlock(kind=BlockKind.ORDERED_LIST, items=("첫째", "둘째")),
+        BodyBlock(kind=BlockKind.UNORDERED_LIST, items=("항목",)),
+        BodyBlock(kind=BlockKind.DIVIDER),
+    )
+
+
+def snapshot(body: tuple[BodyBlock, ...]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for block in body:
+        if block.kind is BlockKind.IMAGE:
+            result.append({"type": "image", "caption": block.caption})
+        elif block.kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            result.append({"type": block.kind.value, "items": list(block.items)})
+        elif block.kind is BlockKind.DIVIDER:
+            result.append({"type": "divider"})
+        else:
+            result.append({"type": block.kind.value, "text": block.text})
+    return result
+
+
+def prefix_snapshots(body: tuple[BodyBlock, ...]) -> list[list[dict[str, Any]]]:
+    return [snapshot(body[: index + 1]) for index in range(len(body))]
 
 
 def image(root: Path) -> DraftImage:
@@ -166,6 +206,23 @@ class TestStagingRequest:
         assert staging.title == "합성 제목"
         assert staging.tags == ("전시",)
 
+    def test_it_stages_the_latest_working_copy(self, tmp_path: Path) -> None:
+        staging = staging_request(
+            self.draft(
+                working_copy=DraftWorkingCopy(
+                    title="자동 저장 제목",
+                    blocks=(BodyBlock(kind=BlockKind.PARAGRAPH, text="자동 저장 본문"),),
+                    content_version=3,
+                )
+            ),
+            blog_id="example",
+            tags=(),
+            media_root=tmp_path,
+        )
+
+        assert staging.title == "자동 저장 제목"
+        assert staging.blocks[0].text == "자동 저장 본문"
+
     def test_a_missing_blog_id_is_refused(self, tmp_path: Path) -> None:
         with pytest.raises(StagingBlockedError) as error:
             staging_request(self.draft(), blog_id="  ", tags=(), media_root=tmp_path)
@@ -187,7 +244,8 @@ class TestExecution:
     def script(self, **overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
             "probeEditor": READY,
-            "readEditorText": ["합성 제목", body_text(blocks()), ""],
+            "readEditorText": "합성 제목",
+            "readEditorBlocks": prefix_snapshots(blocks()),
             "probeEditorSave": [
                 {"saved": False, "savedCount": 2, "diagnosis": None},
                 {"saved": True, "savedCount": 3, "diagnosis": None},
@@ -201,9 +259,8 @@ class TestExecution:
             self.script(
                 readEditorText=[
                     "합성 제목",
-                    body_text(blocks(with_image=True)),
-                    "무엇이든",
-                ]
+                ],
+                readEditorBlocks=prefix_snapshots(blocks(with_image=True)),
             )
         )
 
@@ -217,7 +274,114 @@ class TestExecution:
             "save",
         ]
         assert codes(outcomes)["save"] == "draft_saved"
+        assert dict(outcomes)[PublishStepName.IMAGES].state is PublishStepState.SUCCEEDED
+        assert dict(outcomes)[PublishStepName.BODY].detail == {
+            "requested_range_start": 1,
+            "requested_range_end": 4,
+            "observed_prefix_count": 4,
+        }
         assert page.attachments[0][0] == "#file"
+        assert page.appended[:3] == [
+            ("#body", "첫 구역"),
+            ("#body", "문단입니다."),
+            ("#body", "인용입니다."),
+        ]
+        assert "#body" not in page.clicks
+        assert page.pressed[:3] == [("#body", "Enter")] * 3
+
+    def test_every_supported_text_block_uses_its_action_before_prefix_verification(
+        self, tmp_path: Path
+    ) -> None:
+        body = supported_blocks()
+        stage, page = engine(self.script(readEditorBlocks=prefix_snapshots(body)))
+        staging = request(tmp_path)
+        staging.blocks = body
+
+        outcomes = run(stage, staging)
+
+        assert codes(outcomes)["body"] == "blocks_staged_6"
+        assert [selector for selector in page.clicks if selector != "#save"] == [
+            "#heading",
+            "#quote",
+            "#ordered-list",
+            "#unordered-list",
+            "#divider",
+        ]
+        assert page.appended == [
+            ("#body", "도입 문단"),
+            ("#body", "소제목"),
+            ("#body", "인용문"),
+            ("#body", "첫째\n둘째"),
+            ("#body", "항목"),
+        ]
+        assert [action for action in page.actions if action[1] == "#body"] == [
+            ("type", "#body"),
+            ("append", "#body"),
+            ("press", "#body"),
+            ("append", "#body"),
+            ("press", "#body"),
+            ("append", "#body"),
+            ("press", "#body"),
+            ("append", "#body"),
+            ("press", "#body"),
+            ("append", "#body"),
+            ("press", "#body"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("body", "expected_actions"),
+        [
+            (
+                (
+                    BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID),
+                    BodyBlock(kind=BlockKind.PARAGRAPH, text="뒤 문단"),
+                ),
+                [("type", "#body"), ("files", "#file"), ("press", "#body"), ("append", "#body")],
+            ),
+            (
+                (
+                    BodyBlock(kind=BlockKind.PARAGRAPH, text="앞 문단"),
+                    BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID),
+                    BodyBlock(kind=BlockKind.PARAGRAPH, text="뒤 문단"),
+                ),
+                [
+                    ("type", "#body"),
+                    ("append", "#body"),
+                    ("press", "#body"),
+                    ("files", "#file"),
+                    ("press", "#body"),
+                    ("append", "#body"),
+                ],
+            ),
+            (
+                (
+                    BodyBlock(kind=BlockKind.PARAGRAPH, text="앞 문단"),
+                    BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID),
+                ),
+                [("type", "#body"), ("append", "#body"), ("press", "#body"), ("files", "#file")],
+            ),
+        ],
+        ids=("before_text", "between_text", "after_text"),
+    )
+    def test_an_image_stays_at_its_requested_block_position(
+        self,
+        tmp_path: Path,
+        body: tuple[BodyBlock, ...],
+        expected_actions: list[tuple[str, str]],
+    ) -> None:
+        stage, page = engine(self.script(readEditorBlocks=prefix_snapshots(body)))
+        staging = request(tmp_path, with_image=True)
+        staging.blocks = body
+
+        outcomes = run(stage, staging)
+
+        assert codes(outcomes)["body"] == f"blocks_staged_{len(body)}"
+        assert page.attachments == [
+            ("#file", (str((tmp_path / staging.images[0].stored_path).resolve()),))
+        ]
+        assert [
+            action for action in page.actions if action[1] in {"#body", "#file"}
+        ] == expected_actions
 
     def test_it_skips_images_when_the_body_references_none(self, tmp_path: Path) -> None:
         stage, page = engine(self.script())
@@ -236,7 +400,12 @@ class TestExecution:
 
         outcomes = run(stage, staging)
 
-        assert codes(outcomes)["images"] == "image_file_missing"
+        assert codes(outcomes)["body"] == "image_file_missing"
+        assert dict(outcomes)[PublishStepName.BODY].detail == {
+            "requested_range_start": 1,
+            "requested_range_end": 4,
+            "observed_prefix_count": 0,
+        }
         assert "save" not in codes(outcomes)
 
     def test_it_skips_tags_when_there_are_none(self, tmp_path: Path) -> None:
@@ -345,14 +514,63 @@ class TestExecution:
 
         assert codes(outcomes)["title"] == "browser_operation_failed"
 
-    def test_an_empty_body_stops_the_run(self, tmp_path: Path) -> None:
-        stage, _ = engine(self.script(readEditorText=["합성 제목", ""]))
-        staging = request(tmp_path)
+    def test_an_image_only_body_reports_that_no_text_block_was_required(
+        self, tmp_path: Path
+    ) -> None:
+        stage, _ = engine(
+            self.script(
+                readEditorText="합성 제목",
+                readEditorBlocks=prefix_snapshots(
+                    (BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID),)
+                ),
+            )
+        )
+        staging = request(tmp_path, with_image=True)
         staging.blocks = (BodyBlock(kind=BlockKind.IMAGE, image_id=IMAGE_ID),)
 
         outcomes = run(stage, staging)
 
-        assert codes(outcomes)["body"] == "body_empty"
+        assert codes(outcomes)["body"] == "blocks_staged_1"
+
+    def test_a_plain_text_editor_result_is_not_silently_saved(self, tmp_path: Path) -> None:
+        script = self.script(readEditorBlocks=[[{"type": "paragraph", "text": "첫 구역"}]])
+        stage, _ = engine(script)
+
+        outcomes = run(stage, request(tmp_path))
+
+        assert codes(outcomes)["body"] == "block_1_order_unconfirmed"
+        assert "save" not in codes(outcomes)
+
+    def test_a_missing_block_control_stops_before_save(self, tmp_path: Path) -> None:
+        stage, _ = engine(
+            self.script(probeEditor={**READY, "blockActionSelectors": {"quote": "#quote"}})
+        )
+
+        outcomes = run(stage, request(tmp_path))
+
+        assert codes(outcomes)["body"] == "block_heading_control_not_found"
+        assert "save" not in codes(outcomes)
+
+    def test_a_captioned_image_requires_a_confirmed_caption_control(self, tmp_path: Path) -> None:
+        stage, _ = engine(
+            self.script(
+                probeEditor=[READY, {**READY, "imageCaptionSelector": None}],
+                readEditorBlocks=prefix_snapshots(blocks(with_image=True)),
+            )
+        )
+
+        outcomes = run(stage, request(tmp_path, with_image=True))
+
+        assert codes(outcomes)["body"] == "image_caption_control_not_found"
+        assert "save" not in codes(outcomes)
+
+    def test_an_editor_without_a_semantic_snapshot_stops_before_save(self, tmp_path: Path) -> None:
+        stage, _ = engine(self.script(readEditorBlocks=None))
+
+        outcomes = run(stage, request(tmp_path))
+
+        assert codes(outcomes)["body"] == "block_1_unsupported_editor_structure"
+        assert "save" not in codes(outcomes)
 
 
 def test_the_documented_step_states_exist() -> None:

@@ -13,7 +13,6 @@ from enum import StrEnum
 from typing import Any, Final
 
 from naver_blog_assistant.domain.blog import DEFAULT_REFERENCE_POST_COUNT
-from naver_blog_assistant.domain.llm import DEFAULT_MODELS, LlmProvider, ModelSelection
 from naver_blog_assistant.domain.models import (
     CommentLength,
     CommentMood,
@@ -38,8 +37,6 @@ class AppSettingKind(StrEnum):
     AUTOMATION_CONSENT = "automation_consent"
     SAFETY_POLICY = "safety_policy"
     SCHEDULE_POLICY = "schedule_policy"
-    BROWSER_PROFILE = "browser_profile"
-    LLM_PROVIDERS = "llm_providers"
     LLM_BUDGET = "llm_budget"
     WRITING_PROFILE = "writing_profile"
 
@@ -51,8 +48,6 @@ SETTING_SCHEMA_VERSIONS: Final[dict[AppSettingKind, int]] = {
     AppSettingKind.AUTOMATION_CONSENT: 1,
     AppSettingKind.SAFETY_POLICY: 1,
     AppSettingKind.SCHEDULE_POLICY: 1,
-    AppSettingKind.BROWSER_PROFILE: 1,
-    AppSettingKind.LLM_PROVIDERS: 1,
     AppSettingKind.LLM_BUDGET: 1,
     AppSettingKind.WRITING_PROFILE: 1,
 }
@@ -227,39 +222,6 @@ def _schedule_policy(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _browser_profile(payload: dict[str, Any]) -> dict[str, Any]:
-    _require_exact_keys(payload, frozenset({"headless", "channel"}))
-    headless = payload["headless"]
-    if not isinstance(headless, bool):
-        raise DomainValidationError("headless must be a boolean")
-    return {
-        "headless": headless,
-        "channel": _bounded_text(payload["channel"], field="channel", maximum=32),
-    }
-
-
-def _llm_providers(payload: dict[str, Any]) -> dict[str, Any]:
-    _require_exact_keys(payload, frozenset({"default_provider", "models"}))
-    try:
-        default = LlmProvider(payload["default_provider"])
-    except (TypeError, ValueError) as error:
-        raise DomainValidationError("default_provider is not a known provider") from error
-    models = payload["models"]
-    if not isinstance(models, dict) or not models:
-        raise DomainValidationError("models must be a non-empty object")
-    normalized: dict[str, str] = {}
-    for name, model in models.items():
-        try:
-            provider = LlmProvider(name)
-        except (TypeError, ValueError) as error:
-            raise DomainValidationError(f"{name} is not a known provider") from error
-        selection = ModelSelection(provider=provider, model=_model_name(model))
-        normalized[provider.value] = selection.model
-    if default.value not in normalized:
-        raise DomainValidationError("default_provider must appear in models")
-    return {"default_provider": default.value, "models": dict(sorted(normalized.items()))}
-
-
 def _llm_budget(payload: dict[str, Any]) -> dict[str, Any]:
     _require_exact_keys(payload, frozenset({"daily_call_cap", "per_request_provider_cap"}))
     return {
@@ -311,12 +273,6 @@ def _writing_profile(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _model_name(value: Any) -> str:
-    if not isinstance(value, str):
-        raise DomainValidationError("model must be a string")
-    return value.strip()
-
-
 def _positive_int(value: Any, *, field: str, maximum: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise DomainValidationError(f"{field} must be an integer")
@@ -338,8 +294,6 @@ _VALIDATORS: Final[dict[AppSettingKind, Any]] = {
     AppSettingKind.AUTOMATION_CONSENT: _automation_consent,
     AppSettingKind.SAFETY_POLICY: _safety_policy,
     AppSettingKind.SCHEDULE_POLICY: _schedule_policy,
-    AppSettingKind.BROWSER_PROFILE: _browser_profile,
-    AppSettingKind.LLM_PROVIDERS: _llm_providers,
     AppSettingKind.LLM_BUDGET: _llm_budget,
     AppSettingKind.WRITING_PROFILE: _writing_profile,
 }
@@ -365,11 +319,6 @@ DEFAULT_SETTING_PAYLOADS: Final[dict[AppSettingKind, dict[str, Any]]] = {
         "max_consecutive_failures": 3,
     },
     AppSettingKind.SCHEDULE_POLICY: {"mode": "manual", "hour": 10, "minute": 0, "max_posts": 5},
-    AppSettingKind.BROWSER_PROFILE: {"headless": False, "channel": "chrome"},
-    AppSettingKind.LLM_PROVIDERS: {
-        "default_provider": LlmProvider.OPENAI.value,
-        "models": {provider.value: model for provider, model in DEFAULT_MODELS.items()},
-    },
     AppSettingKind.LLM_BUDGET: {"daily_call_cap": 60, "per_request_provider_cap": 3},
     AppSettingKind.WRITING_PROFILE: {
         "target_length": "medium",

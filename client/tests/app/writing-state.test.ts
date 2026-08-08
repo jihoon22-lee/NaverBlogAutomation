@@ -15,6 +15,7 @@ import {
   withOptions,
   withRun,
   withSeed,
+  withStagingEvent,
 } from "../../src/app/state/writing";
 import { renderWriting, wordDiff } from "../../src/app/views/writing";
 
@@ -256,7 +257,7 @@ describe("writing view", () => {
     expect((root.querySelector("#create-draft-button") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("renders the body, tags, and staging controls for a composed draft", () => {
+  it("renders a block canvas, tags, and staging controls for a composed draft", () => {
     const state = withLoaded(withDraft(initialWritingState(), draft()), {
       categories: [{ categoryNo: 7, name: "전시 후기", postCount: 3, syncedAt: null }],
       drafts: [draft()],
@@ -265,7 +266,13 @@ describe("writing view", () => {
 
     const root = render(state);
 
-    expect((root.querySelector("#body-text") as HTMLTextAreaElement).value).toContain("첫 구역");
+    expect(root.querySelector("#body-text")).toBeNull();
+    expect(root.querySelector(".block-canvas")).not.toBeNull();
+    expect(
+      (root.querySelector('[data-block-index="0"] textarea') as HTMLTextAreaElement).value,
+    ).toBe("첫 구역");
+    expect(root.querySelectorAll(".image-insertion-point")).toHaveLength(4);
+    expect(root.querySelector(".editor-preview")).not.toBeNull();
     expect(root.querySelectorAll(".tag-choice")).toHaveLength(2);
     expect(root.querySelector('[data-tag="전시"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(root.querySelector('[data-tag="기록"]')?.getAttribute("aria-pressed")).toBe("false");
@@ -296,6 +303,33 @@ describe("writing view", () => {
     expect(root.querySelector('[data-step="title"]')?.textContent).toContain("title_filled");
   });
 
+  it("shows requested and observed body progress with the Naver verification checklist", () => {
+    const state = withStagingEvent(withRun(withDraft(initialWritingState(), draft()), run()), {
+      step: "body",
+      state: "succeeded",
+      result_code: "blocks_staged_3",
+      detail: {
+        requested_range_start: 1,
+        requested_range_end: 3,
+        observed_prefix_count: 3,
+      },
+    });
+
+    const root = render(state);
+
+    expect(state.stagingBodyVerification).toEqual({
+      requestedRange: { start: 1, end: 3 },
+      observedPrefixCount: 3,
+    });
+    expect(root.querySelector('[data-step="body"]')?.textContent).toContain("blocks_staged_3");
+    expect(
+      root.querySelector('[data-testid="staging-verification-checklist"]')?.textContent,
+    ).toContain("요청한 1~3번 block 중 앞 3개를 순서대로 검증했습니다.");
+    expect(
+      root.querySelector('[data-testid="staging-verification-checklist"]')?.textContent,
+    ).toContain("이미지와 캡션");
+  });
+
   it("lists the uploaded images with a remove control", () => {
     const root = render(withDraft(initialWritingState(), draft()));
 
@@ -313,7 +347,8 @@ describe("writing view", () => {
     const handlers = {
       ...HANDLERS,
       onAddTags: vi.fn(),
-      onBodyChange: vi.fn(),
+      onBlocksChange: vi.fn(),
+      onBlocksStructureChange: vi.fn(),
       onCompose: vi.fn(),
       onCompleteWithAi: vi.fn(),
       onCreateDraft: vi.fn(),
@@ -361,7 +396,9 @@ describe("writing view", () => {
     ]) {
       (root.querySelector(selector) as HTMLButtonElement).click();
     }
-    const body = root.querySelector<HTMLTextAreaElement>("#body-text") as HTMLTextAreaElement;
+    const body = root.querySelector<HTMLTextAreaElement>(
+      '[data-block-index="0"] textarea',
+    ) as HTMLTextAreaElement;
     body.value = "고친 본문";
     body.dispatchEvent(new Event("input"));
     const title = root.querySelector<HTMLInputElement>("#draft-title") as HTMLInputElement;
@@ -372,9 +409,82 @@ describe("writing view", () => {
     seed.dispatchEvent(new Event("input"));
 
     expect(handlers.onCompose).toHaveBeenCalledTimes(1);
-    expect(handlers.onBodyChange).toHaveBeenCalledWith("고친 본문");
+    expect(handlers.onBlocksChange).toHaveBeenCalledWith([
+      { type: "heading", text: "고친 본문" },
+      { type: "paragraph", text: "문단입니다." },
+      { type: "image", image_id: IMAGE_ID, caption: "사진" },
+    ]);
     expect(handlers.onTitleChange).toHaveBeenCalledWith("고친 제목");
     expect(handlers.onStage).toHaveBeenCalledTimes(1);
     expect(handlers.onDeleteDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps image insertion and structural block editing explicit", () => {
+    const handlers = {
+      ...HANDLERS,
+      onBlocksStructureChange: vi.fn(),
+      onImageInsertionPointChange: vi.fn(),
+      onInsertImage: vi.fn(),
+    };
+    const root = render(withDraft(initialWritingState(), draft()));
+    renderWriting(root, withDraft(initialWritingState(), draft()), handlers);
+
+    (root.querySelector("#image-insert-at-1") as HTMLButtonElement).click();
+    (root.querySelector(".image-insert") as HTMLButtonElement).click();
+    (root.querySelector('[data-block-index="1"] .block-tools button') as HTMLButtonElement).click();
+    const heading = root.querySelector<HTMLTextAreaElement>('[data-block-index="0"] textarea');
+    heading?.dispatchEvent(
+      new KeyboardEvent("keydown", { altKey: true, ctrlKey: true, key: "3", bubbles: true }),
+    );
+
+    expect(handlers.onImageInsertionPointChange).toHaveBeenCalledWith(1);
+    expect(handlers.onInsertImage).toHaveBeenCalledWith(IMAGE_ID, 3);
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith(
+      expect.arrayContaining([{ type: "paragraph", text: "문단입니다." }]),
+    );
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith(
+      expect.arrayContaining([{ type: "quote", text: "첫 구역" }]),
+    );
+  });
+
+  it("inserts, duplicates, deletes, and drag-reorders blocks without flattening the canvas", () => {
+    const handlers = { ...HANDLERS, onBlocksStructureChange: vi.fn() };
+    const root = document.createElement("main");
+    document.body.textContent = "";
+    document.body.append(root);
+    renderWriting(root, withDraft(initialWritingState(), draft()), handlers);
+
+    const firstTools = root.querySelectorAll('[data-block-index="0"] .block-tools button');
+    (firstTools[2] as HTMLButtonElement).click();
+    (firstTools[3] as HTMLButtonElement).click();
+    const appendDivider = [
+      ...root.querySelectorAll<HTMLButtonElement>(".block-insert button"),
+    ].find((item) => item.textContent === "+ 구분선");
+    appendDivider?.click();
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { getData: () => "2" },
+    });
+    root.querySelector('[data-block-index="0"]')?.dispatchEvent(drop);
+
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith([
+      { type: "heading", text: "첫 구역" },
+      { type: "heading", text: "첫 구역" },
+      { type: "paragraph", text: "문단입니다." },
+      { type: "image", image_id: IMAGE_ID, caption: "사진" },
+    ]);
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith([
+      { type: "paragraph", text: "문단입니다." },
+      { type: "image", image_id: IMAGE_ID, caption: "사진" },
+    ]);
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith(
+      expect.arrayContaining([{ type: "divider" }]),
+    );
+    expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith([
+      { type: "image", image_id: IMAGE_ID, caption: "사진" },
+      { type: "heading", text: "첫 구역" },
+      { type: "paragraph", text: "문단입니다." },
+    ]);
   });
 });

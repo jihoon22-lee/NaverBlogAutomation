@@ -71,8 +71,8 @@ class FakeStream {
     };
   };
 
-  emit(event: string): void {
-    this.handlers?.onEvent({ event, payload: {} });
+  emit(event: string, payload: Record<string, unknown> = {}): void {
+    this.handlers?.onEvent({ event, payload });
   }
 }
 
@@ -369,7 +369,16 @@ describe("WritingController", () => {
 
   it("includes a changed title in the next automatic body save", async () => {
     vi.useFakeTimers();
-    const client = api();
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "기존 working copy 제목",
+        blocks: [{ type: "paragraph" as const, text: "문단입니다." }],
+        summary: "",
+        contentVersion: 4,
+      },
+    };
+    const client = api({ draft: vi.fn(async () => current) });
     const writing = new WritingController(root, { api: client, stream: stream.factory });
     await writing.openDraft(DRAFT_BODY.id);
 
@@ -379,7 +388,113 @@ describe("WritingController", () => {
     expect(
       (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } }).saveDraftBody.mock
         .calls[0]?.[1],
-    ).toMatchObject({ title: "고친 제목" });
+    ).toMatchObject({ title: "고친 제목", baseContentVersion: 4 });
+    vi.useRealTimers();
+  });
+
+  it("keeps only the newest edit when an autosave is already in flight", async () => {
+    vi.useFakeTimers();
+    let finishFirstSave: (draft: PostDraft) => void = () => {
+      throw new Error("autosave did not start");
+    };
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "합성 초안",
+        blocks: [{ type: "paragraph" as const, text: "문단입니다." }],
+        summary: "",
+        contentVersion: 4,
+      },
+    };
+    const saved = {
+      ...current,
+      workingCopy: {
+        ...current.workingCopy,
+        blocks: [{ type: "paragraph" as const, text: "첫 편집" }],
+        contentVersion: 5,
+      },
+    };
+    const client = api({
+      draft: vi.fn(async () => current),
+      saveDraftBody: vi.fn(
+        () =>
+          new Promise<PostDraft>((resolve) => {
+            finishFirstSave = resolve;
+          }),
+      ),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.onBlocksChange([{ type: "paragraph", text: "첫 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+    writing.onBlocksChange([{ type: "paragraph", text: "마지막 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+    finishFirstSave(saved);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const calls = (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } })
+      .saveDraftBody.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[1]).toMatchObject({
+      blocks: [{ type: "paragraph", text: "마지막 편집" }],
+      baseContentVersion: 5,
+    });
+    vi.useRealTimers();
+  });
+
+  it("drops a queued autosave on a content conflict instead of overwriting the latest copy", async () => {
+    vi.useFakeTimers();
+    let rejectFirstSave: (error: Error) => void = () => {
+      throw new Error("autosave did not start");
+    };
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "다른 기기의 제목",
+        blocks: [{ type: "paragraph" as const, text: "다른 기기의 최신 본문" }],
+        summary: "",
+        contentVersion: 8,
+      },
+    };
+    const conflict = new ApiError("충돌", {
+      problem: {
+        code: "draft_content_conflict",
+        detail: "다른 기기에서 변경했습니다.",
+        status: 409,
+        title: "Draft content conflict",
+      },
+      status: 409,
+    });
+    const client = api({
+      draft: vi.fn(async () => current),
+      saveDraftBody: vi.fn(
+        () =>
+          new Promise<PostDraft>((_resolve, reject) => {
+            rejectFirstSave = reject;
+          }),
+      ),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.onBlocksChange([{ type: "paragraph", text: "첫 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+    writing.onBlocksChange([{ type: "paragraph", text: "충돌 뒤 대기 중인 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+    rejectFirstSave(conflict);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const typed = client as unknown as {
+      draft: { mock: { calls: unknown[][] } };
+      saveDraftBody: { mock: { calls: unknown[][] } };
+    };
+    expect(typed.saveDraftBody.mock.calls).toHaveLength(1);
+    expect(typed.draft.mock.calls).toHaveLength(2);
+    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "다른 기기의 최신 본문" }]);
+    expect(writing.state.error).toBe(
+      "다른 기기의 최신 본문을 불러왔습니다. 변경 내용은 덮어쓰지 않았습니다.",
+    );
     vi.useRealTimers();
   });
 
@@ -591,6 +706,29 @@ describe("WritingController", () => {
 
     stream.emit("step_started");
 
+    expect(stream.closes).toBe(0);
+  });
+
+  it("renders each staging step from its live progress event before the terminal refresh", async () => {
+    const writing = controller();
+    await writing.openDraft(DRAFT_BODY.id);
+    await writing.stage();
+
+    stream.emit("step_completed", {
+      step: "body",
+      state: "succeeded",
+      result_code: "blocks_staged_1",
+      detail: {
+        requested_range_start: 1,
+        requested_range_end: 1,
+        observed_prefix_count: 1,
+      },
+    });
+
+    expect(writing.state.run?.steps.find((step) => step.name === "body")?.resultCode).toBe(
+      "blocks_staged_1",
+    );
+    expect(writing.state.stagingBodyVerification?.observedPrefixCount).toBe(1);
     expect(stream.closes).toBe(0);
   });
 

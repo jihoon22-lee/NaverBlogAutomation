@@ -197,6 +197,9 @@ describe("generation", () => {
     await controller.generate();
 
     expect(document.querySelectorAll(".candidate-item")).toHaveLength(3);
+    expect(document.querySelectorAll(".candidate-card")).toHaveLength(3);
+    expect(text(".candidate-card:nth-child(1) .candidate-tone")).toContain("따뜻한");
+    expect(text(".candidate-card:nth-child(1) .candidate-evidence")).toContain("근거1");
     expect((document.getElementById("comment-draft") as HTMLTextAreaElement).value).toBe(
       "따뜻한 후보",
     );
@@ -436,6 +439,52 @@ describe("candidate selection and editing", () => {
     editor.dispatchEvent(new Event("input"));
 
     expect(controller.state.draft).toBe("직접 다듬은 댓글");
+  });
+
+  it("updates the live character count and approval state while typing", async () => {
+    const controller = new CommentController(root(), { api: api() as never });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+    await controller.generate();
+
+    const editor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    editor.value = "";
+    editor.dispatchEvent(new Event("input"));
+
+    expect(text(".draft-count")).toBe("0 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    const nextEditor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    nextEditor.value = "새 댓글";
+    nextEditor.dispatchEvent(new Event("input"));
+
+    expect(text(".draft-count")).toBe("4 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it("uses the same Unicode character count for the limit and the visible counter", async () => {
+    const controller = new CommentController(root(), { api: api() as never });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+    await controller.generate();
+
+    const editor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    editor.value = "😀".repeat(500);
+    editor.dispatchEvent(new Event("input"));
+    expect(text(".draft-count")).toBe("500 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+
+    const nextEditor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    nextEditor.value = "😀".repeat(501);
+    nextEditor.dispatchEvent(new Event("input"));
+    expect(text(".draft-count")).toBe("501 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });
 

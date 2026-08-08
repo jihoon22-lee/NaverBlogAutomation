@@ -87,6 +87,8 @@ from naver_blog_assistant.api.routers import (
     register_engagement_routes,
     register_llm_routes,
     register_remote_access_routes,
+    register_runtime_configuration_routes,
+    register_runtime_data_routes,
     register_session_routes,
     register_settings_routes,
     register_staging_routes,
@@ -140,6 +142,8 @@ from naver_blog_assistant.application.discovery import (
 )
 from naver_blog_assistant.application.llm import CallBudget, FanOutGeneration
 from naver_blog_assistant.application.remote_access import RemoteAccessService
+from naver_blog_assistant.application.runtime_configuration import RuntimeConfiguration
+from naver_blog_assistant.application.runtime_data import RuntimeDataManager
 from naver_blog_assistant.application.settings import ReadAppSetting, SaveAppSetting
 from naver_blog_assistant.application.writing import ComposePost, ReferenceBody
 from naver_blog_assistant.domain import (
@@ -302,7 +306,7 @@ class ApiSettings:
 
     extension_origin: str = ""
     database_url: str = DEFAULT_DATABASE_URL
-    generator_mode: Literal["openai", "fake"] = "openai"
+    generator_mode: Literal["openai", "gemini", "anthropic", "fake"] = "openai"
     app_environment: Literal["production", "development", "test"] = "production"
     webapp_access_mode: WebAppAccessMode = "local"
     openai_api_key: str = field(default="", repr=False)
@@ -331,7 +335,6 @@ class ApiSettings:
     automation_headless: bool = False
     automation_profile_dir: str = ""
     automation_browser_channel: str = ""
-    draft_media_dir: str = ""
 
     def __post_init__(self) -> None:
         try:
@@ -346,8 +349,15 @@ class ApiSettings:
             raise ValueError("CHROME_EXTENSION_ORIGIN must contain one valid Chrome extension ID")
         if self.generator_mode == "fake" and self.app_environment == "production":
             raise ValueError("the fake generator is forbidden in production")
-        if self.generator_mode == "openai" and not self.openai_api_key.strip():
-            raise ValueError("OPENAI_API_KEY is required for the openai generator")
+        provider_keys = {
+            "openai": self.openai_api_key,
+            "gemini": self.gemini_api_key,
+            "anthropic": self.anthropic_api_key,
+        }
+        if self.generator_mode != "fake" and not provider_keys[self.generator_mode].strip():
+            raise ValueError(
+                f"{self.generator_mode.upper()}_API_KEY is required for the selected generator"
+            )
         if (
             self.max_request_bytes < 1
             or not math.isfinite(self.generation_timeout_seconds)
@@ -357,7 +367,7 @@ class ApiSettings:
         if not math.isfinite(self.openai_timeout_seconds) or self.openai_timeout_seconds <= 0:
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be a positive finite number")
         if (
-            self.generator_mode == "openai"
+            self.generator_mode != "fake"
             and self.openai_timeout_seconds >= self.generation_timeout_seconds
         ):
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be below GENERATION_TIMEOUT_SECONDS")
@@ -408,27 +418,35 @@ class ApiSettings:
     @classmethod
     def from_environment(cls) -> ApiSettings:
         """Load API settings without silently enabling the fake generator."""
-        return cls._from_environment(openai_api_key=os.getenv("OPENAI_API_KEY", "").strip())
+        return cls._from_environment(
+            openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        )
 
     @classmethod
     def validate_environment_without_secrets(cls) -> None:
         """Validate setup while reducing the API key immediately to a configured flag."""
-        configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
-        placeholder = "configured" if configured else ""
-        cls._from_environment(openai_api_key=placeholder)
+        cls._from_environment(
+            openai_api_key="configured" if os.getenv("OPENAI_API_KEY", "").strip() else "",
+            gemini_api_key="configured" if os.getenv("GEMINI_API_KEY", "").strip() else "",
+            anthropic_api_key="configured" if os.getenv("ANTHROPIC_API_KEY", "").strip() else "",
+        )
 
     @classmethod
-    def _from_environment(cls, *, openai_api_key: str) -> ApiSettings:
+    def _from_environment(
+        cls, *, openai_api_key: str, gemini_api_key: str, anthropic_api_key: str
+    ) -> ApiSettings:
         mode = os.getenv("COMMENT_GENERATOR_MODE", "openai").strip().lower()
         environment = os.getenv("APP_ENV", "production").strip().lower()
-        if mode not in {"openai", "fake"}:
-            raise ValueError("COMMENT_GENERATOR_MODE must be openai or fake")
+        if mode not in {"openai", "gemini", "anthropic", "fake"}:
+            raise ValueError("COMMENT_GENERATOR_MODE must be openai, gemini, anthropic, or fake")
         if environment not in {"production", "development", "test"}:
             raise ValueError("APP_ENV must be production, development, or test")
         return cls(
             extension_origin=os.getenv("CHROME_EXTENSION_ORIGIN", "").strip(),
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL).strip(),
-            generator_mode=cast(Literal["openai", "fake"], mode),
+            generator_mode=cast(Literal["openai", "gemini", "anthropic", "fake"], mode),
             app_environment=cast(Literal["production", "development", "test"], environment),
             webapp_access_mode=cast(
                 WebAppAccessMode,
@@ -458,15 +476,14 @@ class ApiSettings:
             digest_email_to=os.getenv("DIGEST_EMAIL_TO", "").strip(),
             naver_search_client_id=os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip(),
             naver_search_client_secret=os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip(),
-            gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+            gemini_api_key=gemini_api_key,
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip(),
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+            anthropic_api_key=anthropic_api_key,
             anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-20260514").strip(),
             automation_driver=os.getenv("AUTOMATION_DRIVER", "patchright").strip().lower(),
             automation_headless=_environment_bool("AUTOMATION_HEADLESS", "false"),
             automation_profile_dir=os.getenv("AUTOMATION_PROFILE_DIR", "").strip(),
             automation_browser_channel=os.getenv("AUTOMATION_BROWSER_CHANNEL", "").strip(),
-            draft_media_dir=os.getenv("DRAFT_MEDIA_DIR", "").strip(),
         )
 
 
@@ -500,6 +517,20 @@ def create_app(
     article_extractions = ExtractArticle(browser_sessions)
     app_settings_repository = SqliteAppSettingsRepository(engine)
     remote_access = RemoteAccessService(SqliteRemoteDeviceSessionStore(engine))
+    runtime_file = os.getenv("NBA_RUNTIME_CONFIG_FILE", "").strip()
+    restart_file = os.getenv("NBA_SUPERVISOR_RESTART_FILE", "").strip()
+    runtime_configuration = RuntimeConfiguration(
+        Path(runtime_file) if runtime_file else None,
+        launcher_restart_available=bool(restart_file),
+    )
+    database_name = make_url(settings.database_url).database
+    runtime_data = RuntimeDataManager(
+        database_path=(
+            None if database_name is None or database_name == ":memory:" else Path(database_name)
+        ),
+        media_root=_media_root(settings),
+        dispose_engine=engine.dispose,
+    )
     read_setting = ReadAppSetting(app_settings_repository)
     save_setting = SaveAppSetting(app_settings_repository)
     generation_planner = PlanGeneration(read_setting, GenerationKeyRegistry())
@@ -981,6 +1012,30 @@ def create_app(
         problem_metadata=_problem_metadata,
         pairing_enabled=settings.webapp_access_mode == "lan",
     )
+    register_runtime_configuration_routes(
+        app,
+        configuration=runtime_configuration,
+        browser_status=browser_sessions.status,
+        restart_allowed=lambda: (
+            session_repository.active() is None
+            and publish_run_repository.active() is None
+            and not staging_service.has_active_tasks()
+        ),
+        restart_marker=Path(restart_file) if restart_file else None,
+        problem_metadata=_problem_metadata,
+    )
+    register_runtime_data_routes(
+        app,
+        data=runtime_data,
+        browser_status=browser_sessions.status,
+        restart_allowed=lambda: (
+            session_repository.active() is None
+            and publish_run_repository.active() is None
+            and not staging_service.has_active_tasks()
+        ),
+        restart_marker=Path(restart_file) if restart_file else None,
+        problem_metadata=_problem_metadata,
+    )
     web_app_assets_ready = register_app_mount(app)
     app.state.web_app_assets_ready = web_app_assets_ready
     if not web_app_assets_ready:
@@ -1016,7 +1071,13 @@ def create_app(
     )
     def service_status() -> ServiceStatusResponse:
         generator_model = (
-            settings.openai_model if settings.generator_mode == "openai" else "deterministic-fake"
+            "deterministic-fake"
+            if settings.generator_mode == "fake"
+            else {
+                "openai": settings.openai_model,
+                "gemini": settings.gemini_model,
+                "anthropic": settings.anthropic_model,
+            }[settings.generator_mode]
         )
         return ServiceStatusResponse(
             status="ready",
@@ -1617,10 +1678,13 @@ def create_app(
     def visible_discovery_posts(
         source: Literal["neighbor", "search"],
         *,
+        limit: int | None = 100,
         include_states: tuple[DiscoveryState, ...] | None = None,
         include_orphaned_skipped: bool = False,
     ) -> tuple[tuple[DiscoveredPost, ...], dict[UUID, str]]:
-        posts = discovery.list_posts(DiscoverySource(source), include_states=include_states)
+        posts = discovery.list_posts(
+            DiscoverySource(source), limit=limit, include_states=include_states
+        )
         labels: dict[UUID, str] = {}
         if source == "neighbor":
             labels = {neighbor.id: neighbor.name for neighbor in discovery.list_neighbors()}
@@ -1675,12 +1739,17 @@ def create_app(
             DiscoveryState.OPENED,
             DiscoveryState.SKIPPED,
         )
+        requested_state = DiscoveryState(state) if state is not None else None
+        load_states = visible_states
+        if requested_state is not None and requested_state not in load_states:
+            load_states = (*load_states, requested_state)
         # Counts drive all three workbench segments, so calculate them across both sources before
         # the caller's segment/state filter is applied.
         for item_source in ("neighbor", "search"):
             posts, labels = visible_discovery_posts(
                 item_source,
-                include_states=visible_states,
+                limit=None,
+                include_states=load_states,
                 include_orphaned_skipped=True,
             )
             for item in posts:
@@ -1692,17 +1761,22 @@ def create_app(
                     else None
                 )
                 all_entries.append((item, source_label))
+        count_entries = [
+            (item, source_label)
+            for item, source_label in all_entries
+            if item.state in visible_states
+        ]
         counts: dict[Literal["neighbor", "search", "skipped", "total"], int] = {
             "neighbor": sum(
                 item.source is DiscoverySource.NEIGHBOR and item.state is not DiscoveryState.SKIPPED
-                for item, _ in all_entries
+                for item, _ in count_entries
             ),
             "search": sum(
                 item.source is DiscoverySource.SEARCH and item.state is not DiscoveryState.SKIPPED
-                for item, _ in all_entries
+                for item, _ in count_entries
             ),
-            "skipped": sum(item.state is DiscoveryState.SKIPPED for item, _ in all_entries),
-            "total": len(all_entries),
+            "skipped": sum(item.state is DiscoveryState.SKIPPED for item, _ in count_entries),
+            "total": len(count_entries),
         }
         needle = "" if query is None else query.strip().casefold()
         for item, source_label in all_entries:
@@ -1936,9 +2010,12 @@ class _SessionQueue:
 
 
 def _media_root(settings: ApiSettings) -> Path:
-    """Return the directory that holds uploaded draft images."""
-    if settings.draft_media_dir.strip():
-        return Path(settings.draft_media_dir).expanduser()
+    """Return the app-owned directory that holds uploaded draft images.
+
+    The web app never accepts a storage path, and the launcher does not carry a second media-path
+    setting.  Keeping media next to the open SQLite database makes export/reset one atomic desktop
+    data unit while preserving explicit temporary database locations used by tests and developers.
+    """
     database = make_url(settings.database_url).database
     base = Path(database).expanduser().parent if database else Path("data")
     return base / "media"
@@ -1976,12 +2053,10 @@ def _decode_queue_cursor(cursor: str | None) -> int:
 def _configured_generator(settings: ApiSettings) -> CommentGenerator:
     if settings.generator_mode == "fake":
         return DeterministicFakeGenerator()
-    from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
-
-    return OpenAICommentGenerator(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-        reasoning_effort=settings.openai_reasoning_effort,
+    registry = _configured_registry(settings)
+    provider = LlmProvider(settings.generator_mode)
+    return ProviderCommentGenerator(
+        registry.client(registry.selection(provider)),
         timeout_seconds=settings.openai_timeout_seconds,
         max_output_tokens=settings.openai_max_output_tokens,
     )

@@ -72,7 +72,19 @@ class PageHandle(Protocol):
     async def type_text(
         self, selector: str, text: str, *, timeout_seconds: float | None = None
     ) -> None:
-        """Focus one editable element and type ``text`` with trusted key events."""
+        """Replace an editable element through trusted keyboard input, then type ``text``."""
+        ...
+
+    async def append_text(
+        self, selector: str, text: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        """Type at the current caret without replacing the current editor block."""
+        ...
+
+    async def press_key(
+        self, selector: str, key: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        """Send one trusted keyboard key or shortcut at the current caret."""
         ...
 
     async def select_option(
