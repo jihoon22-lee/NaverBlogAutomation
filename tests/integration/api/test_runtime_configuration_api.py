@@ -39,10 +39,17 @@ def test_runtime_configuration_never_echoes_a_secret_and_requests_a_supervised_r
     with TestClient(create_app(settings)) as client:
         saved = client.patch(
             "/api/v1/runtime/configuration",
-            json={"openai_api_key": {"replace": "private-value"}, "openai_model": "gpt-test"},
+            json={
+                "openai_api_key": {"replace": "private-value"},
+                "openai_model": "gpt-test",
+                "digest_email_from": "sender@example.test",
+                "digest_email_to": "recipient@example.test",
+            },
         )
         assert saved.status_code == 200, saved.text
         assert saved.json()["ai"]["providers"][0]["configured"] is True
+        assert saved.json()["smtp"]["digest_email_from"] == "sender@example.test"
+        assert saved.json()["smtp"]["digest_email_to"] == "recipient@example.test"
         assert "private-value" not in saved.text
         assert client.get("/api/v1/runtime/configuration").json()["restart_required"] is True
 

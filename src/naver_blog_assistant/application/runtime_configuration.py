@@ -53,6 +53,8 @@ class RuntimeConfigurationSnapshot:
     smtp_host: str
     smtp_port: int
     smtp_security: str
+    digest_email_from: str
+    digest_email_to: str
     browser_driver: str
     browser_headless: bool
     browser_channel: str
@@ -111,6 +113,8 @@ class RuntimeConfiguration:
             smtp_host=values.get("DIGEST_SMTP_HOST", ""),
             smtp_port=_port(values.get("DIGEST_SMTP_PORT", "587")),
             smtp_security=values.get("DIGEST_SMTP_SECURITY", "starttls"),
+            digest_email_from=values.get("DIGEST_EMAIL_FROM", ""),
+            digest_email_to=values.get("DIGEST_EMAIL_TO", ""),
             browser_driver=values.get("AUTOMATION_DRIVER", "patchright"),
             browser_headless=values.get("AUTOMATION_HEADLESS", "false").lower() == "true",
             browser_channel=values.get("AUTOMATION_BROWSER_CHANNEL", ""),

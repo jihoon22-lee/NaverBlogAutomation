@@ -700,6 +700,8 @@ class RuntimeSmtpConfiguration(StrictModel):
     host: str
     port: Annotated[int, Field(ge=1, le=65_535)]
     security: Literal["starttls", "ssl"]
+    digest_email_from: str
+    digest_email_to: str
 
 
 class RuntimeBrowserConfiguration(StrictModel):
@@ -732,13 +734,13 @@ class RuntimeConfigurationPatch(StrictModel):
     anthropic_api_key: RuntimeSecretUpdate | None = None
     naver_search_client_id: RuntimeSecretUpdate | None = None
     naver_search_client_secret: RuntimeSecretUpdate | None = None
-    smtp_host: Annotated[str | None, StringConstraints(min_length=1, max_length=255)] = None
+    smtp_host: Annotated[str | None, StringConstraints(max_length=255)] = None
     smtp_port: Annotated[int | None, Field(ge=1, le=65_535)] = None
     smtp_security: Literal["starttls", "ssl"] | None = None
     smtp_username: RuntimeSecretUpdate | None = None
     smtp_password: RuntimeSecretUpdate | None = None
-    digest_email_from: Annotated[str | None, StringConstraints(min_length=3, max_length=320)] = None
-    digest_email_to: Annotated[str | None, StringConstraints(min_length=3, max_length=320)] = None
+    digest_email_from: Annotated[str | None, StringConstraints(max_length=320)] = None
+    digest_email_to: Annotated[str | None, StringConstraints(max_length=320)] = None
     browser_driver: Literal["patchright", "playwright", "fake"] | None = None
     browser_headless: bool | None = None
     browser_channel: Annotated[str | None, StringConstraints(max_length=32)] = None

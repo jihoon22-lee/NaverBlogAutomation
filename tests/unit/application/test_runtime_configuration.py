@@ -119,3 +119,22 @@ def test_rejects_private_configuration_inside_a_symlinked_directory(tmp_path: Pa
 
     with pytest.raises(RuntimeConfigurationError, match="directory cannot be a symlink"):
         configuration.update({"OPENAI_MODEL": "new"})
+
+
+def test_snapshot_exposes_nonsecret_digest_addresses_but_not_passwords(tmp_path: Path) -> None:
+    target = tmp_path / "env"
+    private_file(target, "DIGEST_SMTP_PASSWORD=private\n")
+    configuration = RuntimeConfiguration(
+        target,
+        environment={
+            "DIGEST_SMTP_PASSWORD": "private",
+            "DIGEST_EMAIL_FROM": "sender@example.test",
+            "DIGEST_EMAIL_TO": "recipient@example.test",
+        },
+    )
+
+    snapshot = configuration.snapshot()
+
+    assert snapshot.digest_email_from == "sender@example.test"
+    assert snapshot.digest_email_to == "recipient@example.test"
+    assert "private" not in repr(snapshot)

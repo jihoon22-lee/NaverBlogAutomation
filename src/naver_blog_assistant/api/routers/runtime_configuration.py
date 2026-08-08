@@ -156,6 +156,8 @@ def _response(snapshot: RuntimeConfigurationSnapshot) -> RuntimeConfigurationRes
             host=snapshot.smtp_host,
             port=snapshot.smtp_port,
             security=cast(Literal["starttls", "ssl"], snapshot.smtp_security),
+            digest_email_from=snapshot.digest_email_from,
+            digest_email_to=snapshot.digest_email_to,
         ),
         browser=RuntimeBrowserConfiguration(
             driver=cast(Literal["patchright", "playwright", "fake"], snapshot.browser_driver),
