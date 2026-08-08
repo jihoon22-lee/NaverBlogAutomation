@@ -30,6 +30,7 @@ describe("createPageBundle", () => {
         "probeLike",
         "probeLikeOption",
         "probeMyBlogCategories",
+        "readEditorBlocks",
         "probeNeighborApplication",
         "probeNeighborConfirmation",
         "probeNeighborOption",

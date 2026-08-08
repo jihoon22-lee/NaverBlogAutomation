@@ -36,9 +36,13 @@ READY = {
     "stage": "ready",
     "titleSelector": "#title",
     "bodySelector": "#body",
+    "editorRootSelector": "#editor-root",
     "imageInputSelector": "#file",
+    "imageCaptionSelector": "#caption",
     "saveSelector": "#save",
+    "tagInputSelector": "#tags",
     "restoreCancelSelector": None,
+    "blockActionSelectors": {},
 }
 
 
@@ -56,7 +60,8 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         page_results={LOGIN_STATE_EXPRESSION: "authenticated"},
         page_probe_results={
             "probeEditor": READY,
-            "readEditorText": ["합성 제목", "문단입니다.", ""],
+            "readEditorText": "합성 제목",
+            "readEditorBlocks": [[{"type": "paragraph", "text": "문단입니다."}]],
             "probeEditorSave": [
                 {"saved": False, "savedCount": 1, "diagnosis": None},
                 {"saved": True, "savedCount": 2, "diagnosis": None},
@@ -248,6 +253,7 @@ class TestStagingApi:
         assert events.status_code == 200
         assert events.headers["content-type"].startswith("text/event-stream")
         assert "event: step_completed" in events.text or "event: run_snapshot" in events.text
+        assert "requested_range_start" in events.text
 
     def test_staging_without_a_body_is_refused(self, client: TestClient) -> None:
         client.put(

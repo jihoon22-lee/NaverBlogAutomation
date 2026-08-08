@@ -96,10 +96,33 @@ class PlaywrightPage:
             locator = self._page.locator(selector).first
             await locator.scroll_into_view_if_needed(timeout=timeout)
             await locator.click(timeout=timeout)
-            await locator.fill("", timeout=timeout)
+            await locator.press("ControlOrMeta+A", timeout=timeout)
+            await locator.press("Backspace", timeout=timeout)
             await locator.type(text, delay=25)
         except Exception as error:  # noqa: BLE001 - provider exception types are library specific
             raise BrowserOperationError("trusted typing failed") from error
+
+    async def append_text(
+        self, selector: str, text: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        timeout = _timeout_ms(timeout_seconds)
+        try:
+            locator = self._page.locator(selector).first
+            await locator.scroll_into_view_if_needed(timeout=timeout)
+            await locator.type(text, delay=25)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("trusted append typing failed") from error
+
+    async def press_key(
+        self, selector: str, key: str, *, timeout_seconds: float | None = None
+    ) -> None:
+        timeout = _timeout_ms(timeout_seconds)
+        try:
+            locator = self._page.locator(selector).first
+            await locator.scroll_into_view_if_needed(timeout=timeout)
+            await locator.press(key, timeout=timeout)
+        except Exception as error:  # noqa: BLE001 - provider exception types are library specific
+            raise BrowserOperationError("trusted keyboard input failed") from error
 
     async def select_option(
         self, selector: str, value: str, *, timeout_seconds: float | None = None

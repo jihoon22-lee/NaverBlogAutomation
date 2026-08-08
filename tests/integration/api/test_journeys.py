@@ -27,9 +27,13 @@ EDITOR_READY = {
     "stage": "ready",
     "titleSelector": "#title",
     "bodySelector": "#body",
+    "editorRootSelector": "#editor-root",
     "imageInputSelector": "#file",
+    "imageCaptionSelector": "#caption",
     "saveSelector": "#save",
+    "tagInputSelector": "#tags",
     "restoreCancelSelector": None,
+    "blockActionSelectors": {},
 }
 
 
@@ -39,7 +43,8 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         page_results={LOGIN_STATE_EXPRESSION: "authenticated"},
         page_probe_results={
             "probeEditor": EDITOR_READY,
-            "readEditorText": ["합성 제목", "문단입니다.", ""],
+            "readEditorText": "합성 제목",
+            "readEditorBlocks": [[{"type": "paragraph", "text": "문단입니다."}]],
             "probeEditorSave": [
                 {"saved": False, "savedCount": 1, "diagnosis": None},
                 {"saved": True, "savedCount": 2, "diagnosis": None},
@@ -345,7 +350,6 @@ class TestSettingsRoundTrip:
         "automation_consent",
         "safety_policy",
         "schedule_policy",
-        "llm_providers",
         "llm_budget",
         "writing_profile",
     )
