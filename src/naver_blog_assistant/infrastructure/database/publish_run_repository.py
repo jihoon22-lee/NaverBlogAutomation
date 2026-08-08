@@ -115,6 +115,16 @@ class SqlitePublishRunRepository:
             ).one_or_none()
         return None if row is None else self.get(UUID(row.id))
 
+    def active(self) -> PublishRun | None:
+        """Return one staging run that has not reached a terminal aggregate state."""
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                select(publish_runs.c.id)
+                .where(publish_runs.c.state == PublishRunState.RUNNING.value)
+                .order_by(publish_runs.c.created_at)
+            ).first()
+        return None if row is None else self.get(UUID(row.id))
+
     def transition_step(
         self,
         run_id: UUID,

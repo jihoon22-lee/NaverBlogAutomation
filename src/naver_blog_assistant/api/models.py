@@ -71,7 +71,7 @@ class ServiceStatusResponse(StrictModel):
     api_version: str
     app_environment: Literal["production", "development", "test"]
     database: Literal["ready"]
-    generator_mode: Literal["openai", "fake"]
+    generator_mode: Literal["openai", "gemini", "anthropic", "fake"]
     generator_model: ShortText
 
 
@@ -667,6 +667,113 @@ class AppSettingResponse(StrictModel):
             payload=setting.payload,
             updated_at=setting.updated_at,
         )
+
+
+class RuntimeSecretUpdate(StrictModel):
+    """Write-only secret intent; its value is never represented in a response model."""
+
+    replace: Annotated[str | None, StringConstraints(min_length=1, max_length=4_000)] = None
+    clear: bool = False
+
+    @model_validator(mode="after")
+    def validate_intent(self) -> Self:
+        if (self.replace is None) == (self.clear is False):
+            raise ValueError("provide exactly one of replace or clear")
+        return self
+
+
+class RuntimeProviderStatus(StrictModel):
+    provider: Literal["openai", "gemini", "anthropic"]
+    configured: bool
+    model: str
+
+
+class RuntimeAiConfiguration(StrictModel):
+    active_provider: Literal["openai", "gemini", "anthropic", "fake"]
+    providers: list[RuntimeProviderStatus]
+
+
+class RuntimeNaverSearchConfiguration(StrictModel):
+    configured: bool
+
+
+class RuntimeSmtpConfiguration(StrictModel):
+    configured: bool
+    host: str
+    port: Annotated[int, Field(ge=1, le=65_535)]
+    security: Literal["starttls", "ssl"]
+
+
+class RuntimeBrowserConfiguration(StrictModel):
+    driver: Literal["patchright", "playwright", "fake"]
+    headless: bool
+    channel: str
+
+
+class RuntimeNetworkConfiguration(StrictModel):
+    access_mode: Literal["local", "lan"]
+
+
+class RuntimeConfigurationResponse(StrictModel):
+    ai: RuntimeAiConfiguration
+    naver_search: RuntimeNaverSearchConfiguration
+    smtp: RuntimeSmtpConfiguration
+    browser: RuntimeBrowserConfiguration
+    network: RuntimeNetworkConfiguration
+    restart_required: bool
+    launcher_restart_available: bool
+
+
+class RuntimeConfigurationPatch(StrictModel):
+    active_provider: Literal["openai", "gemini", "anthropic", "fake"] | None = None
+    openai_model: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+    gemini_model: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+    anthropic_model: Annotated[str | None, StringConstraints(min_length=1, max_length=100)] = None
+    openai_api_key: RuntimeSecretUpdate | None = None
+    gemini_api_key: RuntimeSecretUpdate | None = None
+    anthropic_api_key: RuntimeSecretUpdate | None = None
+    naver_search_client_id: RuntimeSecretUpdate | None = None
+    naver_search_client_secret: RuntimeSecretUpdate | None = None
+    smtp_host: Annotated[str | None, StringConstraints(min_length=1, max_length=255)] = None
+    smtp_port: Annotated[int | None, Field(ge=1, le=65_535)] = None
+    smtp_security: Literal["starttls", "ssl"] | None = None
+    smtp_username: RuntimeSecretUpdate | None = None
+    smtp_password: RuntimeSecretUpdate | None = None
+    digest_email_from: Annotated[str | None, StringConstraints(min_length=3, max_length=320)] = None
+    digest_email_to: Annotated[str | None, StringConstraints(min_length=3, max_length=320)] = None
+    browser_driver: Literal["patchright", "playwright", "fake"] | None = None
+    browser_headless: bool | None = None
+    browser_channel: Annotated[str | None, StringConstraints(max_length=32)] = None
+    access_mode: Literal["local", "lan"] | None = None
+
+    @model_validator(mode="after")
+    def validate_change(self) -> Self:
+        if not any(value is not None for value in self.__dict__.values()):
+            raise ValueError("at least one runtime setting must change")
+        return self
+
+
+class RuntimeDataResponse(StrictModel):
+    """Desktop-only metadata for the data the app itself owns."""
+
+    database_location: str
+    database_file_count: Annotated[int, Field(ge=0)]
+    media_location: str
+    media_file_count: Annotated[int, Field(ge=0)]
+    file_count: Annotated[int, Field(ge=0)]
+    size_bytes: Annotated[int, Field(ge=0)]
+    reset_available: bool
+
+
+class RuntimeDataResetRequest(StrictModel):
+    """Typed acknowledgement required before recoverably resetting local data."""
+
+    confirmation: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+
+
+class RuntimeDataResetResponse(StrictModel):
+    backup_location: str
+    restart_required: bool
 
 
 class AutomationRunRequest(StrictModel):

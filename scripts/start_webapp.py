@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -91,7 +92,7 @@ def start_webapp(
     launch: LaunchProcess | None = None,
     open_browser: OpenBrowser = webbrowser.open,
 ) -> int:
-    """Run the API until it exits and open ``/app/`` only after health succeeds."""
+    """Run the API under a small supervisor and open ``/app/`` after health succeeds."""
     command = (
         "uv",
         "run",
@@ -100,10 +101,13 @@ def start_webapp(
         str(environment_file),
         "naver-blog-api",
     )
-    process = (
-        launch(command, REPOSITORY_ROOT)
-        if launch is not None
-        else subprocess.Popen(command, cwd=REPOSITORY_ROOT)
+    restart_marker = environment_file.parent / f".{environment_file.name}.restart"
+    restart_marker.unlink(missing_ok=True)
+    process = _launch_child(
+        command,
+        environment_file=environment_file,
+        restart_marker=restart_marker,
+        launch=launch,
     )
     try:
         if not _wait_for_health(process):
@@ -130,10 +134,50 @@ def start_webapp(
             hosts = addresses if isinstance(addresses, list) else []
             for host in sorted(address for address in hosts if isinstance(address, str)):
                 print(f"같은 신뢰 Wi-Fi의 태블릿 연결 주소: http://{host}:{LOOPBACK_PORT}/app/")
-        return process.wait()
+        if launch is not None:
+            # Embedding callers own the provided process and retain the old wait contract.
+            return process.wait()
+        while True:
+            exit_code = process.poll()
+            if exit_code is not None:
+                return exit_code
+            if not restart_marker.exists():
+                time.sleep(0.1)
+                continue
+            restart_marker.unlink(missing_ok=True)
+            print("저장한 연결 설정을 적용하기 위해 로컬 서비스를 다시 시작합니다.")
+            _terminate(process)
+            process = _launch_child(
+                command,
+                environment_file=environment_file,
+                restart_marker=restart_marker,
+                launch=None,
+            )
+            if not _wait_for_health(process):
+                _terminate(process)
+                print("오류: 재시작한 Local API가 준비되지 않았습니다.", file=sys.stderr)
+                return 1
     except KeyboardInterrupt:
         _terminate(process)
         return 130
+
+
+def _launch_child(
+    command: Sequence[str],
+    *,
+    environment_file: Path,
+    restart_marker: Path,
+    launch: LaunchProcess | None,
+) -> subprocess.Popen[bytes]:
+    """Start a child with only private file paths passed out-of-band from the browser."""
+    if launch is not None:
+        return launch(command, REPOSITORY_ROOT)
+    environment = {
+        **os.environ,
+        "NBA_RUNTIME_CONFIG_FILE": str(environment_file),
+        "NBA_SUPERVISOR_RESTART_FILE": str(restart_marker),
+    }
+    return subprocess.Popen(command, cwd=REPOSITORY_ROOT, env=environment)
 
 
 def main(arguments: Sequence[str] | None = None) -> None:

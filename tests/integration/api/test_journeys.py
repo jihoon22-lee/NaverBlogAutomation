@@ -60,7 +60,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         automation_driver="fake",
         automation_headless=True,
         automation_profile_dir=str(tmp_path / "profile"),
-        draft_media_dir=str(tmp_path / "media"),
     )
     with TestClient(create_app(settings, browser_driver=driver)) as test_client:
         yield test_client
@@ -381,7 +380,6 @@ class TestSettingsRoundTrip:
             automation_driver="fake",
             automation_headless=True,
             automation_profile_dir=str(tmp_path / "profile"),
-            draft_media_dir=str(tmp_path / "media"),
         )
         with TestClient(create_app(settings)) as first:
             saved = save_safety_policy(first, daily_like_cap=11)

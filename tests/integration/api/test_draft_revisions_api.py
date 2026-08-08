@@ -30,7 +30,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         automation_driver="fake",
         automation_headless=True,
         automation_profile_dir=str(tmp_path / "profile"),
-        draft_media_dir=str(tmp_path / "media"),
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client

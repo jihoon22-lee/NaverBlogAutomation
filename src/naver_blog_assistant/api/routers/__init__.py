@@ -7,6 +7,10 @@ from naver_blog_assistant.api.routers.drafts import register_draft_routes
 from naver_blog_assistant.api.routers.engagement import register_engagement_routes
 from naver_blog_assistant.api.routers.llm import register_llm_routes
 from naver_blog_assistant.api.routers.remote import register_remote_access_routes
+from naver_blog_assistant.api.routers.runtime_configuration import (
+    register_runtime_configuration_routes,
+)
+from naver_blog_assistant.api.routers.runtime_data import register_runtime_data_routes
 from naver_blog_assistant.api.routers.sessions import register_session_routes
 from naver_blog_assistant.api.routers.settings import register_settings_routes
 from naver_blog_assistant.api.routers.spa import register_app_mount
@@ -21,6 +25,8 @@ __all__ = [
     "register_engagement_routes",
     "register_llm_routes",
     "register_remote_access_routes",
+    "register_runtime_configuration_routes",
+    "register_runtime_data_routes",
     "register_session_routes",
     "register_settings_routes",
     "register_staging_routes",
