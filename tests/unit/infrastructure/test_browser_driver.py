@@ -16,6 +16,47 @@ from naver_blog_assistant.infrastructure.browser.fake import FakeFrame, FakePage
 from naver_blog_assistant.ports.browser import BrowserLaunchError, BrowserOperationError
 
 
+class _Runtime:
+    def __init__(self) -> None:
+        self.chromium = _Chromium()
+        self.stopped = False
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+class _Chromium:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def launch_persistent_context(self, **options: object) -> object:
+        self.calls.append(options)
+        if "channel" in options:
+            raise RuntimeError("configured browser is missing")
+        return _Context()
+
+
+class _Context:
+    async def close(self) -> None:
+        return
+
+
+class _AsyncPlaywright:
+    def __init__(self, runtime: _Runtime) -> None:
+        self._runtime = runtime
+
+    async def start(self) -> _Runtime:
+        return self._runtime
+
+
+class _Module:
+    def __init__(self, runtime: _Runtime) -> None:
+        self._runtime = runtime
+
+    def async_playwright(self) -> _AsyncPlaywright:
+        return _AsyncPlaywright(self._runtime)
+
+
 def test_patchright_is_the_default_configured_driver() -> None:
     driver = create_browser_driver("patchright")
 
@@ -45,6 +86,24 @@ def test_missing_driver_module_reports_a_launch_error(tmp_path: Path) -> None:
 
     with pytest.raises(BrowserLaunchError, match="not installed"):
         asyncio.run(driver.launch(profile_dir=tmp_path, headless=True))
+
+
+def test_configured_channel_falls_back_to_bundled_chromium(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "naver_blog_assistant.infrastructure.browser.playwright_driver.import_module",
+        lambda _: _Module(runtime),
+    )
+    driver = PlaywrightBrowserDriver(name="patchright", module_name="patchright.async_api")
+
+    context = asyncio.run(driver.launch(profile_dir=tmp_path, headless=True, channel="chrome"))
+
+    assert runtime.chromium.calls[0]["channel"] == "chrome"
+    assert "channel" not in runtime.chromium.calls[1]
+    asyncio.run(context.close())
+    assert runtime.stopped
 
 
 def test_fake_launch_records_profile_headless_and_channel(tmp_path: Path) -> None:

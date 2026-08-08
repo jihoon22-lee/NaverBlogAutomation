@@ -211,9 +211,28 @@ class PlaywrightBrowserDriver:
         try:
             context = await runtime.chromium.launch_persistent_context(**options)
         except Exception as error:  # noqa: BLE001 - provider exception types are library specific
-            await runtime.stop()
-            reason = str(error).strip().splitlines()[0] if str(error).strip() else "unknown reason"
-            raise BrowserLaunchError(
-                f"could not start the automation browser: {reason[:200]}"
-            ) from error
+            if channel == "chrome":
+                fallback_options = {
+                    key: value for key, value in options.items() if key != "channel"
+                }
+                try:
+                    context = await runtime.chromium.launch_persistent_context(**fallback_options)
+                except Exception:  # noqa: BLE001 - preserve the configured-channel failure below
+                    await runtime.stop()
+                    reason = (
+                        str(error).strip().splitlines()[0]
+                        if str(error).strip()
+                        else "unknown reason"
+                    )
+                    raise BrowserLaunchError(
+                        f"could not start the automation browser: {reason[:200]}"
+                    ) from error
+            else:
+                await runtime.stop()
+                reason = (
+                    str(error).strip().splitlines()[0] if str(error).strip() else "unknown reason"
+                )
+                raise BrowserLaunchError(
+                    f"could not start the automation browser: {reason[:200]}"
+                ) from error
         return PlaywrightContext(context, runtime)

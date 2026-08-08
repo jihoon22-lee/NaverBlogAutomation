@@ -180,7 +180,8 @@ uv run --frozen --env-file .env.local python -m scripts.clear_local_data --confi
 - **배치가 `login_required`로 중단됨:** 네이버 로그인 세션이 만료되었습니다.
   automation browser의 Chrome 프로필에서 네이버에 다시 로그인한 뒤 새 배치를 시작합니다.
 - **배치가 `browser_unavailable`로 중단됨:** automation browser를 시작하지 못했거나 연결이
-  끊어졌습니다. Chrome이 설치되어 있고 `AUTOMATION_BROWSER_CHANNEL` 설정과 일치하는지 확인합니다.
+  끊어졌습니다. 기본 bundled Chromium을 사용하려면 `AUTOMATION_BROWSER_CHANNEL`을 비워 두세요. WSL에서는
+  Windows Chrome이 아니라 Linux/WSL 안의 browser만 사용할 수 있습니다.
 - **배치가 `internal_error`로 중단됨:** 예상하지 못한 내부 오류입니다. API 로그에서 traceback을
   확인하고 문제를 보고해 주세요.
 - **취소를 눌렀는데 즉시 멈추지 않음:** 취소는 현재 처리 중인 글이 완전히 끝난 뒤에 반영됩니다.

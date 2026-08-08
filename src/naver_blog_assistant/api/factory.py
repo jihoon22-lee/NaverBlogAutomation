@@ -328,7 +328,7 @@ class ApiSettings:
     automation_driver: str = "patchright"
     automation_headless: bool = False
     automation_profile_dir: str = ""
-    automation_browser_channel: str = "chrome"
+    automation_browser_channel: str = ""
     draft_media_dir: str = ""
 
     def __post_init__(self) -> None:
@@ -463,7 +463,7 @@ class ApiSettings:
             automation_driver=os.getenv("AUTOMATION_DRIVER", "patchright").strip().lower(),
             automation_headless=_environment_bool("AUTOMATION_HEADLESS", "false"),
             automation_profile_dir=os.getenv("AUTOMATION_PROFILE_DIR", "").strip(),
-            automation_browser_channel=os.getenv("AUTOMATION_BROWSER_CHANNEL", "chrome").strip(),
+            automation_browser_channel=os.getenv("AUTOMATION_BROWSER_CHANNEL", "").strip(),
             draft_media_dir=os.getenv("DRAFT_MEDIA_DIR", "").strip(),
         )
 
