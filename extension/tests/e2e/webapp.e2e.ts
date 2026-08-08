@@ -49,6 +49,11 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator('[data-section="workbench"]')).toHaveText("작업함");
       await expect(page.locator('[data-section="writing"]')).toHaveText("글쓰기");
       await expect(page.locator('[data-section="more"]')).toHaveText("더보기");
+      await page.goto(`${apiOrigin}/app/#today`);
+      await expect(page.locator('[data-section="home"]')).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
 
       await page.locator('[data-section="workbench"]').click();
       await expect(page.locator(".queue-panel")).toBeVisible();
@@ -80,6 +85,12 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
       await expect(page.locator("#skip-post-button")).toBeVisible();
+      await page.locator("#skip-post-button").click();
+      await expect(page.locator("#skip-post-button")).toHaveText("다시 대기");
+      await page.locator('[data-segment="skipped"]').click();
+      await expect(page.locator(`.queue-item[data-post-id="${postId}"]`)).toBeVisible();
+      await page.locator("#skip-post-button").click();
+      await expect(page.locator("#skip-post-button")).toHaveText("이 글 건너뛰기");
       expect(errors).toEqual([]);
       const overflow = await page.evaluate(() => {
         const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
@@ -141,6 +152,14 @@ for (const viewport of VIEWPORTS) {
       await page.locator("#more-settings").click();
       await expect(page.locator(".settings-navigation")).toBeVisible();
       await expect(page.locator("#runtime-openai-key")).toHaveAttribute("type", "password");
+      await page.locator('.settings-navigation-item[data-settings-section="connections"]').click();
+      await expect(page.locator(".runtime-data-panel")).toBeVisible();
+      const download = page.waitForEvent("download");
+      await page.locator("#export-runtime-data-button").click();
+      await expect((await download).suggestedFilename()).toBe("naver-blog-assistant-data.zip");
+      await page.locator(".runtime-data-reset summary").click();
+      await expect(page.locator("#runtime-data-reset-confirmation")).toBeVisible();
+      await expect(page.locator("#reset-runtime-data-button")).toBeDisabled();
 
       const shellCache = await page.evaluate(async () => {
         if (!("serviceWorker" in navigator)) return { registered: false, apiCached: false };
@@ -290,6 +309,8 @@ function safeApiEnvironment(databasePath: string): NodeJS.ProcessEnv {
     COMMENT_GENERATOR_MODE: "fake",
     DATABASE_URL: `sqlite:///${databasePath}`,
     OPENAI_API_KEY: "",
+    NBA_RUNTIME_CONFIG_FILE: join(dirname(databasePath), "runtime.env"),
+    NBA_SUPERVISOR_RESTART_FILE: join(dirname(databasePath), "restart.marker"),
   };
 }
 
