@@ -19,26 +19,30 @@
 | 구분 | 상태 | 근거 | 남은 일 |
 | --- | --- | --- | --- |
 | 사용자 기능 구현 | 완료 | 홈·작업함·댓글·batch·block studio·설정 센터·data management가 코드와 계약에 반영됨 | 없음 |
-| 로컬 자동 검증 | 완료 | Python `1468 passed`, client `634 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
+| 로컬 자동 검증 | 완료 | Python `1468 passed`, client `636 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
 | 보안/호환성 검증 | 완료 | runtime redaction/권한/symlink/pair 제한, OpenAPI parser parity, legacy route/endpoint 회귀 검증 | 실제 배포 환경의 운영자 확인만 남음 |
 | 실제 Naver editor 확인 | 외부 opt-in 대기 | 지원 block별 trusted input smoke harness와 fail-closed 경로 준비 | 전용 로그인 profile에서 `RUN_LIVE_NAVER=1` 실행 |
-| PR 전달 | review-ready / Actions green | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)의 required checks가 green이다. PR 2 최신 run은 `31259954396`이다. | reviewer 승인, merge/review |
+| PR 전달 | review-ready / Actions green | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)의 required checks가 green이다. PR 2 코드 수용 run은 [`31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)이며 10/10 job이 성공했다. | reviewer 승인, merge/review |
 
 ### 2026-08-08 strict audit addendum
 
 이전 snapshot 이후 사용자 흐름에서 실제로 누락됐던 여섯 가지를 별도 Conventional Commit으로
-보완했다. 댓글 초안의 Unicode code-point 한도와 즉시 실행 가능 상태, 작업함 count/cursor와
-완료·사용 불가 필터, runtime private env의 정확한 `0600` 권한, AI canonical block 보존을
-각각 production code와 회귀 테스트로 닫았다. 따라서 이 문서는 과거 `c64f7d1` 기준이 아니라
-code head `74a309b` 기준으로 읽어야 한다.
+보완한 뒤, 이번 최종 closure에서 작업함 sheet와 설정 deep-link까지 닫았다. 댓글 초안의
+Unicode code-point 한도와 즉시 실행 가능 상태, 작업함 count/cursor와 완료·사용 불가 필터,
+runtime private env의 정확한 `0600` 권한, AI canonical block 보존은 기존 strict audit에서
+production code와 회귀 테스트로 닫혔다. 최신 closure는 768px portrait list-first sheet,
+상세 close/reopen, onboarding blocker의 정확한 settings section 이동, 모든 후보 카드의
+근거·말투, 상세 source/context/author/time badge, 비동기 busy guard 해제, E2E API child
+종료/CORS 격리를 추가했다. 따라서 이 문서는 과거 `c64f7d1` 또는 `74a309b` 기준이 아니라
+code head `b4c0c76` 기준으로 읽어야 한다.
 
 GitHub 저장소 visibility는 `PUBLIC`으로 확인했다. 로컬 수치는 실행 가능한 CI-equivalent
 evidence로만 기록하고, 최종 판정은 GitHub runner 결과를 따른다. public 전환 후 run
-`31259954396`에서 로컬 환경에서 설치하지 못했던 browser/system dependency도 포함해 전체
-required job이 성공했다. 이어진 plan-only head의 run `31260134575`는 첫 시도에서 packaged
-System E2E가 API 포트 재사용 race로 실패했지만, GitHub의 실패 job 공식 rerun에서 System E2E와
-Quality gate를 포함한 10개 required job이 모두 다시 성공했다. 현재 PR checks가 보여 주는 결과를
-최종 기준으로 삼는다.
+`31259954396`과 plan-only 검증 기록은 historical snapshot으로 보존한다. 최신 code head
+`b4c0c76`의 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)는
+public runner에서 Commit convention, Python, Client, TypeScript, System E2E, Automation browser,
+Linux/Windows/macOS launcher, Quality gate를 포함한 10개 required job을 모두 성공시켰다. 현재
+PR checks가 보여 주는 결과를 최종 기준으로 삼는다.
 
 ## 1. 범위 잠금과 완료 선언 규칙
 
@@ -67,7 +71,7 @@ Quality gate를 포함한 10개 required job이 모두 다시 성공했다. 현�
 | DONE-03 | ✅ 완료 — canonical block/working copy/충돌 처리가 기존 초안을 훼손하지 않는다. | `0020 → 0021 → 0020 → 0021` migration fixture, API 409 conflict, editor autosave DOM |
 | DONE-04 | 🟡 외부 opt-in 대기 — 지원 block을 요청 순서대로 trusted input으로 넣고 결과 구조를 읽는 adapter contract와 fail-closed 경로는 완료했다. | mock/local sequence·negative matrix 통과; 실제 로그인된 Naver editor smoke만 계정 prerequisite로 남음 |
 | DONE-05 | ✅ 완료 — runtime secret의 영속 저장은 write-only private env로 제한되고 restart guard가 적용을 제어한다. 프로세스 실행 중 환경 변수 사용은 API/DB/브라우저 저장과 구분한다. | redaction/permission/parent-mode/symlink/duplicate/pair/restart/data export test 및 생성 artifact audit |
-| DONE-06 | ✅ 완료 — client·extension·Python 품질 게이트와 secret/viewport 검증이 로컬 및 public GitHub Actions에서 통과했다. | Python 89.99%, client/extension 각 80% 이상, E2E 5 passed, run `31259954396`의 10개 required job success |
+| DONE-06 | ✅ 완료 — client·extension·Python 품질 게이트와 secret/viewport 검증이 로컬 및 public GitHub Actions에서 통과했다. | Python 90.01% (`1468 passed`), client 636 tests, extension 368 tests, E2E 5 passed, [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)의 10개 required job success |
 | DONE-07 | ✅ 완료 — 두 review-ready 변경 단위의 커밋 경계와 설명을 이 문서에 기록했다. | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), 각 PR의 검증/제한/커밋 경계 |
 
 `DONE-04`의 live smoke는 실제 네이버 계정 조작을 기본 test에 넣는다는 뜻이 아니다. mock
@@ -109,7 +113,7 @@ local/mock 검증은 완료했지만 실제 Naver 계정 또는 운영 launcher�
 | structured staging | unique capability probe, fail-closed `StagePost`, semantic prefix evidence, opt-in harness | 외부 대기 | mock/local trusted input과 negative matrix 통과; 실제 Naver signature smoke는 계정 필요 |
 | runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests, desktop data API/UI, supervisor | 완료 | write-only/atomic/private file·0700 parent/symlink/owner/pair/restart/export/reset 검증 및 settings/data E2E 통과; parent 경로 보강은 `2a8db50` |
 | schedule/budget advanced settings | settings controller/view and app setting routes | 완료 | advanced disclosure, persistence/validation, paired restriction 테스트 통과 |
-| quality gates | targeted suites, full Python/client/extension, viewport E2E, artifact checks | 완료 / GitHub green | Python 1468/8 skip, client 634, extension 368, E2E 5, 로컬 명령 exit 0 및 run `31259954396`의 모든 required job success |
+| quality gates | targeted suites, full Python/client/extension, viewport E2E, artifact checks | 완료 / GitHub green | Python 1468/8 skip, client 636, extension 368, E2E 5, 로컬 명령 exit 0 및 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)의 모든 required job success |
 
 현재 branch의 각 기능 단위는 Conventional Commit으로 분리되어 있다. PR 직전에는 `git diff`
 기반으로 각 단위에 속하지 않는 변경이 없는지 다시 확인하고, 이 문서의 quality gate 증거를 PR
@@ -190,7 +194,7 @@ local/mock 검증은 완료했지만 실제 Naver 계정 또는 운영 launcher�
 | --- | --- | --- | --- |
 | A2-01 | `/api/v1/app/discovery/queue`에 source/state/query/cursor/limit과 items/counts/next_cursor를 유지한다. | 완료 | `test_local_api.py` cursor/query/count/legacy regression과 client parser test |
 | A2-02 | skipped search post는 saved search 삭제 후에도 SPA queue에서 조회·복구된다. | 완료 | orphaned skipped API test와 E2E `보류됨 → 다시 대기` journey |
-| A2-03 | segment/filter/sort/search/cursor/badge와 list+detail/sheet를 구현한다. | 완료 | Today state/controller/view test와 세 viewport overflow/grid assertion |
+| A2-03 | segment/filter/sort/search/cursor/badge와 list+detail/sheet를 구현한다. 768px portrait는 list-first로 시작하고 row 선택 시 dismissible detail sheet를 열며 close/reopen으로 선택 상태를 보존한다. | 완료 | Today state/controller/view test와 세 viewport overflow/grid assertion, portrait sheet close/reopen E2E |
 | A2-04 | comment panel은 workbench state를 보존하고 live character/limit/executable state를 보여 준다. | 완료 | comment DOM journey, close/back state, live count/limit test |
 | A2-05 | `Recommendation.version`을 API response parser/fixture/request에서 제거한다. | 완료 | OpenAPI parity parser가 `version` extra를 거부하고 personalization/timestamp fields를 검증 |
 
@@ -360,7 +364,7 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
 | PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) · head `5f3a2b1` | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract, `5f3a2b1` legacy hash 별칭 | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
-| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, code head `74a309b` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, strict audit follow-up 6개 커밋 | 실제 Naver 계정 호출은 기본 skip | public 전환 후 run `31259954396`에서 10개 required job과 aggregate Quality gate가 모두 success |
+| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, code head `b4c0c76` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, strict audit와 최신 closure 7개 추가 커밋 | 실제 Naver 계정 호출은 기본 skip | public 전환 후 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)에서 10개 required job과 aggregate Quality gate가 모두 success |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
 명령의 최종 summary, 외부 opt-in 제한을 그대로 복사한다. Plan 문서는 PR 2에서 최종 실행 기록과
@@ -408,7 +412,8 @@ PR URL을 갱신한다.
 
 ## 10. 검증 기록
 
-기록은 실제 최종 output만 적는다. `통과`는 해당 scope의 required gate를 모두 만족했다는 뜻이 아니라,
+기록은 실제 output과 실행 head를 함께 적는다. 과거 실행은 `historical snapshot`으로 명시해
+현재 기준과 섞지 않는다. `통과`는 해당 scope의 required gate를 모두 만족했다는 뜻이 아니라,
 표에 적힌 명령 하나가 통과했다는 뜻이다.
 
 | 날짜 | 범위 | 결과 | 직접 증거 / 제한 |
@@ -433,19 +438,20 @@ PR URL을 갱신한다.
 | 2026-08-08 | Client final quality gate (PR 1 merge 후) | 통과 | `npm --prefix client run check`: 628 tests, statements 90.57%, branches 80.69%, functions 81.50%, lines 92.67%; build 포함, exit 0. Biome의 기존 `document.cookie` 2 warning만 남음. |
 | 2026-08-08 | Extension final quality gate | 통과 | `npm --prefix extension run check`: 37 files/368 tests, statements 86.07%, branches 80.18%, functions 93.18%, lines 89.38%; build 포함, exit 0. |
 | 2026-08-08 | Python static final gate | 통과 | `uv run ruff format --check .`, `uv run ruff check .`, `uv run ty check` 각 exit 0; 235 files checked. |
-| 2026-08-08 | Python full final gate | 통과 | `timeout 1200 uv run pytest -vv`: `1462 passed, 8 skipped, 8 warnings in 420.56s`; total coverage 90.06% (branch requirement 85%). skips는 Playwright binary 4, Naver live 1, OpenAI live 3. |
+| 2026-08-08 | Python full final gate (historical snapshot) | 통과 | 이전 code head의 `timeout 1200 uv run pytest -vv`: `1462 passed, 8 skipped, 8 warnings in 420.56s`; total coverage 90.06% (branch requirement 85%). 이후 최신 closure에서 1468 passed/90.01%로 재실행했다. |
 | 2026-08-08 | Recommendation contract parity | 통과 | client comment API/run/state/view targeted 83 tests; OpenAPI에 없는 `version` field를 fixture가 보내면 parser가 안정적으로 거부. |
 | 2026-08-08 | Naver staging smoke harness | 기본 skip | `uv run pytest --no-cov -q tests/live/test_naver_staging_smoke.py`: 1 skipped. 실제 계정/profile 없이는 실행하지 않으며, 실행 명령과 no-publish 정책을 local operations에 기록. |
-| 2026-08-08 | Web app journey E2E | 통과 | `npm --prefix extension run test:e2e`: 5 passed (desktop 1440, tablet portrait 768, landscape 1024 각각 Chromium + legacy workflow); writing autosave/preview, skipped restore, settings redaction, export/reset, PWA no-API-cache assertion 포함. |
+| 2026-08-08 | Web app journey E2E | 통과 | `npm --prefix extension run test:e2e`: 최신 실행 `5 passed (2.3m)` (desktop 1440, tablet portrait 768, landscape 1024 각각 Chromium + legacy workflow); writing autosave/preview, skipped restore, settings redaction, export/reset, PWA no-API-cache assertion 포함. |
 | 2026-08-08 | Secret/artifact audit | 통과 | runtime API/DOM/log/export tests가 plaintext secret을 거부하고, E2E는 synthetic credentials만 사용하며 screenshot artifact를 생성하지 않는다. generated `client/dist`/`extension/dist`와 Playwright temp output에 secret pattern 없음. |
 | 2026-08-08 | Runtime path hardening | 통과 | `test_runtime_configuration.py` + `test_runtime_data.py`: 15 passed. private env parent `0700`, owner check, database/media symlink parent rejection을 추가한 `2a8db50`을 검증했다. |
-| 2026-08-08 | Strict audit follow-up | 통과 | `f2018cb`, `75afdbf`, `30f2de2`, `9f4de45`, `ef55f67`, `74a309b`로 comment/workbench 즉시 상태, queue cursor·완료 필터, 정확한 `0600`, canonical AI block, Unicode 한도와 UI state를 보강했다. 신규 회귀 테스트를 포함한 Python 1468 passed와 client 634 passed에 반영됐다. |
-| 2026-08-08 | Python full CI-equivalent gate (latest) | 통과 | `uv run pytest -vv`: `1468 passed, 8 skipped, 8 warnings in 494.27s`; total coverage 89.99%. skip은 Playwright browser binary 4, Naver live 1, OpenAI live 3이다. |
-| 2026-08-08 | Client full CI-equivalent gate (latest) | 통과 | `npm --prefix client run check`: 26 files/634 tests, statements 90.63%, branches 81.10%, functions 81.53%, lines 92.69%; build 포함, exit 0. 기존 Biome warning 3건만 남았다. |
+| 2026-08-08 | Strict audit follow-up | 통과 | `f2018cb`, `75afdbf`, `30f2de2`, `9f4de45`, `ef55f67`, `74a309b`로 comment/workbench 즉시 상태, queue cursor·완료 필터, 정확한 `0600`, canonical AI block, Unicode 한도와 UI state를 보강했다. |
+| 2026-08-08 | UX closure follow-up | 통과 | `cfc4a1d`, `35e7594`, `27621ec`, `b795bb9`, `e70a4d2`, `0784870`, `b4c0c76`로 768px list-first sheet와 close/reopen, onboarding 설정 deep-link, 후보 카드 근거·말투, 상세 badge, async busy guard, E2E process/CORS 격리를 닫았다. 관련 client/E2E 회귀 테스트를 포함한다. |
+| 2026-08-08 | Python full CI-equivalent gate (latest) | 통과 | `uv run pytest -vv`: `1468 passed, 8 skipped, 8 warnings in 475.69s`; total coverage 90.01%. skip은 Playwright browser binary 4, Naver live 1, OpenAI live 3이다. |
+| 2026-08-08 | Client full CI-equivalent gate (latest) | 통과 | `npm --prefix client run check`: 26 files/636 tests, statements 90.63%, branches 81.02%, functions 81.56%, lines 92.67%; build 포함, exit 0. Biome warning 3건은 기존 descending-specificity/document.cookie 경고이며 실패가 아니다. |
 | 2026-08-08 | Extension full CI-equivalent gate (latest) | 통과 | `npm --prefix extension run check`: 37 files/368 tests, statements 86.07%, branches 80.18%, functions 93.18%, lines 89.38%; build 포함, exit 0. |
 | 2026-08-08 | Cross-package static/boundary/artifact gate | 통과 | Ruff/format/ty, commit convention, extension boundary, non-empty page bundle, launcher invalid-ID smoke가 모두 exit 0이다. |
-| 2026-08-08 | GitHub Actions final gate | 통과 | 저장소 `PUBLIC` 확인 후 PR 2 head `29def06`을 run `31259954396`에서 실행했다. Commit convention, Python, Client, TypeScript, System E2E, Automation browser, Linux/Windows/macOS launcher, Quality gate 10개가 모두 success였다. |
-| 2026-08-08 | GitHub Actions plan-sync rerun | 통과 | plan-only head `b456759`의 run `31260134575`에서 첫 System E2E 시도는 API port lifecycle race로 실패했으나, 실패 job rerun 후 System E2E `93110122762`와 Quality gate `93110387845`를 포함한 required 10개가 모두 success였다. 현재 `gh pr checks 91`도 전부 pass다. |
+| 2026-08-08 | GitHub Actions code acceptance gate | 통과 | 저장소 `PUBLIC` 확인 후 PR 2 code head `b4c0c76`을 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)에서 실행했다. Commit convention(`93114681448`), Python(`93114681435`), Client(`93114681412`), TypeScript(`93114681454`), System E2E(`93114681425`), Automation browser(`93114681428`), Linux(`93114681426`)/Windows(`93114681433`)/macOS(`93114681443`) launcher, Quality gate(`93114994123`) 10개가 모두 success였다. |
+| 2026-08-08 | GitHub Actions plan-sync rerun (historical snapshot) | 통과 | plan-only head `b456759`의 run `31260134575`에서 첫 System E2E 시도는 API port lifecycle race로 실패했으나, 실패 job rerun 후 required 10개가 모두 success였다. 이후 code head `b4c0c76`에서 최신 acceptance run `31262210039`로 다시 검증했다. |
 | 2026-08-08 | PR 2 aggregate Quality gate | 외부 blocker | run `31258132421`에서 Python·Client·TypeScript·System E2E·Automation browser·Linux/Windows/macOS launcher·Commit convention은 통과. `Quality gate` job은 runner/step/log 없이 시작되지 않았고 annotation이 GitHub account payment failure 또는 spending limit 초과를 명시했다. Billing 해결 전에는 code failure로 분류하지 않는다. |
 | 2026-08-08 | PR 2 CI account-blocked run snapshot | 외부 blocker | runs `31258384895`와 `31258503358`의 모든 job이 runner/step 없이 동일한 GitHub account payment failure 또는 spending limit annotation으로 종료했다. local gate와 run `31258132421`의 실제 code 결과는 유효하며, 계정 상태 복구 후 전체 run을 재실행해야 한다. |
 
@@ -466,18 +472,18 @@ PR URL을 갱신한다.
 
 | 항목 | 현재 값 | 판정 기준 |
 | --- | --- | --- |
-| implementation head | `74a309b` (`fix(client): 댓글 글자수 기준을 일치시킨다`) | strict audit follow-up 6개 커밋까지 포함한 code head. 계획 문서 갱신 커밋은 별도 docs 단위다. |
+| implementation head | `b4c0c76` (`test(e2e): 태블릿 sheet 전환을 검증한다`) | strict audit와 UX closure follow-up까지 포함한 code head. 이 계획 문서 갱신 커밋은 별도 docs 단위다. |
 | PR 1 | [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), `feature/webapp-workbench` → `main`, head `5f3a2b1`, review-ready | PR 1 범위의 required checks가 green이면 A 단위 수용 |
-| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, code head `74a309b`, review-ready / CI green | 저장소가 `PUBLIC`으로 확인됐고 plan-sync run `31260134575`의 공식 failed-job rerun에서 10개 required checks가 모두 success, merge state는 `CLEAN`이다. |
-| local Python | `1468 passed, 8 skipped`, coverage 89.99% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
-| local client/extension | client 634, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
+| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, code head `b4c0c76`, review-ready / CI green | 저장소가 `PUBLIC`으로 확인됐고 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)에서 10개 required checks가 모두 success, merge state는 `CLEAN`이다. |
+| local Python | `1468 passed, 8 skipped`, coverage 90.01% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
+| local client/extension | client 636, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
 | 외부 live | Naver staging smoke 1 skipped | `RUN_LIVE_NAVER=1`과 dedicated logged-in profile 없이는 실행하지 않음 |
-| merge 전 남은 일 | reviewer 승인, 실제 Naver smoke opt-in, merge/release handoff | PR 2 required checks는 run `31260134575` failed-job rerun에서 green이며, 남은 항목은 외부 계정·review/운영 handoff다. |
+| merge 전 남은 일 | reviewer 승인, 실제 Naver smoke opt-in, merge/release handoff | PR 2 required checks는 [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039)에서 green이며, 남은 항목은 외부 계정·review/운영 handoff다. |
 
-문서 변경 이후의 커밋은 이 표의 implementation head를 갱신해야 한다. CI가 재실행 중일 때는
-`완료`로 미리 기록하지 않고 `재실행 중`으로 둔다. run `31259954396`에서 `gh pr checks 91`의
-모든 required job이 `pass`가 되었으므로 현재 상태를 `CI green`으로 기록한다. GitHub public
-repository runner 결과가 로컬 결과보다 우선한다.
+문서 변경 이후의 커밋은 이 표의 implementation head와 해당 Actions run을 갱신해야 한다. CI가
+재실행 중일 때는 `완료`로 미리 기록하지 않고 `재실행 중`으로 둔다. code head `b4c0c76`의
+run `31262210039`에서 `gh pr checks 91`의 모든 required job이 `pass`가 되었으므로 현재
+상태를 `CI green`으로 기록한다. GitHub public repository runner 결과가 로컬 결과보다 우선한다.
 
 ## 13. 요구사항-코드-검증 traceability matrix
 
@@ -508,6 +514,25 @@ repository runner 결과가 로컬 결과보다 우선한다.
 4. 화면 route를 바꾸면 `main.test.ts`, direct hash route, legacy alias, 768/1024 E2E를 함께 확인한다.
 5. secret 또는 filesystem 경계를 바꾸면 response body·DOM·log·archive·symlink·permission test를
    동시에 실행한다.
+
+### 13.2 2026-08-08 UX closure ledger
+
+직전 audit 이후 발견된 누락을 “구현했다”는 서술만으로 닫지 않고, production boundary·회귀
+검증·Actions gate를 한 행에 묶어 기록한다. 아래 행은 모두 `b4c0c76` code head에 존재하며,
+외부 Naver live smoke만 별도 opt-in 잔여 조건이다.
+
+| ID | 닫힌 요구사항 | production boundary | 직접 검증 | 상태 |
+| --- | --- | --- | --- | --- |
+| CL-01 | 768px portrait는 목록을 먼저 보여 주고, row 선택 때만 dismissible detail sheet를 연다. close/reopen 후 선택 글과 목록 context를 보존한다. | `client/src/app/state/today.ts`, `controllers/today.ts`, `views/today.ts`, `public/app.css` | `today-state.test.ts`, `today-view.test.ts`, `webapp.e2e.ts` portrait | 완료 |
+| CL-02 | 홈 준비 카드의 AI·내 블로그·동의·안전 blocker가 정확한 설정 section으로 이동하고, settings hash deep-link가 section을 유지한다. | `client/src/app/views/today.ts`, `controllers/settings.ts`, `app/main.ts` | `today-view.test.ts`, `main.test.ts`, client full check | 완료 |
+| CL-03 | 댓글 후보 **모든 카드**가 comment·tone·evidence(근거)를 노출하고, 선택 전에도 후보 간 근거를 비교할 수 있다. | `client/src/app/views/comment.ts`, `public/app.css` | `comment-view.test.ts`, Client quality, TypeScript quality | 완료 |
+| CL-04 | 작업함 상세가 source, context/search, author, published time을 badge로 표시한다. | `client/src/app/views/today.ts`, `public/app.css` | `today-view.test.ts`, desktop/portrait/landscape E2E | 완료 |
+| CL-05 | load/open/state/restore 같은 async queue action이 끝난 뒤 busy guard와 DOM을 다시 해제해 다음 사용자 action을 삼키지 않는다. | `client/src/app/controllers/today.ts` | controller tests, skipped restore E2E, System E2E | 완료 |
+| CL-06 | packaged E2E가 API child process group을 완전히 종료하고 extension CORS origin을 readiness에서 확인해 stale API 재사용을 막는다. | `extension/tests/e2e/webapp.e2e.ts`, `workflow.e2e.ts` | local `5 passed`, GitHub System E2E/Automation browser | 완료 |
+| CL-07 | 지원 block별 structured staging은 local/mock에서 fail-closed이며 실제 Naver editor smoke는 계정 없이는 성공으로 가장하지 않는다. | `stage_post.py`, page editor probe, live harness | Python full suite, `tests/live/test_naver_staging_smoke.py` 1 skipped | 외부 opt-in 대기 |
+
+이 ledger에 없는 “숨은 완료 조건”은 현재 없다. 새 요구를 추가할 때는 먼저 CL 또는 DONE ID,
+production boundary, 직접 검증, 외부 조건을 이 표에 추가하고 기능 커밋과 문서 커밋을 분리한다.
 
 ## 14. API와 상태 전이의 실행 계약
 
@@ -719,6 +744,13 @@ history의 review 순서이며, 후속 base sync 커밋은 PR 1의 기능 내용
 | 26 | `9f4de45` | AI 생성 결과의 canonical block 보존 |
 | 27 | `ef55f67` | workbench queue 상태 필터를 API 계약과 일치 |
 | 28 | `74a309b` | Unicode 댓글 글자수와 실행 가능 상태 일치 |
+| 29 | `cfc4a1d` | 작업함 상세 sheet와 onboarding 설정 section deep-link |
+| 30 | `35e7594` | 댓글 후보 카드별 근거·말투 표시 |
+| 31 | `27621ec` | E2E API 종료 경계와 CORS 격리 |
+| 32 | `b795bb9` | 태블릿 list-first 상태와 작업 경계 해제 |
+| 33 | `e70a4d2` | async 작업 완료 뒤 UI busy guard 해제 |
+| 34 | `0784870` | uv wrapper까지 포함한 E2E child process 종료 |
+| 35 | `b4c0c76` | 태블릿 sheet 전환·close/reopen E2E 검증 |
 
 Review는 PR 1에서 A 범위가 독립적으로 이해되는지 먼저 확인하고, PR 2에서 B 범위와 base sync를
 확인한다. PR 2의 `3e18dbc`와 같은 base sync는 PR 1이 merge되면 자동으로 사라질 수 있지만,
@@ -738,11 +770,13 @@ stacked PR을 review하는 동안에는 PR 1의 최신 contract가 PR 2에 반�
 - [x] desktop loopback restriction, paired tablet redaction, restart busy/unavailable guard, supervisor
 - [x] app-owned data metadata/export/reset/backup, stale setting migration `0022`
 - [x] OpenAPI/Pydantic/client parser/fixture parity, README/Getting Started/Local Operations update
+- [x] 768px list-first sheet close/reopen, exact onboarding settings deep-links, every candidate card evidence, detail badges, async busy release
+- [x] packaged E2E child-process/CORS isolation and 5-test desktop/tablet/workflow journey
 
 ### 아직 완료로 표시하지 않는 것
 
 - [ ] 실제 Naver editor에서 documented signature로 block별 trusted input을 실행한 live smoke
-- [x] public 저장소의 PR 2 head에서 GitHub Actions required checks가 실제로 green인 상태 — run `31260134575` failed-job rerun 포함
+- [x] public 저장소의 PR 2 code head `b4c0c76`에서 GitHub Actions required checks가 실제로 green인 상태 — [run `31262210039`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31262210039), 10/10 success
 - [ ] reviewer가 PR 1/PR 2를 승인하고 merge한 상태
 - [ ] merge 후 main 기준으로 release/launcher 운영자가 private env 위치와 backup 정책을 확인한 상태
 
