@@ -343,7 +343,7 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
 | PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) · head `5f3a2b1` | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract, `5f3a2b1` legacy hash 별칭 | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
-| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, implementation head `2a8db50` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, `2a8db50` 보호 경로 보강 | 실제 Naver 계정 호출은 기본 skip | 상태 snapshot의 run `31258132421`에서는 개별 code/runner job 통과. 뒤이은 run `31258384895`는 모든 job이 runner 없이 account payment/spending-limit 오류로 종료 |
+| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, implementation head `2a8db50` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, `2a8db50` 보호 경로 보강 | 실제 Naver 계정 호출은 기본 skip | 상태 snapshot의 run `31258132421`에서는 개별 code/runner job 통과. 뒤이은 run `31258384895`, 문서 상태 push 후 run `31258503358`은 모두 runner 없이 account payment/spending-limit 오류로 종료 |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
 명령의 최종 summary, 외부 opt-in 제한을 그대로 복사한다. Plan 문서는 PR 2에서 최종 실행 기록과
@@ -423,7 +423,7 @@ PR URL을 갱신한다.
 | 2026-08-08 | Secret/artifact audit | 통과 | runtime API/DOM/log/export tests가 plaintext secret을 거부하고, E2E는 synthetic credentials만 사용하며 screenshot artifact를 생성하지 않는다. generated `client/dist`/`extension/dist`와 Playwright temp output에 secret pattern 없음. |
 | 2026-08-08 | Runtime path hardening | 통과 | `test_runtime_configuration.py` + `test_runtime_data.py`: 15 passed. private env parent `0700`, owner check, database/media symlink parent rejection을 추가한 `2a8db50`을 검증했다. |
 | 2026-08-08 | PR 2 aggregate Quality gate | 외부 blocker | run `31258132421`에서 Python·Client·TypeScript·System E2E·Automation browser·Linux/Windows/macOS launcher·Commit convention은 통과. `Quality gate` job은 runner/step/log 없이 시작되지 않았고 annotation이 GitHub account payment failure 또는 spending limit 초과를 명시했다. Billing 해결 전에는 code failure로 분류하지 않는다. |
-| 2026-08-08 | PR 2 latest CI run | 외부 blocker | run `31258384895`의 모든 job이 runner/step 없이 동일한 GitHub account payment failure 또는 spending limit annotation으로 종료했다. local gate와 이전 run의 실제 code 결과는 유효하며, 계정 상태 복구 후 전체 run을 재실행해야 한다. |
+| 2026-08-08 | PR 2 CI account-blocked run snapshot | 외부 blocker | runs `31258384895`와 `31258503358`의 모든 job이 runner/step 없이 동일한 GitHub account payment failure 또는 spending limit annotation으로 종료했다. local gate와 run `31258132421`의 실제 code 결과는 유효하며, 계정 상태 복구 후 전체 run을 재실행해야 한다. |
 
 ## 11. 문서 완료 checklist
 
@@ -444,7 +444,7 @@ PR URL을 갱신한다.
 | --- | --- | --- |
 | implementation head | `2a8db50` (`fix(runtime): 보호 경로의 부모 권한과 symlink를 검증한다`) | runtime file parent `0700`/owner와 database·media symlink parent 거부까지 포함 |
 | PR 1 | [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), `feature/webapp-workbench` → `main`, head `5f3a2b1`, review-ready | PR 1 범위의 required checks가 green이면 A 단위 수용 |
-| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, implementation head `2a8db50`, review-ready | 상태 snapshot의 run `31258132421`에서는 개별 code/runner job이 통과했고 aggregate Quality gate만 결제 blocker. 뒤이은 run `31258384895`는 모든 job이 runner 없이 같은 account payment/spending-limit 오류로 종료하여 billing 해결 후 전체 run 재실행 필요 |
+| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, implementation head `2a8db50`, review-ready | 상태 snapshot의 run `31258132421`에서는 개별 code/runner job이 통과했고 aggregate Quality gate만 결제 blocker. 뒤이은 `31258384895`와 `31258503358`은 모든 job이 runner 없이 같은 account payment/spending-limit 오류로 종료하여 billing 해결 후 전체 run 재실행 필요 |
 | local Python | `1462 passed, 8 skipped`, coverage 90.06% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
 | local client/extension | client 628, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
 | 외부 live | Naver staging smoke 1 skipped | `RUN_LIVE_NAVER=1`과 dedicated logged-in profile 없이는 실행하지 않음 |
