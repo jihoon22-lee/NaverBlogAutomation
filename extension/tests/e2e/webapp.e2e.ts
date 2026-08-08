@@ -82,6 +82,13 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
       await expect(page.locator("#skip-post-button")).toBeVisible();
+      if (viewport.name === "tablet portrait") {
+        await expect(page.locator("#close-detail-sheet")).toBeVisible();
+        await page.locator("#close-detail-sheet").click();
+        await expect(page.locator(".detail-panel")).toBeHidden();
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator(".detail-panel")).toBeVisible();
+      }
       await page.locator("#skip-post-button").click();
       await expect(page.locator("#skip-post-button")).toHaveText("다시 대기");
       await page.locator('[data-segment="skipped"]').click();
@@ -280,12 +287,14 @@ async function startApi(): Promise<RunningApi> {
     await waitForHealth(apiProcess, () => output);
   } catch (error) {
     await terminate(apiProcess);
+    await waitForPortClosed();
     await rm(directory, { force: true, recursive: true });
     throw error;
   }
   return {
     async dispose(): Promise<void> {
       await terminate(apiProcess);
+      await waitForPortClosed();
       await rm(directory, { force: true, recursive: true });
     },
   };
@@ -341,6 +350,20 @@ async function terminate(apiProcess: ApiProcess): Promise<void> {
       await new Promise<void>((resolve) => apiProcess.once("exit", () => resolve()));
     }
   }
+}
+
+/** Avoid handing the next E2E case a still-listening child after its process has exited. */
+async function waitForPortClosed(): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(250) });
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Local API port 8765 remained open after the E2E child exited.");
 }
 
 function signalProcessGroup(apiProcess: ApiProcess, signal: NodeJS.Signals): void {

@@ -551,15 +551,17 @@ async function startApi(extensionOrigin: string): Promise<RunningApi> {
     output = boundedOutput(output, chunk.toString());
   });
   try {
-    await waitForHealth(apiProcess, () => output);
+    await waitForHealth(apiProcess, () => output, extensionOrigin);
   } catch (error) {
     await terminate(apiProcess);
+    await waitForPortClosed();
     await rm(directory, { force: true, recursive: true });
     throw error;
   }
   return {
     async dispose(): Promise<void> {
       await terminate(apiProcess);
+      await waitForPortClosed();
       await rm(directory, { force: true, recursive: true });
     },
   };
@@ -586,15 +588,26 @@ function safeApiEnvironment(extensionOrigin: string, databasePath: string): Node
   };
 }
 
-async function waitForHealth(apiProcess: ApiProcess, output: () => string): Promise<void> {
+async function waitForHealth(
+  apiProcess: ApiProcess,
+  output: () => string,
+  extensionOrigin: string,
+): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (apiProcess.exitCode !== null) {
       throw new Error(`Local API exited before health check passed.\n${output()}`);
     }
     try {
-      const response = await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(500) });
-      if (response.status === 200 && (await response.text()) === '{"status":"ok"}') {
+      const response = await fetch(`${apiOrigin}/health`, {
+        headers: { Origin: extensionOrigin },
+        signal: AbortSignal.timeout(500),
+      });
+      if (
+        response.status === 200 &&
+        (await response.text()) === '{"status":"ok"}' &&
+        response.headers.get("access-control-allow-origin") === extensionOrigin
+      ) {
         return;
       }
     } catch {
@@ -620,6 +633,20 @@ async function terminate(apiProcess: ApiProcess): Promise<void> {
       await new Promise<void>((resolve) => apiProcess.once("exit", () => resolve()));
     }
   }
+}
+
+/** Avoid handing the next E2E case a still-listening child after its process has exited. */
+async function waitForPortClosed(): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(250) });
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Local API port 8765 remained open after the E2E child exited.");
 }
 
 function signalProcessGroup(apiProcess: ApiProcess, signal: NodeJS.Signals): void {
