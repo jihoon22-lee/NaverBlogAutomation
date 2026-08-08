@@ -236,6 +236,22 @@ describe("load", () => {
     expect(controller.state.phase).toBe("ready");
   });
 
+  it("disables detail actions while the queue is refreshing", async () => {
+    const root = mountRoot();
+    const state = {
+      ...initialTodayState(),
+      phase: "loading" as const,
+      posts: [post("1")],
+      selectedPostId: "1",
+      session: READY_SESSION,
+    };
+
+    renderToday(root, state, handlers());
+
+    expect((document.getElementById("open-post-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById("skip-post-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("offers every API-supported queue state in the status filter", async () => {
     const controller = new TodayController(mountRoot(), { api: api() as never });
 

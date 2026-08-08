@@ -638,7 +638,7 @@ function renderDetail(
   const open = button(document, "open-post-button", "이 글 처리하기", () =>
     handlers.onOpenPost(post.id),
   );
-  open.disabled = !canOpenSelected(state);
+  open.disabled = state.phase === "loading" || !canOpenSelected(state);
   section.append(open);
 
   const stateAction = button(
@@ -647,6 +647,10 @@ function renderDetail(
     post.state === "skipped" ? "다시 대기" : "이 글 건너뛰기",
     () => handlers.onPostStateChange(post.id, post.state === "skipped" ? "queued" : "skipped"),
   );
+  // Queue filters/segments re-fetch the selected post asynchronously. Keep the action disabled
+  // while that refresh is in flight so a fast follow-up click cannot be silently discarded by the
+  // controller's request guard.
+  stateAction.disabled = state.phase === "loading";
   section.append(stateAction);
 
   if (open.disabled) {
