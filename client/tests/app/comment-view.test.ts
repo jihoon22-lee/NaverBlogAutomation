@@ -437,6 +437,30 @@ describe("candidate selection and editing", () => {
 
     expect(controller.state.draft).toBe("직접 다듬은 댓글");
   });
+
+  it("updates the live character count and approval state while typing", async () => {
+    const controller = new CommentController(root(), { api: api() as never });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+    await controller.generate();
+
+    const editor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    editor.value = "";
+    editor.dispatchEvent(new Event("input"));
+
+    expect(text(".draft-count")).toBe("0 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    const nextEditor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    nextEditor.value = "새 댓글";
+    nextEditor.dispatchEvent(new Event("input"));
+
+    expect(text(".draft-count")).toBe("4 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
 });
 
 describe("AI comment refinement", () => {

@@ -200,13 +200,34 @@ export function canContinueBatchPreflight(state: TodayState): boolean {
 }
 
 export function withPostState(state: TodayState, post: DiscoveryPost): TodayState {
+  const previous = state.posts.find((item) => item.id === post.id);
+  if (previous === undefined) return state;
+  const oldContribution = postCountContribution(previous);
+  const newContribution = postCountContribution(post);
   return {
     ...state,
+    counts: {
+      neighbor: state.counts.neighbor + newContribution.neighbor - oldContribution.neighbor,
+      search: state.counts.search + newContribution.search - oldContribution.search,
+      skipped: state.counts.skipped + newContribution.skipped - oldContribution.skipped,
+      total: state.counts.total + newContribution.total - oldContribution.total,
+    },
     posts: state.posts.map((item) =>
       item.id === post.id
         ? { ...post, sourceLabel: post.sourceLabel ?? item.sourceLabel ?? null }
         : item,
     ),
+  };
+}
+
+function postCountContribution(post: DiscoveryPost): TodayState["counts"] {
+  const tracked = post.state === "queued" || post.state === "opened" || post.state === "skipped";
+  if (!tracked) return { neighbor: 0, search: 0, skipped: 0, total: 0 };
+  return {
+    neighbor: post.source === "neighbor" && post.state !== "skipped" ? 1 : 0,
+    search: post.source === "search" && post.state !== "skipped" ? 1 : 0,
+    skipped: post.state === "skipped" ? 1 : 0,
+    total: 1,
   };
 }
 
