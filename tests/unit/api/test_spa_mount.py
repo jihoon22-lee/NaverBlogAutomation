@@ -22,6 +22,7 @@ def build_assets(root: Path) -> Path:
     directory.mkdir(parents=True)
     (directory / "index.html").write_text(INDEX, encoding="utf-8")
     (directory / "app.js").write_text("export const app = 1;\n", encoding="utf-8")
+    (directory / "service-worker.js").write_text("self.addEventListener('fetch', () => {});\n")
     return directory
 
 
@@ -61,6 +62,17 @@ def test_mounting_serves_the_bundle(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "export const app" in response.text
+
+
+def test_mounting_serves_the_static_service_worker(tmp_path: Path) -> None:
+    app = FastAPI()
+    register_app_mount(app, directory=build_assets(tmp_path))
+
+    with TestClient(app) as client:
+        response = client.get(f"{APP_MOUNT_PATH}/service-worker.js")
+
+    assert response.status_code == 200
+    assert "addEventListener" in response.text
 
 
 def test_an_unknown_asset_is_not_found(tmp_path: Path) -> None:

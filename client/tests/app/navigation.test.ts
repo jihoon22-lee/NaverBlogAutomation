@@ -8,7 +8,8 @@ function shell(): Document {
   document.body.innerHTML = `
     <header>
       <nav id="${NAV_ID}" aria-label="작업 화면">
-        <button type="button" data-section="today" aria-current="page">오늘의 작업</button>
+        <button type="button" data-section="home" aria-current="page">홈</button>
+        <button type="button" data-section="workbench">작업함</button>
         <button type="button" data-section="writing">글 작성</button>
         <button type="button" data-section="settings">설정</button>
       </nav>
@@ -34,9 +35,9 @@ describe("createNavigation", () => {
     createNavigation(document, { onSelect });
 
     tab("writing").click();
-    tab("today").click();
+    tab("home").click();
 
-    expect(onSelect.mock.calls).toEqual([["writing"], ["today"]]);
+    expect(onSelect.mock.calls).toEqual([["writing"], ["home"]]);
   });
 
   it("marks only the current section", () => {
@@ -45,16 +46,16 @@ describe("createNavigation", () => {
     navigation?.mark("writing");
 
     expect(tab("writing").getAttribute("aria-current")).toBe("page");
-    expect(tab("today").hasAttribute("aria-current")).toBe(false);
+    expect(tab("home").hasAttribute("aria-current")).toBe(false);
   });
 
   it("moves the mark back when the other section becomes current", () => {
     const navigation = createNavigation(document, { onSelect: vi.fn() });
     navigation?.mark("writing");
 
-    navigation?.mark("today");
+    navigation?.mark("home");
 
-    expect(tab("today").getAttribute("aria-current")).toBe("page");
+    expect(tab("home").getAttribute("aria-current")).toBe("page");
     expect(tab("writing").hasAttribute("aria-current")).toBe(false);
   });
 
@@ -75,15 +76,15 @@ describe("createNavigation", () => {
 
   it("tolerates a nav that is missing one button", () => {
     document.body.innerHTML = `<nav id="${NAV_ID}">
-      <button type="button" data-section="today"></button>
+      <button type="button" data-section="home"></button>
     </nav>`;
     const onSelect = vi.fn();
 
     const navigation = createNavigation(document, { onSelect });
     navigation?.mark("writing");
-    tab("today").click();
+    tab("home").click();
 
-    expect(onSelect.mock.calls).toEqual([["today"]]);
+    expect(onSelect.mock.calls).toEqual([["home"]]);
   });
 });
 

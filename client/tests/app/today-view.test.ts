@@ -5,6 +5,8 @@ import type {
   ArticleExtraction,
   BrowserSession,
   DiscoveryPost,
+  DiscoveryQueuePage,
+  SafetyStatus,
   ServiceStatus,
 } from "../../src/app/api/types";
 import { TodayController } from "../../src/app/controllers/today";
@@ -33,6 +35,21 @@ const STOPPED_SESSION: BrowserSession = {
   state: "stopped",
   login: "unknown",
   openPages: 0,
+};
+
+const SAFETY: SafetyStatus = {
+  localDate: "2026-08-08",
+  allowedNow: true,
+  blockingReason: null,
+  allowedHours: [9, 10, 11],
+  minIntervalSeconds: 30,
+  consecutiveFailures: 0,
+  maxConsecutiveFailures: 3,
+  actions: [
+    { name: "like", cap: 10, used: 4, remaining: 6 },
+    { name: "comment", cap: 8, used: 2, remaining: 6 },
+    { name: "mutual_neighbor", cap: 3, used: 0, remaining: 3 },
+  ],
 };
 
 const EXTRACTION: ArticleExtraction = {
@@ -68,6 +85,7 @@ function api(overrides: Record<string, unknown> = {}) {
     extractArticle: vi.fn(async () => EXTRACTION),
     focusBrowserSession: vi.fn(async () => READY_SESSION),
     launchBrowserSession: vi.fn(async () => READY_SESSION),
+    safetyStatus: vi.fn(async () => SAFETY),
     status: vi.fn(async () => SERVICE),
     ...overrides,
   };
@@ -97,13 +115,13 @@ describe("initial render", () => {
 });
 
 describe("load", () => {
-  it("renders the queue counts, list, and detail together", async () => {
+  it("renders the neighbor workbench segment with global queue counts and detail", async () => {
     const controller = new TodayController(mountRoot(), { api: api() as never });
 
     await controller.load();
 
     expect(text("#workspace-status")).toContain("대기 중인 글 2건");
-    expect(document.querySelectorAll(".queue-item")).toHaveLength(2);
+    expect(document.querySelectorAll(".queue-item")).toHaveLength(1);
     expect(text("#detail-title")).toBe("합성 제목 1");
     expect(controller.state.phase).toBe("ready");
   });
@@ -113,9 +131,8 @@ describe("load", () => {
 
     await controller.load();
 
-    const [first, second] = Array.from(document.querySelectorAll(".queue-item"));
+    const [first] = Array.from(document.querySelectorAll(".queue-item"));
     expect(first?.getAttribute("aria-pressed")).toBe("true");
-    expect(second?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("renders an empty queue message", async () => {
@@ -265,8 +282,9 @@ describe("selection and opening", () => {
     const controller = new TodayController(mountRoot(), { api: api() as never });
     await controller.load();
 
-    const [, second] = Array.from(document.querySelectorAll(".queue-item"));
-    (second as HTMLButtonElement).click();
+    await controller.setSegment("search");
+    const second = document.querySelector(".queue-item") as HTMLButtonElement;
+    second.click();
 
     expect(text("#detail-title")).toBe("합성 제목 2");
   });
@@ -279,6 +297,7 @@ describe("selection and opening", () => {
       onExtracted: (extraction) => extracted.push(extraction),
     });
     await controller.load();
+    await controller.setSegment("search");
 
     const result = await controller.openPost("2");
 
@@ -295,6 +314,7 @@ describe("selection and opening", () => {
       onDiscoveryPostOpened: opened,
     });
     await controller.load();
+    await controller.setSegment("search");
 
     await controller.openPost("2");
 
@@ -347,6 +367,152 @@ describe("selection and opening", () => {
 
     expect(result?.title).toBe("합성 제목");
     expect(client.extractArticle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("workbench queue controls", () => {
+  it("passes cursor, filters, and a search query to the paged queue API", async () => {
+    const page = vi.fn(async (options: { cursor?: string } = {}): Promise<DiscoveryQueuePage> => {
+      if (options.cursor === "next") {
+        return {
+          items: [post("3")],
+          counts: { neighbor: 2, search: 1, skipped: 0, total: 3 },
+          nextCursor: null,
+        };
+      }
+      return {
+        items: [post("1")],
+        counts: { neighbor: 2, search: 1, skipped: 0, total: 3 },
+        nextCursor: "next",
+      };
+    });
+    const controller = new TodayController(mountRoot(), {
+      api: api({
+        appReadiness: vi.fn(async () => ({
+          accessMode: "local",
+          automationConsent: true,
+          blockers: [],
+          browserLogin: "authenticated",
+          browserState: "ready",
+          generationAvailable: true,
+          lanAddresses: [],
+          ownBlogConfigured: true,
+          safetyPolicyConfigured: true,
+          webAppAssetsReady: true,
+        })),
+        discoveryQueuePage: page,
+      }) as never,
+    });
+    await controller.load();
+
+    await controller.setFilter("state", "queued");
+    await controller.setQuery("합성");
+    await controller.loadMore();
+
+    expect(page).toHaveBeenLastCalledWith({
+      source: "neighbor",
+      query: "합성",
+      state: "queued",
+      cursor: "next",
+    });
+    expect(controller.state.posts.map((item) => item.id)).toEqual(["1", "3"]);
+  });
+
+  it("uses the visible controls for segments, sorting, selection, batch, and skip recovery", async () => {
+    const change = vi.fn(async (_id: string, state: DiscoveryPost["state"]) => ({
+      ...post("1"),
+      state,
+    }));
+    const onBatchRequested = vi.fn();
+    const controller = new TodayController(mountRoot(), {
+      api: api({ updateDiscoveryPostState: change }) as never,
+      onBatchRequested,
+    });
+    await controller.load();
+
+    (document.querySelector("[data-segment='search']") as HTMLButtonElement).click();
+    await Promise.resolve();
+    (document.querySelector("[data-segment='neighbor']") as HTMLButtonElement).click();
+    await Promise.resolve();
+    (document.querySelector("#queue-sort") as HTMLSelectElement).value = "oldest";
+    document.querySelector("#queue-sort")?.dispatchEvent(new Event("change"));
+    (document.querySelector("#queue-batch-1") as HTMLInputElement).click();
+    (document.querySelector("#batch-step-mutual_neighbor") as HTMLButtonElement).click();
+    expect(text(".queue-batch-safety")).toContain(
+      "공감: 오늘 4/10회 사용 · 6회 남음 · 이번 승인 1회",
+    );
+    expect(text(".queue-batch-safety")).toContain("계산상 최소 소요 시간은 0초");
+    (document.querySelector("#open-batch-preview") as HTMLButtonElement).click();
+    await controller.changePostState("1", "skipped");
+    await controller.changePostState("1", "queued");
+
+    expect(controller.state.sort).toBe("oldest");
+    expect(onBatchRequested).toHaveBeenCalledWith({
+      approvedSteps: ["like", "comment", "mutual_neighbor"],
+      postIds: ["1"],
+    });
+    expect(change).toHaveBeenLastCalledWith("1", "queued");
+  });
+
+  it("does not continue a batch when the current safety cap cannot cover the selected scope", async () => {
+    const controller = new TodayController(mountRoot(), {
+      api: api({
+        safetyStatus: vi.fn(async () => ({
+          ...SAFETY,
+          actions: [
+            ...SAFETY.actions.filter((action) => action.name !== "comment"),
+            { name: "comment" as const, cap: 8, used: 8, remaining: 0 },
+          ],
+        })),
+      }) as never,
+    });
+    await controller.load();
+
+    (document.querySelector("#queue-batch-1") as HTMLInputElement).click();
+
+    expect(text(".queue-batch-safety")).toContain(
+      "댓글 등록: 오늘 8/8회 사용 · 0회 남음 · 이번 승인 1회",
+    );
+    expect((document.querySelector("#open-batch-preview") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("handles direct URLs, queue changes, and remote-pairing requirements without losing the view", async () => {
+    const direct = vi.fn();
+    const pairing = vi.fn();
+    const client = api();
+    const controller = new TodayController(mountRoot(), {
+      api: client as never,
+      onDirectUrlOpened: direct,
+      onRemotePairingRequired: pairing,
+    });
+    await controller.load();
+
+    expect(await controller.openDirectUrl(" ")).toBeNull();
+    expect(await controller.openDirectUrl(" https://blog.naver.com/direct ")).toBeNull();
+    expect(direct).toHaveBeenCalledWith("https://blog.naver.com/direct");
+
+    const paired = new TodayController(mountRoot(), {
+      api: api({
+        status: vi.fn(async () => {
+          throw new ApiError("pair", {
+            problem: {
+              code: "remote_pairing_required",
+              detail: "pair",
+              status: 401,
+              title: "Pairing required",
+            },
+            status: 401,
+          });
+        }),
+      }) as never,
+      onRemotePairingRequired: pairing,
+    });
+    await paired.load();
+
+    expect(pairing).toHaveBeenCalledTimes(1);
+    expect(client.extractArticle).not.toHaveBeenCalled();
   });
 });
 

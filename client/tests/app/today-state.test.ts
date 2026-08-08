@@ -1,16 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import type { BrowserSession, DiscoveryPost, ServiceStatus } from "../../src/app/api/types";
+import type {
+  BrowserSession,
+  DiscoveryPost,
+  SafetyStatus,
+  ServiceStatus,
+} from "../../src/app/api/types";
 import {
+  batchPreflight,
+  canContinueBatchPreflight,
   canOpenSelected,
   initialTodayState,
   queueCounts,
   selectedPost,
   startLoading,
   withFailure,
+  withFilters,
+  withApprovedStep,
   withLoaded,
+  withMorePosts,
+  withPostSelection,
+  withQuery,
   withSelection,
   withSession,
+  withSort,
+  visiblePosts,
 } from "../../src/app/state/today";
 
 const SERVICE: ServiceStatus = {
@@ -30,6 +44,21 @@ const SESSION: BrowserSession = {
   profileDir: "/profiles/automation",
   openPages: 1,
   detail: null,
+};
+
+const SAFETY: SafetyStatus = {
+  localDate: "2026-08-08",
+  allowedNow: true,
+  blockingReason: null,
+  allowedHours: [9, 10],
+  minIntervalSeconds: 45,
+  consecutiveFailures: 0,
+  maxConsecutiveFailures: 3,
+  actions: [
+    { name: "like", cap: 10, used: 2, remaining: 8 },
+    { name: "comment", cap: 4, used: 1, remaining: 3 },
+    { name: "mutual_neighbor", cap: 2, used: 0, remaining: 2 },
+  ],
 };
 
 function post(id: string, source: DiscoveryPost["source"] = "neighbor"): DiscoveryPost {
@@ -55,6 +84,7 @@ describe("initialTodayState", () => {
     expect(state.posts).toEqual([]);
     expect(state.selectedPostId).toBeNull();
     expect(state.error).toBeNull();
+    expect(state.sourceFilter).toBe("neighbor");
   });
 });
 
@@ -137,6 +167,23 @@ describe("withSelection", () => {
   });
 });
 
+describe("withMorePosts", () => {
+  it("appends a cursor page without duplicating an existing post", () => {
+    const first = withLoaded(initialTodayState(), {
+      posts: [post("1")],
+      nextCursor: "next",
+      service: SERVICE,
+      session: SESSION,
+    });
+
+    const merged = withMorePosts(first, { posts: [post("1"), post("2")], nextCursor: null });
+
+    expect(merged.posts.map((item) => item.id)).toEqual(["1", "2"]);
+    expect(merged.nextCursor).toBeNull();
+    expect(merged.selectedPostId).toBe("1");
+  });
+});
+
 describe("withSession", () => {
   it("replaces only the session", () => {
     const state = withLoaded(initialTodayState(), {
@@ -164,6 +211,69 @@ describe("queueCounts", () => {
 
   it("returns zeros for an empty queue", () => {
     expect(queueCounts([])).toEqual({ neighbor: 0, search: 0, total: 0 });
+  });
+});
+
+describe("workbench filters and batch selection", () => {
+  it("keeps batch pick order and removes only the toggled post", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [post("1"), post("2"), post("3")],
+      service: SERVICE,
+      session: SESSION,
+    });
+
+    const selected = withPostSelection(withPostSelection(loaded, "2"), "1");
+
+    expect(selected.selectedPostIds).toEqual(["2", "1"]);
+    expect(withPostSelection(selected, "2").selectedPostIds).toEqual(["1"]);
+  });
+
+  it("filters and sorts locally while a new cursor page is loading", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [
+        { ...post("old"), createdAt: "2026-07-01T00:00:00Z" },
+        { ...post("search", "search"), createdAt: "2026-07-31T00:00:00Z" },
+        { ...post("new"), createdAt: "2026-08-01T00:00:00Z", title: "찾는 글" },
+      ],
+      service: SERVICE,
+      session: SESSION,
+    });
+    const filtered = withQuery(withFilters(loaded, { source: "neighbor" }), "찾는");
+
+    expect(visiblePosts(filtered).map((item) => item.id)).toEqual(["new"]);
+    expect(visiblePosts(withSort(withQuery(loaded, ""), "oldest")).map((item) => item.id)).toEqual([
+      "old",
+      "new",
+    ]);
+  });
+
+  it("calculates a current per-step preflight and refuses a stale or exhausted safety scope", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [post("1"), post("2")],
+      safety: SAFETY,
+      service: SERVICE,
+      session: SESSION,
+    });
+    const selected = withPostSelection(withPostSelection(loaded, "2"), "1");
+    const expanded = withApprovedStep(selected, "mutual_neighbor");
+
+    expect(batchPreflight(expanded)).toEqual({
+      actionCounts: new Map([
+        ["like", 2],
+        ["comment", 2],
+        ["mutual_neighbor", 2],
+      ]),
+      minimumDurationSeconds: 45,
+      postCount: 2,
+    });
+    expect(canContinueBatchPreflight(expanded)).toBe(true);
+    expect(
+      canContinueBatchPreflight({
+        ...expanded,
+        safety: { ...SAFETY, actions: [{ name: "like", cap: 1, used: 1, remaining: 0 }] },
+      }),
+    ).toBe(false);
+    expect(canContinueBatchPreflight({ ...expanded, safety: null })).toBe(false);
   });
 });
 

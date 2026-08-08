@@ -62,6 +62,7 @@ type SessionApi = Pick<
 
 export interface SessionControllerOptions {
   api?: SessionApi;
+  onBack?: () => void;
   onChange?: () => void;
   stream?: RunStreamFactory;
 }
@@ -94,6 +95,7 @@ export function isSessionBusy(state: SessionState): boolean {
 export class SessionController {
   readonly #root: Element;
   readonly #api: SessionApi;
+  readonly #onBack: () => void;
   readonly #stream: RunStreamFactory;
   readonly #listeners: (() => void)[] = [];
   #state: SessionState = initialSessionState();
@@ -103,6 +105,7 @@ export class SessionController {
   constructor(root: Element, options: SessionControllerOptions = {}) {
     this.#root = root;
     this.#api = options.api ?? new LocalApiClient();
+    this.#onBack = options.onBack ?? (() => undefined);
     this.#stream = options.stream ?? sessionEventSourceStream;
     if (options.onChange !== undefined) this.#listeners.push(options.onChange);
   }
@@ -120,6 +123,7 @@ export class SessionController {
     renderSession(this.#root, this.#state, {
       onStart: () => void this.start(),
       onCancel: () => void this.cancel(),
+      onBack: this.#onBack,
       onRefresh: () => void this.load(),
       onToggleStep: (name) => {
         this.toggleStep(name);
@@ -210,6 +214,21 @@ export class SessionController {
         ? selected.filter((id) => id !== postId)
         : [...selected, postId],
     });
+  }
+
+  /** Seed the batch preview from the workbench without changing its selection order. */
+  setSelectedPosts(postIds: readonly string[]): void {
+    const unique = [...new Set(postIds)].slice(0, 50);
+    this.#patch({ selectedPostIds: unique });
+  }
+
+  /** Seed the batch approval choices selected in the workbench preflight. */
+  setApprovedSteps(steps: readonly EngagementStepName[]): void {
+    const selected = new Set(steps);
+    const ordered: EngagementStepName[] = ["like", "comment", "mutual_neighbor"];
+    const approvedSteps = ordered.filter((step) => selected.has(step));
+    if (approvedSteps.length === 0) return;
+    this.#patch({ approvedSteps });
   }
 
   /** Approve one batch and follow its progress. */

@@ -16,6 +16,7 @@ import {
 import type { AutomationSession, DiscoverySource, EngagementStepName } from "../api/types";
 
 export interface SessionHandlers {
+  onBack(): void;
   onStart(): void;
   onCancel(): void;
   onRefresh(): void;
@@ -59,6 +60,18 @@ const POST_STATE_LABELS: Record<string, string> = {
 export function renderSession(root: Element, state: SessionState, handlers: SessionHandlers): void {
   const document = root.ownerDocument;
   root.textContent = "";
+
+  const context = document.createElement("div");
+  context.className = "session-context";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.id = "back-to-workbench-button";
+  back.textContent = "작업함으로 돌아가기";
+  back.addEventListener("click", handlers.onBack);
+  const title = document.createElement("p");
+  title.textContent = "작업함 · 일괄 처리 승인";
+  context.append(back, title);
+  root.append(context);
 
   const status = document.createElement("p");
   status.id = "workspace-status";
