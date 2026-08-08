@@ -14,6 +14,8 @@ import type {
   DiscoveryNeighbor,
   DiscoverySearchRefresh,
   DiscoverySyncResult,
+  RuntimeConfiguration,
+  RuntimeData,
   SavedSearch,
 } from "../api/types";
 import { renderSettings } from "../views/settings";
@@ -31,6 +33,7 @@ const REFUSALS: Record<string, string> = {
 };
 
 export interface SettingsState {
+  section: "defaults" | "automation" | "connections";
   phase: "idle" | "loading" | "ready" | "saving" | "syncing" | "failed";
   settings: AutoDiscoverySettings | null;
   searches: SavedSearch[];
@@ -69,6 +72,45 @@ export interface SettingsState {
     tone: "calm" | "warm" | "lively";
     useImageVision: boolean;
   };
+  scheduleForm: {
+    mode: "manual" | "session" | "schedule";
+    hour: number;
+    minute: number;
+    maxPosts: number;
+  };
+  budgetForm: { dailyCallCap: number; perRequestProviderCap: number };
+  runtime: RuntimeConfiguration | null;
+  runtimeData: RuntimeData | null;
+  runtimeDataResetConfirmation: string;
+  runtimeForm: {
+    activeProvider: "openai" | "gemini" | "anthropic" | "fake";
+    anthropicApiKey: string;
+    clearAnthropicApiKey: boolean;
+    clearGeminiApiKey: boolean;
+    clearNaverSearchClientId: boolean;
+    clearNaverSearchClientSecret: boolean;
+    clearOpenaiApiKey: boolean;
+    clearSmtpPassword: boolean;
+    clearSmtpUsername: boolean;
+    anthropicModel: string;
+    openaiModel: string;
+    browserDriver: "patchright" | "playwright" | "fake";
+    browserHeadless: boolean;
+    browserChannel: string;
+    geminiApiKey: string;
+    geminiModel: string;
+    accessMode: "local" | "lan";
+    naverSearchClientId: string;
+    naverSearchClientSecret: string;
+    openaiApiKey: string;
+    smtpHost: string;
+    smtpPassword: string;
+    smtpPort: number;
+    smtpSecurity: "starttls" | "ssl";
+    smtpUsername: string;
+    digestEmailFrom: string;
+    digestEmailTo: string;
+  };
   error: string | null;
   notice: string | null;
 }
@@ -88,6 +130,13 @@ type SettingsApi = Pick<
   | "refreshSavedSearch"
   | "digestSettings"
   | "saveDigestSettings"
+  | "runtimeConfiguration"
+  | "patchRuntimeConfiguration"
+  | "restartRuntime"
+  | "runtimeData"
+  | "exportRuntimeData"
+  | "resetRuntimeData"
+  | "status"
 >;
 
 export interface SettingsControllerOptions {
@@ -99,6 +148,7 @@ export interface SettingsControllerOptions {
 export function initialSettingsState(): SettingsState {
   return {
     phase: "idle",
+    section: "defaults",
     settings: null,
     searches: [],
     neighbors: [],
@@ -135,6 +185,40 @@ export function initialSettingsState(): SettingsState {
       targetLength: "medium",
       tone: "warm",
       useImageVision: false,
+    },
+    scheduleForm: { mode: "manual", hour: 10, minute: 0, maxPosts: 5 },
+    budgetForm: { dailyCallCap: 60, perRequestProviderCap: 3 },
+    runtime: null,
+    runtimeData: null,
+    runtimeDataResetConfirmation: "",
+    runtimeForm: {
+      activeProvider: "openai",
+      anthropicApiKey: "",
+      clearAnthropicApiKey: false,
+      clearGeminiApiKey: false,
+      clearNaverSearchClientId: false,
+      clearNaverSearchClientSecret: false,
+      clearOpenaiApiKey: false,
+      clearSmtpPassword: false,
+      clearSmtpUsername: false,
+      anthropicModel: "claude-sonnet-5-20260514",
+      openaiModel: "gpt-5.6-terra",
+      browserDriver: "patchright",
+      browserHeadless: false,
+      browserChannel: "",
+      geminiApiKey: "",
+      geminiModel: "gemini-3.6-flash",
+      accessMode: "local",
+      naverSearchClientId: "",
+      naverSearchClientSecret: "",
+      openaiApiKey: "",
+      smtpHost: "",
+      smtpPassword: "",
+      smtpPort: 587,
+      smtpSecurity: "starttls",
+      smtpUsername: "",
+      digestEmailFrom: "",
+      digestEmailTo: "",
     },
     error: null,
     notice: null,
@@ -211,6 +295,27 @@ export class SettingsController {
       onSaveCommentSettings: () => void this.saveCommentSettings(),
       onSaveAutomationSettings: () => void this.saveAutomationSettings(),
       onSaveWritingSettings: () => void this.saveWritingSettings(),
+      onSectionChange: (section) => {
+        this.#state = { ...this.#state, section };
+        this.render();
+      },
+      onScheduleFieldChange: (patch) => {
+        this.#state = { ...this.#state, scheduleForm: { ...this.#state.scheduleForm, ...patch } };
+      },
+      onBudgetFieldChange: (patch) => {
+        this.#state = { ...this.#state, budgetForm: { ...this.#state.budgetForm, ...patch } };
+      },
+      onSaveScheduleAndBudget: () => void this.saveScheduleAndBudget(),
+      onRuntimeFieldChange: (patch) => {
+        this.#state = { ...this.#state, runtimeForm: { ...this.#state.runtimeForm, ...patch } };
+      },
+      onSaveRuntimeConfiguration: () => void this.saveRuntimeConfiguration(),
+      onRestartRuntime: () => void this.restartRuntime(),
+      onExportRuntimeData: () => void this.exportRuntimeData(),
+      onRuntimeDataResetConfirmationChange: (value) => {
+        this.#state = { ...this.#state, runtimeDataResetConfirmation: value };
+      },
+      onResetRuntimeData: () => void this.resetRuntimeData(),
     });
   }
 
@@ -230,6 +335,10 @@ export class SettingsController {
         consent,
         safety,
         writing,
+        schedule,
+        budget,
+        runtime,
+        runtimeData,
       ] = await Promise.all([
         this.#api.autoDiscoverySettings(),
         this.#searchesOrEmpty(),
@@ -262,6 +371,18 @@ export class SettingsController {
           body_tag_cap: 10,
           use_image_vision: false,
         }),
+        this.#settingOrDefault("schedule_policy", {
+          mode: "manual",
+          hour: 10,
+          minute: 0,
+          max_posts: 5,
+        }),
+        this.#settingOrDefault("llm_budget", {
+          daily_call_cap: 60,
+          per_request_provider_cap: 3,
+        }),
+        this.#runtimeOrNull(),
+        this.#runtimeDataOrNull(),
       ]);
       this.#patch({
         phase: "ready",
@@ -284,6 +405,11 @@ export class SettingsController {
         commentForm: commentForm(generation, closing, neighborMessage),
         automationForm: automationForm(consent, safety),
         writingForm: writingForm(writing),
+        scheduleForm: scheduleForm(schedule),
+        budgetForm: budgetForm(budget),
+        runtime,
+        runtimeData,
+        runtimeForm: runtime === null ? this.#state.runtimeForm : runtimeForm(runtime),
       });
     } catch (error) {
       this.#fail(error);
@@ -500,6 +626,30 @@ export class SettingsController {
     }
   }
 
+  /** Save the advanced unattended schedule and the LLM cost guard together. */
+  async saveScheduleAndBudget(): Promise<void> {
+    if (isSettingsBusy(this.#state)) return;
+    const { scheduleForm, budgetForm } = this.#state;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      await Promise.all([
+        this.#api.saveAppSetting("schedule_policy", {
+          mode: scheduleForm.mode,
+          hour: scheduleForm.hour,
+          minute: scheduleForm.minute,
+          max_posts: scheduleForm.maxPosts,
+        }),
+        this.#api.saveAppSetting("llm_budget", {
+          daily_call_cap: budgetForm.dailyCallCap,
+          per_request_provider_cap: budgetForm.perRequestProviderCap,
+        }),
+      ]);
+      this.#patch({ phase: "ready", notice: "예약 실행과 AI 예산 한도를 저장했습니다." });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
   async saveWritingSettings(): Promise<void> {
     if (isSettingsBusy(this.#state)) return;
     const form = this.#state.writingForm;
@@ -519,6 +669,124 @@ export class SettingsController {
     }
   }
 
+  async saveRuntimeConfiguration(): Promise<void> {
+    if (isSettingsBusy(this.#state) || this.#state.runtime === null) return;
+    const form = this.#state.runtimeForm;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const runtime = await this.#api.patchRuntimeConfiguration({
+        activeProvider: form.activeProvider,
+        anthropicModel: form.anthropicModel,
+        openaiModel: form.openaiModel,
+        browserDriver: form.browserDriver,
+        browserHeadless: form.browserHeadless,
+        browserChannel: form.browserChannel,
+        geminiModel: form.geminiModel,
+        accessMode: form.accessMode,
+        ...secretPatch("openaiApiKey", form.openaiApiKey, form.clearOpenaiApiKey),
+        ...secretPatch("anthropicApiKey", form.anthropicApiKey, form.clearAnthropicApiKey),
+        ...secretPatch("geminiApiKey", form.geminiApiKey, form.clearGeminiApiKey),
+        ...secretPatch(
+          "naverSearchClientId",
+          form.naverSearchClientId,
+          form.clearNaverSearchClientId,
+        ),
+        ...secretPatch(
+          "naverSearchClientSecret",
+          form.naverSearchClientSecret,
+          form.clearNaverSearchClientSecret,
+        ),
+        smtpHost: form.smtpHost,
+        ...secretPatch("smtpUsername", form.smtpUsername, form.clearSmtpUsername),
+        ...secretPatch("smtpPassword", form.smtpPassword, form.clearSmtpPassword),
+        smtpPort: form.smtpPort,
+        smtpSecurity: form.smtpSecurity,
+        digestEmailFrom: form.digestEmailFrom,
+        digestEmailTo: form.digestEmailTo,
+      });
+      this.#patch({
+        phase: "ready",
+        runtime,
+        runtimeForm: runtimeForm(runtime),
+        notice: runtime.restartRequired
+          ? "연결 설정을 저장했습니다. 적용하려면 재시작하세요."
+          : "연결 설정을 저장했습니다.",
+      });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async restartRuntime(): Promise<void> {
+    if (isSettingsBusy(this.#state) || this.#state.runtime === null) return;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const runtime = await this.#api.restartRuntime();
+      this.#patch({
+        phase: "ready",
+        runtime,
+        runtimeForm: runtimeForm(runtime),
+        notice: "재시작을 요청했습니다. 준비되면 화면이 자동으로 새로고침됩니다.",
+      });
+      await this.#waitForRestart();
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async exportRuntimeData(): Promise<void> {
+    if (isSettingsBusy(this.#state) || this.#state.runtimeData === null) return;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      const archive = await this.#api.exportRuntimeData();
+      if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
+        throw new Error("download_unavailable");
+      }
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "naver-blog-assistant-data.zip";
+      link.click();
+      URL.revokeObjectURL(url);
+      this.#patch({ phase: "ready", notice: "로컬 데이터 내보내기를 시작했습니다." });
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async resetRuntimeData(): Promise<void> {
+    if (isSettingsBusy(this.#state) || this.#state.runtimeData?.resetAvailable !== true) return;
+    this.#patch({ phase: "saving", error: null, notice: null });
+    try {
+      await this.#api.resetRuntimeData(this.#state.runtimeDataResetConfirmation);
+      this.#patch({
+        phase: "ready",
+        notice: "기존 데이터는 복구 가능한 backup으로 옮겼습니다. 서비스를 다시 시작합니다.",
+      });
+      await this.#waitForRestart();
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  async #waitForRestart(): Promise<void> {
+    // The supervisor reads the marker asynchronously.  A brief delay avoids
+    // mistaking the still-healthy old child for the replacement process.
+    await delay(250);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        await this.#api.status();
+        if (typeof window !== "undefined") window.location.reload();
+        return;
+      } catch {
+        await delay(500);
+      }
+    }
+    this.#patch({
+      notice: "서비스 재시작을 기다리는 중입니다. 잠시 후 화면을 새로고침하세요.",
+    });
+  }
+
   /** Treat an unavailable search provider as an empty list rather than a screen-wide failure. */
   async #searchesOrEmpty(): Promise<SavedSearch[]> {
     try {
@@ -536,6 +804,23 @@ export class SettingsController {
       return await this.#api.appSetting(kind);
     } catch {
       return { kind, schemaVersion: 1, payload: fallback, updatedAt: null };
+    }
+  }
+
+  async #runtimeOrNull(): Promise<RuntimeConfiguration | null> {
+    try {
+      return await this.#api.runtimeConfiguration();
+    } catch {
+      // Paired tablets intentionally cannot inspect desktop credentials or browser settings.
+      return null;
+    }
+  }
+
+  async #runtimeDataOrNull(): Promise<RuntimeData | null> {
+    try {
+      return await this.#api.runtimeData();
+    } catch {
+      return null;
     }
   }
 
@@ -578,6 +863,60 @@ function commentForm(
   };
 }
 
+function runtimeForm(runtime: RuntimeConfiguration): SettingsState["runtimeForm"] {
+  return {
+    activeProvider: runtime.ai.activeProvider,
+    anthropicApiKey: "",
+    clearAnthropicApiKey: false,
+    clearGeminiApiKey: false,
+    clearNaverSearchClientId: false,
+    clearNaverSearchClientSecret: false,
+    clearOpenaiApiKey: false,
+    clearSmtpPassword: false,
+    clearSmtpUsername: false,
+    anthropicModel:
+      runtime.ai.providers.find((provider) => provider.provider === "anthropic")?.model ??
+      "claude-sonnet-5-20260514",
+    openaiModel:
+      runtime.ai.providers.find((provider) => provider.provider === "openai")?.model ??
+      "gpt-5.6-terra",
+    browserDriver: runtime.browser.driver,
+    browserHeadless: runtime.browser.headless,
+    browserChannel: runtime.browser.channel,
+    geminiApiKey: "",
+    geminiModel:
+      runtime.ai.providers.find((provider) => provider.provider === "gemini")?.model ??
+      "gemini-3.6-flash",
+    accessMode: runtime.network.accessMode,
+    naverSearchClientId: "",
+    naverSearchClientSecret: "",
+    openaiApiKey: "",
+    smtpHost: runtime.smtp.host,
+    smtpPassword: "",
+    smtpPort: runtime.smtp.port,
+    smtpSecurity: runtime.smtp.security,
+    smtpUsername: "",
+    digestEmailFrom: runtime.smtp.digestEmailFrom,
+    digestEmailTo: runtime.smtp.digestEmailTo,
+  };
+}
+
+function secretPatch(
+  key:
+    | "anthropicApiKey"
+    | "geminiApiKey"
+    | "naverSearchClientId"
+    | "naverSearchClientSecret"
+    | "openaiApiKey"
+    | "smtpPassword"
+    | "smtpUsername",
+  value: string,
+  clear: boolean,
+): Record<string, { clear: true } | { replace: string }> {
+  if (clear) return { [key]: { clear: true } };
+  return value.length === 0 ? {} : { [key]: { replace: value } };
+}
+
 function automationForm(
   consent: AppSettingRecord,
   safety: AppSettingRecord,
@@ -604,6 +943,24 @@ function writingForm(record: AppSettingRecord): SettingsState["writingForm"] {
     targetLength: enumValue(profile.target_length, ["short", "medium", "long"], "medium"),
     tone: enumValue(profile.tone, ["calm", "warm", "lively"], "warm"),
     useImageVision: profile.use_image_vision === true,
+  };
+}
+
+function scheduleForm(record: AppSettingRecord): SettingsState["scheduleForm"] {
+  const value = payload(record);
+  return {
+    mode: enumValue(value.mode, ["manual", "session", "schedule"], "manual"),
+    hour: numberValue(value.hour, 10),
+    minute: numberValue(value.minute, 0),
+    maxPosts: numberValue(value.max_posts, 5),
+  };
+}
+
+function budgetForm(record: AppSettingRecord): SettingsState["budgetForm"] {
+  const value = payload(record);
+  return {
+    dailyCallCap: numberValue(value.daily_call_cap, 60),
+    perRequestProviderCap: numberValue(value.per_request_provider_cap, 3),
   };
 }
 
@@ -645,4 +1002,8 @@ function message(error: unknown): string {
     return REFUSALS[code] ?? error.message;
   }
   return "알 수 없는 오류가 발생했습니다. 로컬 서비스가 실행 중인지 확인하세요.";
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

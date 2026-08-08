@@ -28,6 +28,16 @@ export interface SettingsHandlers {
   onSaveCommentSettings(): void;
   onSaveAutomationSettings(): void;
   onSaveWritingSettings(): void;
+  onSectionChange(section: SettingsState["section"]): void;
+  onScheduleFieldChange(patch: Partial<SettingsState["scheduleForm"]>): void;
+  onBudgetFieldChange(patch: Partial<SettingsState["budgetForm"]>): void;
+  onSaveScheduleAndBudget(): void;
+  onRuntimeFieldChange?(patch: Partial<SettingsState["runtimeForm"]>): void;
+  onSaveRuntimeConfiguration?(): void;
+  onRestartRuntime?(): void;
+  onExportRuntimeData?(): void;
+  onRuntimeDataResetConfirmationChange?(value: string): void;
+  onResetRuntimeData?(): void;
 }
 
 const SYNC_STATUS_LABELS: Record<string, string> = {
@@ -58,14 +68,436 @@ export function renderSettings(
   status.textContent = statusMessage(state);
   root.append(status);
 
-  root.append(renderDiscoveryForm(document, state, handlers));
-  root.append(renderSyncPanel(document, state, handlers));
-  root.append(renderSearchPanel(document, state, handlers));
-  root.append(renderNeighborPanel(document, state, handlers));
-  root.append(renderDigestPanel(document, state, handlers));
-  root.append(renderCommentSettings(document, state, handlers));
-  root.append(renderAutomationSettings(document, state, handlers));
-  root.append(renderWritingSettings(document, state, handlers));
+  root.append(renderSettingsNavigation(document, state, handlers));
+  const defaults = settingsSection(document, "defaults", state.section);
+  defaults.append(
+    renderCommentSettings(document, state, handlers),
+    renderWritingSettings(document, state, handlers),
+  );
+  const automation = settingsSection(document, "automation", state.section);
+  automation.append(
+    renderDiscoveryForm(document, state, handlers),
+    renderSyncPanel(document, state, handlers),
+    renderSearchPanel(document, state, handlers),
+    renderNeighborPanel(document, state, handlers),
+    renderDigestPanel(document, state, handlers),
+    renderAutomationSettings(document, state, handlers),
+    renderAdvancedAutomation(document, state, handlers),
+  );
+  const connections = settingsSection(document, "connections", state.section);
+  connections.append(
+    renderRuntimeSettings(document, state, handlers),
+    renderRuntimeData(document, state, handlers),
+  );
+  root.append(defaults, automation, connections);
+}
+
+function settingsSection(
+  document: Document,
+  name: SettingsState["section"],
+  active: SettingsState["section"],
+): HTMLDivElement {
+  const section = document.createElement("div");
+  section.className = "settings-section";
+  section.dataset.settingsSection = name;
+  section.hidden = name !== active;
+  return section;
+}
+
+function renderSettingsNavigation(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("nav");
+  section.className = "settings-navigation";
+  section.setAttribute("aria-label", "설정 영역");
+  for (const [name, label, detail] of [
+    ["defaults", "작업 기본값", "댓글과 글쓰기의 기본 동작"],
+    ["automation", "탐색 및 자동화", "수집, 안전 한도, 예약과 예산"],
+    ["connections", "연결 및 앱", "PC의 AI, 브라우저, 네트워크 연결"],
+  ] as const) {
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "settings-navigation-item";
+    choice.dataset.settingsSection = name;
+    choice.setAttribute("aria-pressed", String(state.section === name));
+    choice.textContent = `${label} · ${detail}`;
+    choice.addEventListener("click", () => handlers.onSectionChange(name));
+    section.append(choice);
+  }
+  return section;
+}
+
+function renderAdvancedAutomation(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("details");
+  section.className = "advanced-automation-panel";
+  const summary = document.createElement("summary");
+  summary.textContent = "고급 · 예약 실행과 AI 예산";
+  section.append(summary);
+  const content = document.createElement("div");
+  content.append(
+    selectField(
+      document,
+      "schedule-mode",
+      "실행 방식",
+      state.scheduleForm.mode,
+      [
+        ["manual", "수동 실행"],
+        ["session", "세션 승인 후 실행"],
+        ["schedule", "매일 예약 실행"],
+      ],
+      (value) =>
+        handlers.onScheduleFieldChange({
+          mode: value as SettingsState["scheduleForm"]["mode"],
+        }),
+    ),
+    numberField(
+      document,
+      "schedule-hour",
+      "예약 시각 (시)",
+      state.scheduleForm.hour,
+      (value) => handlers.onScheduleFieldChange({ hour: value }),
+      0,
+      23,
+    ),
+    numberField(
+      document,
+      "schedule-minute",
+      "예약 시각 (분)",
+      state.scheduleForm.minute,
+      (value) => handlers.onScheduleFieldChange({ minute: value }),
+      0,
+      59,
+    ),
+    numberField(
+      document,
+      "schedule-max-posts",
+      "한 번에 처리할 글 상한",
+      state.scheduleForm.maxPosts,
+      (value) => handlers.onScheduleFieldChange({ maxPosts: value }),
+      1,
+      50,
+    ),
+    numberField(
+      document,
+      "llm-daily-call-cap",
+      "AI 일일 호출 상한",
+      state.budgetForm.dailyCallCap,
+      (value) => handlers.onBudgetFieldChange({ dailyCallCap: value }),
+      1,
+      1000,
+    ),
+    numberField(
+      document,
+      "llm-provider-call-cap",
+      "한 요청의 provider 호출 상한",
+      state.budgetForm.perRequestProviderCap,
+      (value) => handlers.onBudgetFieldChange({ perRequestProviderCap: value }),
+      1,
+      3,
+    ),
+  );
+  content.append(
+    button(
+      document,
+      "save-schedule-budget-button",
+      "예약·예산 저장",
+      handlers.onSaveScheduleAndBudget,
+    ),
+  );
+  section.append(content);
+  return section;
+}
+
+function renderRuntimeSettings(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("section");
+  section.className = "runtime-settings-panel";
+  section.append(heading(document, "연결 및 앱 · PC 전용"));
+  if (state.runtime === null) {
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = "연결 설정은 PC의 로컬 웹앱에서만 볼 수 있습니다.";
+    section.append(note);
+    return section;
+  }
+  const configured = document.createElement("p");
+  configured.textContent = `AI ${state.runtime.ai.providers.filter((item) => item.configured).length}개 · Naver Search ${state.runtime.naverSearch.configured ? "연결됨" : "미연결"} · SMTP ${state.runtime.smtp.configured ? "연결됨" : "미연결"}`;
+  section.append(configured);
+  section.append(
+    selectField(
+      document,
+      "runtime-provider",
+      "댓글 AI",
+      state.runtimeForm.activeProvider,
+      [
+        ["openai", "OpenAI"],
+        ["gemini", "Gemini"],
+        ["anthropic", "Claude"],
+        ["fake", "개발용 fake"],
+      ],
+      (value) =>
+        handlers.onRuntimeFieldChange?.({
+          activeProvider: value as SettingsState["runtimeForm"]["activeProvider"],
+        }),
+    ),
+    textField(
+      document,
+      "runtime-openai-model",
+      "OpenAI model",
+      state.runtimeForm.openaiModel,
+      (value) => handlers.onRuntimeFieldChange?.({ openaiModel: value }),
+    ),
+    secretField(
+      document,
+      "runtime-openai-key",
+      "OpenAI API key",
+      state.runtimeForm.clearOpenaiApiKey,
+      (value) => handlers.onRuntimeFieldChange?.({ openaiApiKey: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearOpenaiApiKey: clear }),
+    ),
+    textField(
+      document,
+      "runtime-gemini-model",
+      "Gemini model",
+      state.runtimeForm.geminiModel,
+      (value) => handlers.onRuntimeFieldChange?.({ geminiModel: value }),
+    ),
+    secretField(
+      document,
+      "runtime-gemini-key",
+      "Gemini API key",
+      state.runtimeForm.clearGeminiApiKey,
+      (value) => handlers.onRuntimeFieldChange?.({ geminiApiKey: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearGeminiApiKey: clear }),
+    ),
+    textField(
+      document,
+      "runtime-anthropic-model",
+      "Claude model",
+      state.runtimeForm.anthropicModel,
+      (value) => handlers.onRuntimeFieldChange?.({ anthropicModel: value }),
+    ),
+    secretField(
+      document,
+      "runtime-anthropic-key",
+      "Anthropic API key",
+      state.runtimeForm.clearAnthropicApiKey,
+      (value) => handlers.onRuntimeFieldChange?.({ anthropicApiKey: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearAnthropicApiKey: clear }),
+    ),
+    secretField(
+      document,
+      "runtime-naver-id",
+      "Naver Search Client ID",
+      state.runtimeForm.clearNaverSearchClientId,
+      (value) => handlers.onRuntimeFieldChange?.({ naverSearchClientId: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearNaverSearchClientId: clear }),
+    ),
+    secretField(
+      document,
+      "runtime-naver-secret",
+      "Naver Search Client Secret",
+      state.runtimeForm.clearNaverSearchClientSecret,
+      (value) => handlers.onRuntimeFieldChange?.({ naverSearchClientSecret: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearNaverSearchClientSecret: clear }),
+    ),
+    textField(document, "runtime-smtp-host", "SMTP host", state.runtimeForm.smtpHost, (value) =>
+      handlers.onRuntimeFieldChange?.({ smtpHost: value }),
+    ),
+    numberField(
+      document,
+      "runtime-smtp-port",
+      "SMTP port",
+      state.runtimeForm.smtpPort,
+      (value) => handlers.onRuntimeFieldChange?.({ smtpPort: value }),
+      1,
+      65535,
+    ),
+    selectField(
+      document,
+      "runtime-smtp-security",
+      "SMTP 보안",
+      state.runtimeForm.smtpSecurity,
+      [
+        ["starttls", "STARTTLS"],
+        ["ssl", "SSL/TLS"],
+      ],
+      (value) => handlers.onRuntimeFieldChange?.({ smtpSecurity: value as "starttls" | "ssl" }),
+    ),
+    secretField(
+      document,
+      "runtime-smtp-user",
+      "SMTP username",
+      state.runtimeForm.clearSmtpUsername,
+      (value) => handlers.onRuntimeFieldChange?.({ smtpUsername: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearSmtpUsername: clear }),
+    ),
+    secretField(
+      document,
+      "runtime-smtp-password",
+      "SMTP password",
+      state.runtimeForm.clearSmtpPassword,
+      (value) => handlers.onRuntimeFieldChange?.({ smtpPassword: value }),
+      (clear) => handlers.onRuntimeFieldChange?.({ clearSmtpPassword: clear }),
+    ),
+    textField(
+      document,
+      "runtime-digest-email-from",
+      "요약 발신 주소",
+      state.runtimeForm.digestEmailFrom,
+      (value) => handlers.onRuntimeFieldChange?.({ digestEmailFrom: value }),
+    ),
+    textField(
+      document,
+      "runtime-digest-email-to",
+      "요약 수신 주소",
+      state.runtimeForm.digestEmailTo,
+      (value) => handlers.onRuntimeFieldChange?.({ digestEmailTo: value }),
+    ),
+    selectField(
+      document,
+      "runtime-browser-driver",
+      "자동화 브라우저",
+      state.runtimeForm.browserDriver,
+      [
+        ["patchright", "Patchright"],
+        ["playwright", "Playwright"],
+        ["fake", "fake"],
+      ],
+      (value) =>
+        handlers.onRuntimeFieldChange?.({
+          browserDriver: value as SettingsState["runtimeForm"]["browserDriver"],
+        }),
+    ),
+    selectField(
+      document,
+      "runtime-browser-headless",
+      "브라우저 표시",
+      String(state.runtimeForm.browserHeadless),
+      [
+        ["false", "표시"],
+        ["true", "headless"],
+      ],
+      (value) => handlers.onRuntimeFieldChange?.({ browserHeadless: value === "true" }),
+    ),
+    textField(
+      document,
+      "runtime-browser-channel",
+      "브라우저 channel (선택)",
+      state.runtimeForm.browserChannel,
+      (value) => handlers.onRuntimeFieldChange?.({ browserChannel: value }),
+    ),
+    selectField(
+      document,
+      "runtime-access-mode",
+      "태블릿 연결",
+      state.runtimeForm.accessMode,
+      [
+        ["local", "이 PC만"],
+        ["lan", "신뢰 Wi-Fi"],
+      ],
+      (value) => handlers.onRuntimeFieldChange?.({ accessMode: value as "local" | "lan" }),
+    ),
+  );
+  const save = button(document, "save-runtime-configuration-button", "연결 설정 저장", () =>
+    handlers.onSaveRuntimeConfiguration?.(),
+  );
+  save.disabled = isSettingsBusy(state);
+  section.append(save);
+  if (state.runtime.restartRequired) {
+    const restart = button(document, "restart-runtime-button", "저장한 설정 적용", () =>
+      handlers.onRestartRuntime?.(),
+    );
+    restart.disabled = isSettingsBusy(state) || !state.runtime.launcherRestartAvailable;
+    section.append(restart);
+  }
+  return section;
+}
+
+/** Keep locations visible to the desktop owner without turning them into editable path settings. */
+function renderRuntimeData(
+  document: Document,
+  state: SettingsState,
+  handlers: SettingsHandlers,
+): Element {
+  const section = document.createElement("section");
+  section.className = "runtime-data-panel";
+  section.append(heading(document, "데이터 관리 · PC 전용"));
+  if (state.runtimeData === null) {
+    const note = document.createElement("p");
+    note.textContent = "연결된 PC에서만 데이터 위치와 내보내기를 확인할 수 있습니다.";
+    section.append(note);
+    return section;
+  }
+  const details = document.createElement("dl");
+  appendTerm(document, details, "데이터베이스", state.runtimeData.databaseLocation);
+  appendTerm(document, details, "이미지", state.runtimeData.mediaLocation);
+  appendTerm(
+    document,
+    details,
+    "초기화 대상",
+    `SQLite DB/WAL/SHM ${state.runtimeData.databaseFileCount}개 · 초안 미디어 ${state.runtimeData.mediaFileCount}개`,
+  );
+  appendTerm(
+    document,
+    details,
+    "내보낼 데이터",
+    `${state.runtimeData.fileCount}개 파일 · ${formatBytes(state.runtimeData.sizeBytes)}`,
+  );
+  section.append(details);
+  const exportButton = button(document, "export-runtime-data-button", "데이터 내보내기", () =>
+    handlers.onExportRuntimeData?.(),
+  );
+  exportButton.disabled = isSettingsBusy(state);
+  section.append(exportButton);
+
+  const reset = document.createElement("details");
+  reset.className = "runtime-data-reset";
+  const summary = document.createElement("summary");
+  summary.textContent = "안전한 초기화";
+  const note = document.createElement("p");
+  note.textContent =
+    "현재 데이터는 삭제하지 않고 복구 가능한 backup으로 이동한 뒤 서비스를 다시 시작합니다. 진행 중인 작업이 있으면 실행할 수 없습니다.";
+  reset.append(summary, note);
+  if (!state.runtimeData.resetAvailable) {
+    const unavailable = document.createElement("p");
+    unavailable.textContent = "supervisor로 실행한 PC에서만 초기화할 수 있습니다.";
+    reset.append(unavailable);
+  } else {
+    const label = document.createElement("label");
+    label.htmlFor = "runtime-data-reset-confirmation";
+    label.textContent = "확인 문구 입력: RESET LOCAL DATA";
+    const confirmation = document.createElement("input");
+    confirmation.id = "runtime-data-reset-confirmation";
+    confirmation.value = state.runtimeDataResetConfirmation;
+    confirmation.autocomplete = "off";
+    confirmation.addEventListener("input", () =>
+      handlers.onRuntimeDataResetConfirmationChange?.(confirmation.value),
+    );
+    const resetButton = button(document, "reset-runtime-data-button", "데이터 초기화", () =>
+      handlers.onResetRuntimeData?.(),
+    );
+    resetButton.disabled =
+      isSettingsBusy(state) || state.runtimeDataResetConfirmation !== "RESET LOCAL DATA";
+    reset.append(label, confirmation, resetButton);
+  }
+  section.append(reset);
+  return section;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function renderCommentSettings(
@@ -774,6 +1206,14 @@ function heading(document: Document, text: string): HTMLHeadingElement {
   return element;
 }
 
+function appendTerm(document: Document, list: Element, term: string, value: string): void {
+  const name = document.createElement("dt");
+  name.textContent = term;
+  const description = document.createElement("dd");
+  description.textContent = value;
+  list.append(name, description);
+}
+
 function button(
   document: Document,
   id: string,
@@ -804,6 +1244,49 @@ function textField(
   input.value = value;
   input.addEventListener("input", () => onChange(input.value));
   field.append(name, input);
+  return field;
+}
+
+/** A write-only field: saved values are deliberately never repopulated from the API. */
+function secretField(
+  document: Document,
+  id: string,
+  label: string,
+  clear: boolean,
+  onChange: (value: string) => void,
+  onClearChange: (clear: boolean) => void,
+): Element {
+  const field = document.createElement("div");
+  const name = document.createElement("label");
+  name.htmlFor = id;
+  name.textContent = `${label} (새 값만 입력)`;
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "password";
+  input.autocomplete = "new-password";
+  input.value = "";
+  input.disabled = clear;
+  const clearLabel = document.createElement("label");
+  clearLabel.htmlFor = `${id}-clear`;
+  clearLabel.className = "checkbox-label";
+  const clearInput = document.createElement("input");
+  clearInput.id = `${id}-clear`;
+  clearInput.type = "checkbox";
+  clearInput.checked = clear;
+  clearInput.addEventListener("change", () => {
+    input.disabled = clearInput.checked;
+    if (clearInput.checked) input.value = "";
+    onClearChange(clearInput.checked);
+  });
+  input.addEventListener("input", () => {
+    if (clearInput.checked) {
+      clearInput.checked = false;
+      onClearChange(false);
+    }
+    onChange(input.value);
+  });
+  clearLabel.append(clearInput, document.createTextNode(" 저장된 값 지우기"));
+  field.append(name, input, clearLabel);
   return field;
 }
 

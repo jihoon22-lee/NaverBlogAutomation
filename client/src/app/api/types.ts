@@ -15,7 +15,7 @@ export interface ServiceStatus {
   apiVersion: string;
   appEnvironment: "production" | "development" | "test";
   database: "ready";
-  generatorMode: "openai" | "fake";
+  generatorMode: "openai" | "gemini" | "anthropic" | "fake";
   generatorModel: string;
 }
 
@@ -204,6 +204,46 @@ export interface AppSettingRecord {
   schemaVersion: number;
   payload: Record<string, unknown>;
   updatedAt: string | null;
+}
+
+export interface RuntimeConfiguration {
+  ai: {
+    activeProvider: "openai" | "gemini" | "anthropic" | "fake";
+    providers: { provider: LlmProviderName; configured: boolean; model: string }[];
+  };
+  naverSearch: { configured: boolean };
+  smtp: {
+    configured: boolean;
+    host: string;
+    port: number;
+    security: "starttls" | "ssl";
+    digestEmailFrom: string;
+    digestEmailTo: string;
+  };
+  browser: { driver: "patchright" | "playwright" | "fake"; headless: boolean; channel: string };
+  network: { accessMode: "local" | "lan" };
+  restartRequired: boolean;
+  launcherRestartAvailable: boolean;
+}
+
+export interface RuntimeSecretUpdate {
+  replace?: string;
+  clear?: true;
+}
+
+export interface RuntimeData {
+  databaseLocation: string;
+  databaseFileCount: number;
+  mediaLocation: string;
+  mediaFileCount: number;
+  fileCount: number;
+  sizeBytes: number;
+  resetAvailable: boolean;
+}
+
+export interface RuntimeDataReset {
+  backupLocation: string;
+  restartRequired: boolean;
 }
 
 export type EngagementStepName = "like" | "comment" | "mutual_neighbor";

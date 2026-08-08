@@ -21,6 +21,8 @@ import {
   readPostDraft,
   readPublishRun,
   readRecommendation,
+  readRuntimeConfiguration,
+  readRuntimeData,
   readSavedSearch,
   readScheduleStatus,
   readServiceStatus,
@@ -56,6 +58,40 @@ const SESSION = {
   profile_dir: "/profiles/automation",
   open_pages: 1,
   detail: null,
+};
+
+const RUNTIME_DATA = {
+  database_location: "/private/app/database.sqlite3",
+  database_file_count: 2,
+  media_location: "/private/app/media",
+  media_file_count: 4,
+  file_count: 6,
+  size_bytes: 4096,
+  reset_available: true,
+};
+
+const RUNTIME_CONFIGURATION = {
+  ai: {
+    active_provider: "openai",
+    providers: [
+      { provider: "openai", configured: true, model: "gpt-test" },
+      { provider: "gemini", configured: false, model: "gemini-test" },
+      { provider: "anthropic", configured: false, model: "claude-test" },
+    ],
+  },
+  naver_search: { configured: true },
+  smtp: {
+    configured: true,
+    host: "smtp.example.test",
+    port: 465,
+    security: "ssl",
+    digest_email_from: "sender@example.test",
+    digest_email_to: "recipient@example.test",
+  },
+  browser: { driver: "patchright", headless: false, channel: "" },
+  network: { access_mode: "local" },
+  restart_required: false,
+  launcher_restart_available: true,
 };
 
 const POST = {
@@ -196,6 +232,13 @@ describe("status", () => {
     expect(status.apiVersion).toBe("1.0.0");
     expect(status.generatorMode).toBe("fake");
     expect(status.appEnvironment).toBe("test");
+  });
+
+  it("accepts Gemini and Claude as configured default generators", () => {
+    expect(readServiceStatus({ ...STATUS, generator_mode: "gemini" }).generatorMode).toBe("gemini");
+    expect(readServiceStatus({ ...STATUS, generator_mode: "anthropic" }).generatorMode).toBe(
+      "anthropic",
+    );
   });
 
   it("rejects an unexpected environment", async () => {
@@ -450,6 +493,48 @@ describe("discovery settings transport", () => {
     ["schedule time", () => readScheduleStatus({ ...SCHEDULE, minute: 60 })],
   ])("rejects invalid %s fields", (_field, read) => {
     expect(read).toThrow(/계약/u);
+  });
+});
+
+describe("runtime data", () => {
+  it("maps the non-secret reset target breakdown", async () => {
+    const client = clientWith(vi.fn(async () => jsonResponse(RUNTIME_DATA)) as never);
+
+    const data = await client.runtimeData();
+
+    expect(data).toMatchObject({ databaseFileCount: 2, mediaFileCount: 4, resetAvailable: true });
+  });
+
+  it("rejects an incomplete runtime data response", () => {
+    expect(() => readRuntimeData({ ...RUNTIME_DATA, media_file_count: undefined })).toThrow(
+      /media_file_count/u,
+    );
+  });
+});
+
+describe("runtime configuration", () => {
+  it("maps non-secret digest addresses and rejects an incomplete response", () => {
+    const runtime = readRuntimeConfiguration(RUNTIME_CONFIGURATION);
+
+    expect(runtime.smtp.digestEmailFrom).toBe("sender@example.test");
+    expect(() =>
+      readRuntimeConfiguration({
+        ...RUNTIME_CONFIGURATION,
+        smtp: { ...RUNTIME_CONFIGURATION.smtp, digest_email_to: undefined },
+      }),
+    ).toThrow(/digest_email_to/u);
+    expect(
+      readRuntimeConfiguration({
+        ...RUNTIME_CONFIGURATION,
+        smtp: {
+          ...RUNTIME_CONFIGURATION.smtp,
+          host: "",
+          digest_email_from: "",
+          digest_email_to: "",
+        },
+        browser: { ...RUNTIME_CONFIGURATION.browser, channel: "" },
+      }).smtp.host,
+    ).toBe("");
   });
 });
 

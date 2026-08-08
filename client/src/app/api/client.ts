@@ -49,6 +49,10 @@ import type {
   PostDraft,
   PersonalizationMode,
   ProblemDetails,
+  RuntimeConfiguration,
+  RuntimeData,
+  RuntimeDataReset,
+  RuntimeSecretUpdate,
   PublishRun,
   PublishStep,
   PublishStepName,
@@ -489,6 +493,97 @@ export class LocalApiClient {
     return readAppSetting(await this.#request("PUT", `/api/v1/settings/${kind}`, { payload }));
   }
 
+  async runtimeConfiguration(): Promise<RuntimeConfiguration> {
+    return readRuntimeConfiguration(await this.#request("GET", "/api/v1/runtime/configuration"));
+  }
+
+  async patchRuntimeConfiguration(patch: {
+    activeProvider?: "openai" | "gemini" | "anthropic" | "fake";
+    openaiModel?: string;
+    geminiModel?: string;
+    anthropicModel?: string;
+    openaiApiKey?: RuntimeSecretUpdate;
+    geminiApiKey?: RuntimeSecretUpdate;
+    anthropicApiKey?: RuntimeSecretUpdate;
+    naverSearchClientId?: RuntimeSecretUpdate;
+    naverSearchClientSecret?: RuntimeSecretUpdate;
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpSecurity?: "starttls" | "ssl";
+    smtpUsername?: RuntimeSecretUpdate;
+    smtpPassword?: RuntimeSecretUpdate;
+    digestEmailFrom?: string;
+    digestEmailTo?: string;
+    browserDriver?: "patchright" | "playwright" | "fake";
+    browserHeadless?: boolean;
+    browserChannel?: string;
+    accessMode?: "local" | "lan";
+  }): Promise<RuntimeConfiguration> {
+    const body = await this.#request("PATCH", "/api/v1/runtime/configuration", {
+      ...(patch.activeProvider === undefined ? {} : { active_provider: patch.activeProvider }),
+      ...(patch.openaiModel === undefined ? {} : { openai_model: patch.openaiModel }),
+      ...(patch.geminiModel === undefined ? {} : { gemini_model: patch.geminiModel }),
+      ...(patch.anthropicModel === undefined ? {} : { anthropic_model: patch.anthropicModel }),
+      ...(patch.openaiApiKey === undefined ? {} : { openai_api_key: patch.openaiApiKey }),
+      ...(patch.geminiApiKey === undefined ? {} : { gemini_api_key: patch.geminiApiKey }),
+      ...(patch.anthropicApiKey === undefined ? {} : { anthropic_api_key: patch.anthropicApiKey }),
+      ...(patch.naverSearchClientId === undefined
+        ? {}
+        : { naver_search_client_id: patch.naverSearchClientId }),
+      ...(patch.naverSearchClientSecret === undefined
+        ? {}
+        : { naver_search_client_secret: patch.naverSearchClientSecret }),
+      ...(patch.smtpHost === undefined ? {} : { smtp_host: patch.smtpHost }),
+      ...(patch.smtpPort === undefined ? {} : { smtp_port: patch.smtpPort }),
+      ...(patch.smtpSecurity === undefined ? {} : { smtp_security: patch.smtpSecurity }),
+      ...(patch.smtpUsername === undefined ? {} : { smtp_username: patch.smtpUsername }),
+      ...(patch.smtpPassword === undefined ? {} : { smtp_password: patch.smtpPassword }),
+      ...(patch.digestEmailFrom === undefined ? {} : { digest_email_from: patch.digestEmailFrom }),
+      ...(patch.digestEmailTo === undefined ? {} : { digest_email_to: patch.digestEmailTo }),
+      ...(patch.browserDriver === undefined ? {} : { browser_driver: patch.browserDriver }),
+      ...(patch.browserHeadless === undefined ? {} : { browser_headless: patch.browserHeadless }),
+      ...(patch.browserChannel === undefined ? {} : { browser_channel: patch.browserChannel }),
+      ...(patch.accessMode === undefined ? {} : { access_mode: patch.accessMode }),
+    });
+    return readRuntimeConfiguration(body);
+  }
+
+  async restartRuntime(): Promise<RuntimeConfiguration> {
+    return readRuntimeConfiguration(await this.#request("POST", "/api/v1/runtime/restart"));
+  }
+
+  async runtimeData(): Promise<RuntimeData> {
+    return readRuntimeData(await this.#request("GET", "/api/v1/runtime/data"));
+  }
+
+  async exportRuntimeData(): Promise<Blob> {
+    const headers = new Headers();
+    const csrfToken = readCsrfCookie();
+    if (csrfToken !== null) headers.set("X-NBA-CSRF", csrfToken);
+    let response: Response;
+    try {
+      response = await this.#fetch(`${this.#base}/api/v1/runtime/data/export`, {
+        method: "POST",
+        headers,
+      });
+    } catch {
+      throw new ApiError("로컬 서비스에 연결할 수 없습니다.", { status: null });
+    }
+    if (!response.ok) {
+      throw new ApiError("로컬 서비스가 요청을 거부했습니다.", {
+        problem: await readProblem(response),
+        status: response.status,
+      });
+    }
+    return response.blob();
+  }
+
+  async resetRuntimeData(confirmation: string): Promise<RuntimeDataReset> {
+    return readRuntimeDataReset(
+      await this.#request("POST", "/api/v1/runtime/data/reset", { confirmation }),
+    );
+  }
+
   /** Approve exactly one queued post for execution. The service answers before the run finishes. */
   async startEngagementRun(
     discoveryPostId: string,
@@ -902,7 +997,9 @@ export function readServiceStatus(body: unknown): ServiceStatus {
   if (environment !== "production" && environment !== "development" && environment !== "test") {
     throw contractError("app_environment");
   }
-  if (mode !== "openai" && mode !== "fake") throw contractError("generator_mode");
+  if (mode !== "openai" && mode !== "gemini" && mode !== "anthropic" && mode !== "fake") {
+    throw contractError("generator_mode");
+  }
   return {
     status: "ready",
     apiVersion: readString(body.api_version, "api_version"),
@@ -1240,14 +1337,16 @@ export function readRuntimeConfiguration(body: unknown): RuntimeConfiguration {
     naverSearch: { configured: readBoolean(body.naver_search.configured, "naver configured") },
     smtp: {
       configured: readBoolean(body.smtp.configured, "smtp configured"),
-      host: readString(body.smtp.host, "smtp host"),
+      host: readText(body.smtp.host, "smtp host"),
       port: readCount(body.smtp.port, "smtp port"),
       security,
+      digestEmailFrom: readText(body.smtp.digest_email_from, "digest_email_from"),
+      digestEmailTo: readText(body.smtp.digest_email_to, "digest_email_to"),
     },
     browser: {
       driver,
       headless: readBoolean(body.browser.headless, "browser headless"),
-      channel: readString(body.browser.channel, "browser channel"),
+      channel: readText(body.browser.channel, "browser channel"),
     },
     network: { accessMode },
     restartRequired: readBoolean(body.restart_required, "restart_required"),
@@ -1531,11 +1630,20 @@ function readBlock(value: unknown): BodyBlock {
   if (!isRecord(value)) throw contractError("block");
   const kind = value.type;
   if (!BLOCK_KINDS.has(kind as string)) throw contractError("block type");
-  const block: BodyBlock = { type: kind as BodyBlock["type"] };
-  if (typeof value.text === "string") block.text = value.text;
-  if (typeof value.image_id === "string") block.image_id = value.image_id;
-  if (typeof value.caption === "string") block.caption = value.caption;
-  return block;
+  if (kind === "image") {
+    const block: BodyBlock = { type: "image", image_id: readString(value.image_id, "image_id") };
+    if (typeof value.caption === "string") block.caption = value.caption;
+    return block;
+  }
+  if (kind === "ordered_list" || kind === "unordered_list") {
+    if (!Array.isArray(value.items)) throw contractError("list items");
+    return { type: kind, items: value.items.map((item) => readString(item, "list item")) };
+  }
+  if (kind === "divider") return { type: "divider" };
+  return {
+    type: kind as "heading" | "paragraph" | "quote",
+    text: readString(value.text, "text"),
+  };
 }
 
 export function readPostDraft(body: unknown): PostDraft {
