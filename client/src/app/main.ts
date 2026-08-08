@@ -373,11 +373,23 @@ export function routeFromHash(
 ): NavSection | "session" | "activity" | "settings" | "post" | "comment" | null {
   const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
   if (path === "home" || path === "today") return "home";
-  if (path === "workbench") return "workbench";
+  if (path === "workbench" || path === "queue" || path === "batch") return "workbench";
   if (path === "session" || path.startsWith("session/")) return "session";
   if (path === "writing" || path.startsWith("writing/")) return "writing";
-  if (path === "activity") return "activity";
-  if (path === "settings" || path.startsWith("settings/")) return "settings";
+  if (path === "activity" || path === "history" || path === "logs") return "activity";
+  if (path === "settings" || path.startsWith("settings/") || path === "config") {
+    return "settings";
+  }
+  if (
+    path === "more" ||
+    path === "menu" ||
+    path === "devices" ||
+    path === "device" ||
+    path === "pairing" ||
+    path === "pairing-code"
+  ) {
+    return "more";
+  }
   if (path.startsWith("post/")) return "post";
   if (path.startsWith("comment/")) return "comment";
   return null;

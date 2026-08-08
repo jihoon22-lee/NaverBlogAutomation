@@ -201,6 +201,28 @@ describe("mount", () => {
       await flush();
     }
   });
+
+  it("renders the more workspace for the legacy menu alias", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `
+      <nav id="workspace-nav">
+        <button type="button" data-section="home"></button>
+        <button type="button" data-section="workbench"></button>
+        <button type="button" data-section="writing"></button>
+        <button type="button" data-section="more"></button>
+      </nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    if (document.defaultView !== null) document.defaultView.location.hash = "#more";
+
+    mount();
+    await flush();
+
+    expect(document.querySelector(".more-menu-panel")).not.toBeNull();
+    expect(document.querySelector('[data-section="more"]')?.getAttribute("aria-current")).toBe(
+      "page",
+    );
+  });
 });
 
 describe("registerPwaShell", () => {
@@ -574,7 +596,15 @@ describe("navigation", () => {
   it("maps documented hash routes to their owning workspace section", () => {
     expect(routeFromHash("#today")).toBe("home");
     expect(routeFromHash("#home")).toBe("home");
+    expect(routeFromHash("#more")).toBe("more");
     expect(routeFromHash("#workbench")).toBe("workbench");
+    expect(routeFromHash("#queue")).toBe("workbench");
+    expect(routeFromHash("#batch")).toBe("workbench");
+    expect(routeFromHash("#history")).toBe("activity");
+    expect(routeFromHash("#logs")).toBe("activity");
+    expect(routeFromHash("#config")).toBe("settings");
+    expect(routeFromHash("#devices")).toBe("more");
+    expect(routeFromHash("#pairing-code")).toBe("more");
     expect(routeFromHash("#post/a-post-id")).toBe("post");
     expect(routeFromHash("#writing/draft-id")).toBe("writing");
     expect(routeFromHash("#settings/comment")).toBe("settings");
