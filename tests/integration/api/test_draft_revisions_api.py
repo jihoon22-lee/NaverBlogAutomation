@@ -71,6 +71,36 @@ def test_repeated_edits_keep_the_revision_order(client: TestClient) -> None:
     assert [revision["is_active"] for revision in revisions] == [False, False, True]
 
 
+def test_versioned_canvas_saves_a_working_copy_and_refuses_a_stale_device(
+    client: TestClient,
+) -> None:
+    draft_id = create(client)
+    checkpoint = client.put(f"{DRAFTS}/{draft_id}/body", json=body("첫 checkpoint"))
+    assert checkpoint.status_code == 200
+    version = checkpoint.json()["working_copy"]["content_version"]
+
+    saved = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={**body("자동 저장 문단"), "base_content_version": version},
+    )
+    assert saved.status_code == 200, saved.text
+    assert len(saved.json()["revisions"]) == 1
+    assert saved.json()["working_copy"]["blocks"][0]["text"] == "자동 저장 문단"
+    assert saved.json()["working_copy"]["content_version"] == version + 1
+
+    stale = client.put(
+        f"{DRAFTS}/{draft_id}/body",
+        json={**body("다른 기기의 오래된 편집"), "base_content_version": version},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "draft_content_conflict"
+
+    checkpointed = client.post(f"{DRAFTS}/{draft_id}/checkpoint")
+    assert checkpointed.status_code == 200
+    assert len(checkpointed.json()["revisions"]) == 2
+    assert checkpointed.json()["revisions"][-1]["blocks"][0]["text"] == "자동 저장 문단"
+
+
 def test_an_earlier_revision_can_be_restored(client: TestClient) -> None:
     draft_id = create(client)
     first = client.put(f"{DRAFTS}/{draft_id}/body", json=body("첫 수정")).json()["revisions"][0]

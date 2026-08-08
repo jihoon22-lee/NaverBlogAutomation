@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.engine import Engine
 
 from naver_blog_assistant.domain.writing import (
@@ -24,6 +28,17 @@ from naver_blog_assistant.infrastructure.database.post_draft_repository import (
     SqlitePostDraftRepository,
 )
 from naver_blog_assistant.infrastructure.database.schema import metadata
+
+ROOT = Path(__file__).parents[3]
+
+
+def alembic_config(database_url: str) -> Config:
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option(
+        "script_location", str(ROOT / "src/naver_blog_assistant/infrastructure/database/migrations")
+    )
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
 
 
 @pytest.fixture
@@ -50,6 +65,94 @@ def draft_id_for(repository: SqlitePostDraftRepository, **overrides: object) -> 
 
 def paragraph(text: str = "문단입니다.") -> BodyBlock:
     return BodyBlock(kind=BlockKind.PARAGRAPH, text=text)
+
+
+def test_working_copy_migration_backfills_active_revision_and_survives_a_downgrade(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "draft-working-copy.db"
+    config = alembic_config(f"sqlite:///{database}")
+    draft_id, revision_id = uuid4(), uuid4()
+    blocks = [{"type": "paragraph", "text": "기존 본문"}]
+
+    command.upgrade(config, "20260801_0020")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO post_drafts
+            (id, title, category_no, status, use_image_vision, seed_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(draft_id),
+                "기존 초안",
+                7,
+                "composed",
+                False,
+                "메모",
+                "2026-08-08T00:00:00+00:00",
+                "2026-08-08T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO post_draft_revisions
+            (id, draft_id, round_no, kind, provider, model, title, body_blocks_json,
+            summary, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(revision_id),
+                str(draft_id),
+                1,
+                "composed",
+                "openai",
+                "gpt-test",
+                "활성 revision 제목",
+                json.dumps(blocks),
+                "활성 revision 요약",
+                True,
+                "2026-08-08T00:00:00+00:00",
+            ),
+        )
+        active = connection.execute(
+            "SELECT is_active FROM post_draft_revisions WHERE id = ?", (str(revision_id),)
+        ).fetchone()
+    assert active == (1,)
+
+    command.upgrade(config, "20260808_0021")
+    with sqlite3.connect(database) as connection:
+        working = connection.execute(
+            """
+            SELECT working_title, working_blocks_json, working_summary, content_version
+            FROM post_drafts WHERE id = ?
+            """,
+            (str(draft_id),),
+        ).fetchone()
+    assert working == ("활성 revision 제목", json.dumps(blocks), "활성 revision 요약", 1)
+
+    command.downgrade(config, "20260801_0020")
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(post_drafts)")}
+        original = connection.execute(
+            "SELECT title, body_blocks_json, summary FROM post_draft_revisions WHERE id = ?",
+            (str(revision_id),),
+        ).fetchone()
+    assert {
+        "working_title",
+        "working_blocks_json",
+        "working_summary",
+        "content_version",
+    }.isdisjoint(columns)
+    assert original == ("활성 revision 제목", json.dumps(blocks), "활성 revision 요약")
+
+    command.upgrade(config, "20260808_0021")
+    with sqlite3.connect(database) as connection:
+        restored = connection.execute(
+            "SELECT working_title, content_version FROM post_drafts WHERE id = ?",
+            (str(draft_id),),
+        ).fetchone()
+    assert restored == ("활성 revision 제목", 1)
 
 
 def test_a_new_draft_starts_without_revisions(repository: SqlitePostDraftRepository) -> None:

@@ -11,7 +11,7 @@ import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.engine import Engine
@@ -22,6 +22,7 @@ from naver_blog_assistant.domain.writing import (
     DraftRevision,
     DraftStatus,
     DraftTag,
+    DraftWorkingCopy,
     PostDraft,
     RevisionKind,
     TagSource,
@@ -41,6 +42,14 @@ class DraftNotFoundError(LookupError):
 
     def __init__(self, draft_id: UUID) -> None:
         super().__init__(f"draft {draft_id} was not found")
+        self.draft_id = draft_id
+
+
+class DraftContentConflictError(RuntimeError):
+    """Raised when another device saved a newer working-copy version first."""
+
+    def __init__(self, draft_id: UUID) -> None:
+        super().__init__(f"draft {draft_id} has a newer working copy")
         self.draft_id = draft_id
 
 
@@ -109,6 +118,7 @@ class SqlitePostDraftRepository:
             revisions=tuple(_revision(entry) for entry in revisions),
             images=tuple(_image(entry) for entry in images),
             tags=tuple(_tag(entry) for entry in tags),
+            working_copy=_working_copy(row),
             created_at=datetime.fromisoformat(row.created_at),
             updated_at=datetime.fromisoformat(row.updated_at),
         )
@@ -174,6 +184,15 @@ class SqlitePostDraftRepository:
             values: dict[str, object] = {"updated_at": now.isoformat()}
             if status is not None:
                 values["status"] = status.value
+            if activate:
+                values.update(
+                    working_title=title,
+                    working_blocks_json=json.dumps(
+                        body_payload(tuple(blocks)), ensure_ascii=False, sort_keys=True
+                    ),
+                    working_summary=summary,
+                    content_version=post_drafts.c.content_version + 1,
+                )
             connection.execute(
                 update(post_drafts).where(post_drafts.c.id == str(draft_id)).values(**values)
             )
@@ -200,12 +219,76 @@ class SqlitePostDraftRepository:
                 .where(post_draft_revisions.c.id == str(revision_id))
                 .values(is_active=True)
             )
+            revision = connection.execute(
+                select(post_draft_revisions).where(post_draft_revisions.c.id == str(revision_id))
+            ).one()
             connection.execute(
                 update(post_drafts)
                 .where(post_drafts.c.id == str(draft_id))
-                .values(updated_at=datetime.now(UTC).isoformat())
+                .values(
+                    updated_at=datetime.now(UTC).isoformat(),
+                    working_title=revision.title,
+                    working_blocks_json=revision.body_blocks_json,
+                    working_summary=revision.summary,
+                    content_version=post_drafts.c.content_version + 1,
+                )
             )
         return self.get(draft_id)
+
+    def save_working_copy(
+        self,
+        *,
+        draft_id: UUID,
+        title: str,
+        blocks: Sequence[BodyBlock],
+        summary: str,
+        base_content_version: int,
+    ) -> PostDraft:
+        """Atomically save one editable copy, refusing a stale device's overwrite."""
+        now = datetime.now(UTC)
+        result = None
+        with self._engine.begin() as connection:
+            result = connection.execute(
+                update(post_drafts)
+                .where(
+                    post_drafts.c.id == str(draft_id),
+                    post_drafts.c.content_version == base_content_version,
+                )
+                .values(
+                    working_title=title,
+                    working_blocks_json=json.dumps(
+                        body_payload(tuple(blocks)), ensure_ascii=False, sort_keys=True
+                    ),
+                    working_summary=summary,
+                    content_version=base_content_version + 1,
+                    updated_at=now.isoformat(),
+                )
+            )
+        assert result is not None
+        if result.rowcount == 0:
+            try:
+                self.get(draft_id)
+            except DraftNotFoundError:
+                raise
+            raise DraftContentConflictError(draft_id)
+        return self.get(draft_id)
+
+    def checkpoint_working_copy(self, draft_id: UUID) -> PostDraft:
+        """Turn the current working copy into an intentional user revision."""
+        draft = self.get(draft_id)
+        working = draft.working_copy
+        if working is None:
+            raise ValueError("the draft has no working copy")
+        return self.add_revision(
+            draft_id=draft_id,
+            revision_id=uuid4(),
+            round_no=draft.next_round,
+            kind=RevisionKind.USER_EDITED,
+            title=working.title,
+            blocks=working.blocks,
+            summary=working.summary,
+            activate=True,
+        )
 
     def update_draft(
         self,
@@ -358,6 +441,20 @@ def _revision(row: Any) -> DraftRevision:
     )
 
 
+def _working_copy(row: Any) -> DraftWorkingCopy | None:
+    """Deserialize an optional editable copy left by a prior editor session."""
+    title = row.working_title
+    blocks = row.working_blocks_json
+    if title is None or blocks is None:
+        return None
+    return DraftWorkingCopy(
+        title=str(title),
+        blocks=parse_body(json.loads(blocks)),
+        summary=str(row.working_summary or ""),
+        content_version=int(row.content_version),
+    )
+
+
 def _image(row: Any) -> DraftImage:
     return DraftImage(
         id=UUID(row.id),
@@ -380,4 +477,4 @@ def _tag(row: Any) -> DraftTag:
     )
 
 
-__all__ = ["DraftNotFoundError", "SqlitePostDraftRepository"]
+__all__ = ["DraftContentConflictError", "DraftNotFoundError", "SqlitePostDraftRepository"]

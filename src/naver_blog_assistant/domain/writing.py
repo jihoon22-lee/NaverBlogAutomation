@@ -57,6 +57,9 @@ class BlockKind(StrEnum):
     HEADING = "heading"
     PARAGRAPH = "paragraph"
     QUOTE = "quote"
+    ORDERED_LIST = "ordered_list"
+    UNORDERED_LIST = "unordered_list"
+    DIVIDER = "divider"
     IMAGE = "image"
 
 
@@ -75,6 +78,7 @@ class BodyBlock:
     text: str = ""
     image_id: UUID | None = None
     caption: str = ""
+    items: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, BlockKind):
@@ -82,14 +86,28 @@ class BodyBlock:
         if self.kind is BlockKind.IMAGE:
             if self.image_id is None:
                 raise DomainValidationError("an image block requires an image_id")
-            if self.text:
+            if self.text or self.items:
                 raise DomainValidationError("an image block carries a caption, not text")
             _bounded("caption", self.caption, MAX_BLOCK_TEXT_LENGTH, allow_empty=True)
+            return
+        if self.kind is BlockKind.DIVIDER:
+            if self.text or self.image_id is not None or self.caption or self.items:
+                raise DomainValidationError("a divider block cannot carry content")
+            return
+        if self.kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            if self.text or self.image_id is not None or self.caption:
+                raise DomainValidationError("a list block carries items, not text")
+            if not self.items or len(self.items) > 100:
+                raise DomainValidationError("a list block requires between 1 and 100 items")
+            for item in self.items:
+                _bounded("list item", item, MAX_BLOCK_TEXT_LENGTH)
             return
         if self.image_id is not None:
             raise DomainValidationError("only an image block may reference an image")
         if self.caption:
             raise DomainValidationError("only an image block may carry a caption")
+        if self.items:
+            raise DomainValidationError("only a list block may carry items")
         _bounded("text", self.text, MAX_BLOCK_TEXT_LENGTH)
 
     def to_payload(self) -> dict[str, Any]:
@@ -100,6 +118,10 @@ class BodyBlock:
                 "image_id": str(self.image_id),
                 "caption": self.caption,
             }
+        if self.kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            return {"type": self.kind.value, "items": list(self.items)}
+        if self.kind is BlockKind.DIVIDER:
+            return {"type": self.kind.value}
         return {"type": self.kind.value, "text": self.text}
 
     @classmethod
@@ -122,6 +144,17 @@ class BodyBlock:
             if not isinstance(caption, str):
                 raise DomainValidationError("caption must be a string")
             return cls(kind=kind, image_id=image_id, caption=caption.strip())
+        if kind in {BlockKind.ORDERED_LIST, BlockKind.UNORDERED_LIST}:
+            raw_items = payload.get("items")
+            if (
+                not isinstance(raw_items, list)
+                or not raw_items
+                or not all(isinstance(item, str) for item in raw_items)
+            ):
+                raise DomainValidationError("list items must be a non-empty string array")
+            return cls(kind=kind, items=tuple(item.strip() for item in raw_items))
+        if kind is BlockKind.DIVIDER:
+            return cls(kind=kind)
         text = payload.get("text")
         if not isinstance(text, str):
             raise DomainValidationError("text must be a string")
@@ -253,6 +286,24 @@ class DraftRevision:
 
 
 @dataclass(frozen=True, slots=True)
+class DraftWorkingCopy:
+    """The editable draft state between intentional revision checkpoints."""
+
+    title: str
+    blocks: tuple[BodyBlock, ...]
+    summary: str = ""
+    content_version: int = 0
+
+    def __post_init__(self) -> None:
+        _bounded("title", self.title, MAX_DRAFT_TITLE_LENGTH)
+        if not self.blocks or len(self.blocks) > MAX_BLOCKS:
+            raise DomainValidationError("a working copy must contain between 1 and 200 blocks")
+        _bounded("summary", self.summary, 800, allow_empty=True)
+        if self.content_version < 0:
+            raise DomainValidationError("content_version must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class PostDraft:
     """One post being written, with its revisions, images, and tags."""
 
@@ -263,6 +314,7 @@ class PostDraft:
     use_image_vision: bool = False
     seed_text: str = ""
     revisions: tuple[DraftRevision, ...] = ()
+    working_copy: DraftWorkingCopy | None = None
     images: tuple[DraftImage, ...] = ()
     tags: tuple[DraftTag, ...] = field(default_factory=tuple)
     created_at: datetime | None = None
