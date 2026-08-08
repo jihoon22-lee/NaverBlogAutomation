@@ -68,6 +68,12 @@ export interface DiscoveryPost {
   updatedAt: string;
 }
 
+export interface DiscoveryQueuePage {
+  items: DiscoveryPost[];
+  counts: { neighbor: number; search: number; skipped: number; total: number };
+  nextCursor: string | null;
+}
+
 export interface BrowserSession {
   state: BrowserSessionState;
   login: BrowserLoginState;

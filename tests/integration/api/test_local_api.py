@@ -536,11 +536,19 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
     search_item = client.get("/api/v1/app/discovery/queue?source=search").json()["items"][0]
     assert search_item["publisher_name"] == "새 블로거"
     assert search_item["source_label"] == "전시 후기"
+    assert (
+        client.patch(
+            f"/api/v1/discovery/queue/{search_item['id']}", json={"state": "skipped"}
+        ).json()["state"]
+        == "skipped"
+    )
     deleted_search = client.delete(f"/api/v1/discovery/searches/{search_id}")
     assert deleted_search.status_code == 204
     assert client.get("/api/v1/discovery/searches").json()["items"] == []
-    retained_candidates = client.get("/api/v1/app/discovery/queue?source=search").json()["items"]
-    assert retained_candidates == []
+    retained_candidates = client.get(
+        "/api/v1/app/discovery/queue?source=search&state=skipped"
+    ).json()["items"]
+    assert [item["id"] for item in retained_candidates] == [search_item["id"]]
 
     assert client.get("/api/v1/discovery/digest-settings").json() == {
         "timezone": "Asia/Seoul",
@@ -556,6 +564,53 @@ def test_discovery_keeps_only_metadata_in_two_user_reviewed_queues(client: TestC
         ).json()["hour"]
         == 8
     )
+
+
+def test_web_app_queue_pages_filters_and_restores_skipped_posts(client: TestClient) -> None:
+    neighbor_id = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "큐 이웃",
+            "blog_url": "https://blog.naver.com/queue-neighbor",
+            "blog_id": "queue-neighbor",
+        },
+    ).json()["id"]
+    imported = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "neighbor",
+            "neighbor_id": neighbor_id,
+            "posts": [
+                {"source_url": f"https://blog.naver.com/queue-neighbor/{number}", "title": title}
+                for number, title in enumerate(("큐 첫 글", "큐 둘째 글", "큐 셋째 글"), start=1)
+            ],
+        },
+    )
+    assert imported.json() == {"imported_count": 3}
+
+    first_page = client.get("/api/v1/app/discovery/queue?source=neighbor&limit=1")
+    assert first_page.status_code == 200
+    first = first_page.json()
+    assert first["counts"] == {"neighbor": 3, "search": 0, "skipped": 0, "total": 3}
+    assert len(first["items"]) == 1
+    assert first["next_cursor"] is not None
+
+    second = client.get(
+        "/api/v1/app/discovery/queue",
+        params={"source": "neighbor", "limit": 2, "cursor": first["next_cursor"]},
+    ).json()
+    assert {item["id"] for item in first["items"]}.isdisjoint(
+        {item["id"] for item in second["items"]}
+    )
+    post_id = first["items"][0]["id"]
+    skipped = client.patch(f"/api/v1/discovery/queue/{post_id}", json={"state": "skipped"})
+    assert skipped.status_code == 200
+
+    held = client.get("/api/v1/app/discovery/queue?state=skipped&query=큐")
+    assert [item["id"] for item in held.json()["items"]] == [post_id]
+    assert held.json()["counts"] == {"neighbor": 2, "search": 0, "skipped": 1, "total": 3}
+    restored = client.patch(f"/api/v1/discovery/queue/{post_id}", json={"state": "queued"})
+    assert restored.json()["state"] == "queued"
 
 
 def test_discovery_search_import_applies_saved_exclusions_and_dated_freshness(

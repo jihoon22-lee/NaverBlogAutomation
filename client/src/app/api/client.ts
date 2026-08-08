@@ -25,6 +25,7 @@ import type {
   BlogCategory,
   BodyBlock,
   DiscoveryPost,
+  DiscoveryQueuePage,
   DiscoverySource,
   DiscoveryState,
   EngagementRun,
@@ -215,6 +216,27 @@ export class LocalApiClient {
   async discoveryQueueFor(source: DiscoverySource): Promise<DiscoveryPost[]> {
     const body = await this.#request("GET", `/api/v1/app/discovery/queue?source=${source}`);
     return readDiscoveryQueue(body);
+  }
+
+  async discoveryQueuePage(
+    options: {
+      source?: DiscoverySource;
+      state?: DiscoveryState;
+      query?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<DiscoveryQueuePage> {
+    const parameters = new URLSearchParams();
+    if (options.source !== undefined) parameters.set("source", options.source);
+    if (options.state !== undefined) parameters.set("state", options.state);
+    if (options.query?.trim()) parameters.set("query", options.query.trim());
+    if (options.cursor !== undefined) parameters.set("cursor", options.cursor);
+    if (options.limit !== undefined) parameters.set("limit", String(options.limit));
+    const query = parameters.size === 0 ? "" : `?${parameters.toString()}`;
+    return readDiscoveryQueuePage(
+      await this.#request("GET", `/api/v1/app/discovery/queue${query}`),
+    );
   }
 
   async browserSession(options: { refresh?: boolean } = {}): Promise<BrowserSession> {
@@ -877,6 +899,25 @@ export function readServiceStatus(body: unknown): ServiceStatus {
 export function readDiscoveryQueue(body: unknown): DiscoveryPost[] {
   if (!isRecord(body) || !Array.isArray(body.items)) throw contractError("items");
   return body.items.map(readDiscoveryPost);
+}
+
+export function readDiscoveryQueuePage(body: unknown): DiscoveryQueuePage {
+  if (!isRecord(body) || !Array.isArray(body.items) || !isRecord(body.counts)) {
+    throw contractError("discovery queue page");
+  }
+  return {
+    items: body.items.map(readDiscoveryPost),
+    counts: {
+      neighbor: readCount(body.counts.neighbor, "neighbor count"),
+      search: readCount(body.counts.search, "search count"),
+      skipped: readCount(body.counts.skipped, "skipped count"),
+      total: readCount(body.counts.total, "total count"),
+    },
+    nextCursor:
+      body.next_cursor === null || body.next_cursor === undefined
+        ? null
+        : readString(body.next_cursor, "next_cursor"),
+  };
 }
 
 function readDiscoveryPost(value: unknown): DiscoveryPost {

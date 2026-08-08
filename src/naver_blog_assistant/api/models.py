@@ -453,6 +453,8 @@ class WebAppDiscoveryPostResponse(DiscoveryPostResponse):
 
 class WebAppDiscoveryQueueResponse(StrictModel):
     items: list[WebAppDiscoveryPostResponse]
+    counts: dict[Literal["neighbor", "search", "skipped", "total"], Annotated[int, Field(ge=0)]]
+    next_cursor: str | None = None
 
 
 class DiscoveryPostStateRequest(StrictModel):
