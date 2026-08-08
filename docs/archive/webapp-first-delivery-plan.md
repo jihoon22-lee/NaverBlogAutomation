@@ -1,6 +1,10 @@
 # 웹앱 중심 제품 완성 Delivery Plan
 
-Status: 활성 구현 계획, 2026-08-01 확정
+Status: 역사적 기준 계획 (현재 UX 개편으로 대체), 2026-08-01 확정
+
+> 이 문서는 초기 웹앱 제품화 범위를 기록한 계획입니다. 이번 UX 개편의 완료 기준이나 실행 순서는
+> [`../webapp-experience-redesign-plan.md`](../webapp-experience-redesign-plan.md)를 따릅니다.
+> 이 문서 안의 당시 상태 표기는 역사 기록으로 보존하며, 현재 작업의 완료를 뜻하지 않습니다.
 
 이 문서는 완료된 [`archive/webapp-automation-delivery-plan.md`](archive/webapp-automation-delivery-plan.md)의
 후속 Task를 덧붙이는 문서가 아닙니다. 기존 계획은 Task 0~21 완료 상태로 보존하고, 이 문서는

@@ -15,6 +15,8 @@ const RECOMMENDATION = {
   summary: "합성 요약",
   topics: ["전시"],
   candidates: CANDIDATES,
+  created_at: "2026-08-08T00:00:00Z",
+  updated_at: null,
   selected_candidate_id: null,
   edited_comment: null,
   review_status: "drafted",
@@ -23,7 +25,10 @@ const RECOMMENDATION = {
   comment_length: "medium",
   comment_mood: "warm",
   quality_warnings: [],
-  version: 1,
+  personalization_applied: false,
+  personalization_mode: "off",
+  personalization_sample_count: 0,
+  personalization_eligible: true,
 };
 
 const EXTRACTION = {
@@ -129,6 +134,22 @@ describe("generateComment", () => {
     expect(generation.recommendation.candidates).toHaveLength(3);
     expect(generation.recommendation.candidates[0]?.referencedDetail).toBe("근거1");
     expect(generation.extraction.transmittedLength).toBe(120);
+    expect(generation.recommendation.personalizationMode).toBe("off");
+  });
+
+  it("rejects an optimistic-lock version that is outside the response contract", async () => {
+    const client = clientWith(
+      vi.fn(async () =>
+        jsonResponse({
+          ...GENERATION,
+          recommendation: { ...RECOMMENDATION, version: 1 },
+        }),
+      ),
+    );
+
+    await expect(client.generateComment("https://blog.naver.com/example/1")).rejects.toThrow(
+      /recommendation\.version/u,
+    );
   });
 
   it("keeps a stored selection and edited comment", async () => {

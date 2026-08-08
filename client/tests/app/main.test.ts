@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { APP_ROOT_ID, createWorkspace, mount, routeFromHash } from "../../src/app/main";
+import {
+  APP_ROOT_ID,
+  createWorkspace,
+  mount,
+  registerPwaShell,
+  routeFromHash,
+} from "../../src/app/main";
 
 const EXTRACTION = {
   sourceUrl: "https://blog.naver.com/example/1",
@@ -172,6 +178,45 @@ describe("mount", () => {
   it("uses the documented workspace root id", () => {
     expect(APP_ROOT_ID).toBe("workspace");
   });
+
+  it("renders the more workspace for the legacy menu alias", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `
+      <nav id="workspace-nav">
+        <button type="button" data-section="home"></button>
+        <button type="button" data-section="workbench"></button>
+        <button type="button" data-section="writing"></button>
+        <button type="button" data-section="more"></button>
+      </nav>
+      <main id="${APP_ROOT_ID}"></main>
+    `;
+    if (document.defaultView !== null) document.defaultView.location.hash = "#more";
+
+    mount();
+    await flush();
+
+    expect(document.querySelector(".more-menu-panel")).not.toBeNull();
+    expect(document.querySelector('[data-section="more"]')?.getAttribute("aria-current")).toBe(
+      "page",
+    );
+  });
+});
+
+describe("registerPwaShell", () => {
+  it("registers the static app shell without making API responses cacheable", () => {
+    const register = vi.fn(() => Promise.resolve({}));
+    vi.stubGlobal("navigator", { serviceWorker: { register } });
+
+    registerPwaShell();
+
+    expect(register).toHaveBeenCalledWith("./service-worker.js", { scope: "./" });
+  });
+
+  it("does nothing when service workers are unavailable", () => {
+    vi.stubGlobal("navigator", {});
+
+    expect(() => registerPwaShell()).not.toThrow();
+  });
 });
 
 describe("createWorkspace", () => {
@@ -203,11 +248,10 @@ describe("createWorkspace", () => {
     installWorkspaceApi();
     document.body.innerHTML = `
       <nav id="workspace-nav">
-        <button type="button" data-section="today"></button>
-        <button type="button" data-section="session"></button>
+        <button type="button" data-section="home"></button>
+        <button type="button" data-section="workbench"></button>
         <button type="button" data-section="writing"></button>
-        <button type="button" data-section="activity"></button>
-        <button type="button" data-section="settings"></button>
+        <button type="button" data-section="more"></button>
         <button type="button" id="remote-pairing-code-button"></button>
       </nav>
       <main id="${APP_ROOT_ID}"></main>
@@ -421,9 +465,10 @@ describe("navigation", () => {
   function shell(): Element {
     document.body.innerHTML = `
       <nav id="workspace-nav">
-        <button type="button" data-section="today" aria-current="page"></button>
+        <button type="button" data-section="home" aria-current="page"></button>
+        <button type="button" data-section="workbench"></button>
         <button type="button" data-section="writing"></button>
-        <button type="button" data-section="settings"></button>
+        <button type="button" data-section="more"></button>
       </nav>
       <main id="${APP_ROOT_ID}"></main>
     `;
@@ -448,14 +493,14 @@ describe("navigation", () => {
     expect(tab("writing").getAttribute("aria-current")).toBe("page");
   });
 
-  it("returns to today from the nav", () => {
+  it("returns to the workbench from the nav", () => {
     const root = shell();
     const workspace = createWorkspace(root);
     workspace.showWriting();
 
-    tab("today").click();
+    tab("workbench").click();
 
-    expect(tab("today").getAttribute("aria-current")).toBe("page");
+    expect(tab("workbench").getAttribute("aria-current")).toBe("page");
     expect(tab("writing").hasAttribute("aria-current")).toBe(false);
   });
 
@@ -468,24 +513,24 @@ describe("navigation", () => {
     expect(root.contains(document.activeElement)).toBe(true);
   });
 
-  it("keeps the today tab current while the comment view is open", () => {
+  it("keeps the workbench tab current while the comment view is open", () => {
     const root = shell();
     const workspace = createWorkspace(root);
     workspace.showWriting();
 
     workspace.openComment(EXTRACTION, "11111111-1111-4111-8111-111111111111");
 
-    expect(tab("today").getAttribute("aria-current")).toBe("page");
+    expect(tab("workbench").getAttribute("aria-current")).toBe("page");
   });
 
-  it("reaches the settings screen from the nav", () => {
+  it("reaches the more menu from the nav", () => {
     const root = shell();
     createWorkspace(root);
 
-    tab("settings").click();
+    tab("more").click();
 
-    expect(root.querySelector(".discovery-settings-panel")).not.toBeNull();
-    expect(tab("settings").getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector(".more-menu-panel")).not.toBeNull();
+    expect(tab("more").getAttribute("aria-current")).toBe("page");
   });
 
   it("works without a nav in the shell", () => {
@@ -500,7 +545,17 @@ describe("navigation", () => {
   });
 
   it("maps documented hash routes to their owning workspace section", () => {
-    expect(routeFromHash("#today")).toBe("today");
+    expect(routeFromHash("#today")).toBe("home");
+    expect(routeFromHash("#home")).toBe("home");
+    expect(routeFromHash("#more")).toBe("more");
+    expect(routeFromHash("#workbench")).toBe("workbench");
+    expect(routeFromHash("#queue")).toBe("workbench");
+    expect(routeFromHash("#batch")).toBe("workbench");
+    expect(routeFromHash("#history")).toBe("activity");
+    expect(routeFromHash("#logs")).toBe("activity");
+    expect(routeFromHash("#config")).toBe("settings");
+    expect(routeFromHash("#devices")).toBe("more");
+    expect(routeFromHash("#pairing-code")).toBe("more");
     expect(routeFromHash("#post/a-post-id")).toBe("post");
     expect(routeFromHash("#writing/draft-id")).toBe("writing");
     expect(routeFromHash("#settings/comment")).toBe("settings");

@@ -3,7 +3,7 @@
 Status: PR 1~8 delivered on 2026-07-17
 
 > 보관 문서입니다. 이 계획의 구현은 완료됐습니다. 현재 제품 작업은
-> [`../webapp-first-delivery-plan.md`](../webapp-first-delivery-plan.md)를 따릅니다.
+> [`../webapp-experience-redesign-plan.md`](../webapp-experience-redesign-plan.md)를 따릅니다.
 
 PR 1~3 delivered the domain/use cases, SQLite adapter, and local FastAPI contract. The following
 PRs implement the accepted Side Panel architecture. Each PR targets `main`, is opened ready for

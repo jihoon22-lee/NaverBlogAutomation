@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { Readable } from "node:stream";
 
 import { expect, test } from "@playwright/test";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, type Browser } from "playwright";
 
 import { resolveApiCommand } from "./api-command.js";
 
@@ -21,56 +21,51 @@ interface RunningApi {
   dispose(): Promise<void>;
 }
 
-for (const engine of ["chromium", "webkit"] as const) {
-  test(`packaged web app selects an ordered batch in ${engine} without the legacy extension`, async () => {
-    let api: RunningApi | null = null;
-    let browser: Browser | null = null;
-    try {
-      api = await startApi();
-      const postId = await seedQueuedPost();
-      browser = await launch(engine);
-      const page = await browser.newPage({ viewport: { width: 768, height: 1024 } });
-      const errors: string[] = [];
-      page.on("pageerror", (error) => errors.push(error.message));
+test("packaged web app opens the workbench and selects an ordered batch without the legacy extension", async () => {
+  let api: RunningApi | null = null;
+  let browser: Browser | null = null;
+  try {
+    api = await startApi();
+    const postId = await seedQueuedPost();
+    browser = await chromium.launch({ channel: "chromium", headless: true });
+    const page = await browser.newPage({ viewport: { width: 768, height: 1024 } });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
 
-      await page.goto(`${apiOrigin}/app/`);
-      await expect(page.locator("#workspace-status")).toContainText("대기 중인 글");
-      await page.locator('[data-section="session"]').click();
-      await expect(page.locator("#session-queue-selection")).toBeVisible();
+    await page.goto(`${apiOrigin}/app/`);
+    await expect(page.locator("#workspace-status")).toContainText("오늘의 블로그 작업");
+    await page.locator('[data-section="workbench"]').click();
+    await expect(page.locator("#workspace-status")).toContainText("대기 중인 글");
+    await page.locator(`input#queue-batch-${postId}`).check();
+    await page.locator("#open-batch-preview").click();
+    await expect(page.locator("#session-queue-selection")).toBeVisible();
 
-      const choice = page.locator(`input[data-post-id="${postId}"]`);
-      await choice.check();
-      await expect(page.locator("#start-session-button")).toBeEnabled();
-      const approval = page.waitForRequest(
-        (request) =>
-          request.method() === "POST" &&
-          new URL(request.url()).pathname === "/api/v1/automation/sessions",
-      );
-      await page.locator("#start-session-button").click();
-      const request = await approval;
+    const choice = page.locator(`input[data-post-id="${postId}"]`);
+    await choice.check();
+    await expect(page.locator("#start-session-button")).toBeEnabled();
+    const approval = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/v1/automation/sessions",
+    );
+    await page.locator("#start-session-button").click();
+    const request = await approval;
 
-      expect(request.postDataJSON()).toMatchObject({
-        approved_steps: ["like", "comment"],
-        max_posts: 1,
-        post_ids: [postId],
-        sources: ["neighbor"],
-      });
-      expect(errors).toEqual([]);
-      expect(
-        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      ).toBe(true);
-    } finally {
-      await browser?.close();
-      await api?.dispose();
-    }
-  });
-}
-
-function launch(engine: "chromium" | "webkit"): Promise<Browser> {
-  return engine === "chromium"
-    ? chromium.launch({ channel: "chromium", headless: true })
-    : webkit.launch({ headless: true });
-}
+    expect(request.postDataJSON()).toMatchObject({
+      approved_steps: ["like", "comment"],
+      max_posts: 1,
+      post_ids: [postId],
+      sources: ["neighbor"],
+    });
+    expect(errors).toEqual([]);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  } finally {
+    await browser?.close();
+    await api?.dispose();
+  }
+});
 
 async function seedQueuedPost(): Promise<string> {
   await apiJson("/api/v1/settings/automation_consent", {

@@ -34,9 +34,13 @@ export interface Workspace {
   ): void;
   session: SessionController;
   settings: SettingsController;
+  showHome(): void;
+  showMore(): void;
+  showWorkbench(selectedPostId?: string): void;
   showSession(sessionId?: string): void;
   showActivity(): void;
   showSettings(): void;
+  /** @deprecated Historical route alias. Opens the workbench. */
   showToday(selectedPostId?: string): void;
   showWriting(draftId?: string): void;
   showStoredComment(
@@ -55,15 +59,18 @@ export function createWorkspace(root: Element): Workspace {
   const workspace: Partial<Workspace> = {};
   const api = new LocalApiClient();
   const document = root.ownerDocument;
+  // A document can contain only one mounted app in production.  Tests and hot reload can replace
+  // that root, so stale listeners must not repaint a detached prior workspace on a later hashchange.
+  const isCurrentRoot = () => document.getElementById(APP_ROOT_ID) === root;
   const pairingButton = document.getElementById(REMOTE_PAIRING_BUTTON_ID);
-  let activeSection: NavSection = "today";
+  let activeView: "home" | "workbench" | "writing" | "more" | "activity" | "settings" | "session" =
+    "home";
   const navigation = createNavigation(root.ownerDocument, {
     onSelect: (section: NavSection) => {
       if (section === "writing") workspace.showWriting?.();
-      else if (section === "session") workspace.showSession?.();
-      else if (section === "activity") workspace.showActivity?.();
-      else if (section === "settings") workspace.showSettings?.();
-      else workspace.showToday?.();
+      else if (section === "workbench") workspace.showWorkbench?.();
+      else if (section === "more") workspace.showMore?.();
+      else workspace.showHome?.();
     },
   });
   const comment = new CommentController(root, {
@@ -71,7 +78,7 @@ export function createWorkspace(root: Element): Workspace {
     copy: async (text: string) => {
       if (!(await copyText(document, text))) throw new Error("clipboard_unavailable");
     },
-    onBack: () => workspace.showToday?.(),
+    onBack: () => workspace.showWorkbench?.(),
     onRecommendationReady: (recommendationId, discoveryPostId, source) => {
       const parameters = new URLSearchParams();
       if (discoveryPostId !== null) parameters.set("post", discoveryPostId);
@@ -91,6 +98,12 @@ export function createWorkspace(root: Element): Workspace {
       }),
     onRemotePairingRequired: () => workspace.showRemotePairing?.(),
     onSettingsRequested: () => workspace.showSettings?.(),
+    onWorkbenchRequested: () => workspace.showWorkbench?.(),
+    onBatchRequested: ({ postIds, approvedSteps }) => {
+      session.setSelectedPosts(postIds);
+      session.setApprovedSteps(approvedSteps);
+      workspace.showSession?.();
+    },
   });
   const writing = new WritingController(root, {
     api,
@@ -102,13 +115,16 @@ export function createWorkspace(root: Element): Workspace {
       workspace.showStoredComment?.(recommendationId, null, null),
     onOpenSession: (sessionId) => workspace.showSession?.(sessionId),
   });
-  const session = new SessionController(root, { api });
+  const session = new SessionController(root, {
+    api,
+    onBack: () => workspace.showWorkbench?.(),
+  });
   session.observe(() => {
-    if (activeSection === "session") session.render();
+    if (activeView === "session") session.render();
   });
   const appSettings = new SettingsController(root);
   appSettings.observe(() => {
-    if (activeSection === "settings") appSettings.render();
+    if (activeView === "settings") appSettings.render();
   });
   workspace.settings = appSettings;
   workspace.session = session;
@@ -116,28 +132,66 @@ export function createWorkspace(root: Element): Workspace {
   workspace.today = today;
   workspace.writing = writing;
   workspace.activity = activity;
+  workspace.showHome = () => {
+    setNavigationVisible(document, true);
+    activeView = "home";
+    setRoute(document, "#home");
+    session.close();
+    navigation?.mark("home");
+    today.setView("home");
+    today.render();
+    focusWorkspace(root);
+    void today.load();
+  };
+  workspace.showWorkbench = (selectedPostId) => {
+    setNavigationVisible(document, true);
+    activeView = "workbench";
+    setRoute(document, selectedPostId === undefined ? "#workbench" : `#post/${selectedPostId}`);
+    session.close();
+    navigation?.mark("workbench");
+    today.setView("workbench");
+    today.render();
+    focusWorkspace(root);
+    if (today.state.phase === "idle" || selectedPostId !== undefined) {
+      void today.load(selectedPostId === undefined ? {} : { selectedPostId });
+    }
+  };
+  workspace.showMore = () => {
+    setNavigationVisible(document, true);
+    activeView = "more";
+    setRoute(document, "#more");
+    session.close();
+    navigation?.mark("more");
+    renderMore(root, {
+      onActivity: () => workspace.showActivity?.(),
+      onPairing: () => workspace.showRemotePairingCode?.(),
+      onSettings: () => workspace.showSettings?.(),
+      showPairing: isLoopbackDesktop(document),
+    });
+    focusWorkspace(root);
+  };
   workspace.showSettings = () => {
     setNavigationVisible(document, true);
-    activeSection = "settings";
+    activeView = "settings";
     setRoute(document, "#settings");
     session.close();
-    navigation?.mark("settings");
+    navigation?.mark("more");
     appSettings.render();
     focusWorkspace(root);
     void appSettings.load();
   };
   workspace.showSession = (sessionId) => {
     setNavigationVisible(document, true);
-    activeSection = "session";
+    activeView = "session";
     setRoute(document, sessionId === undefined ? "#session" : `#session/${sessionId}`);
-    navigation?.mark("session");
+    navigation?.mark("workbench");
     session.render();
     focusWorkspace(root);
     void session.load(sessionId === undefined ? {} : { sessionId });
   };
   workspace.showWriting = (draftId) => {
     setNavigationVisible(document, true);
-    activeSection = "writing";
+    activeView = "writing";
     setRoute(document, draftId === undefined ? "#writing" : `#writing/${draftId}`);
     navigation?.mark("writing");
     writing.render();
@@ -151,66 +205,62 @@ export function createWorkspace(root: Element): Workspace {
     options: { generate?: boolean } = {},
   ) => {
     setNavigationVisible(document, true);
-    activeSection = "today";
+    activeView = "workbench";
     setRoute(document, discoveryPostId === null ? "#comment/direct" : `#post/${discoveryPostId}`);
     session.close();
-    navigation?.mark("today");
+    navigation?.mark("workbench");
     comment.open(extraction, discoveryPostId, source, options);
     focusWorkspace(root);
     void comment.loadClosingPhrase();
   };
   workspace.openCommentUrl = (url, discoveryPostId, source) => {
     setNavigationVisible(document, true);
-    activeSection = "today";
+    activeView = "workbench";
     setRoute(document, discoveryPostId === null ? "#comment/direct" : `#post/${discoveryPostId}`);
     session.close();
-    navigation?.mark("today");
+    navigation?.mark("workbench");
     comment.openUrl(url, discoveryPostId, source);
     focusWorkspace(root);
     void comment.loadClosingPhrase();
   };
   workspace.showStoredComment = (recommendationId, discoveryPostId, source) => {
     setNavigationVisible(document, true);
-    activeSection = "today";
+    activeView = "workbench";
     const parameters = new URLSearchParams();
     if (discoveryPostId !== null) parameters.set("post", discoveryPostId);
     if (source !== null) parameters.set("source", source);
     const query = parameters.size === 0 ? "" : `?${parameters.toString()}`;
     setRoute(document, `#comment/${recommendationId}${query}`);
     session.close();
-    navigation?.mark("today");
+    navigation?.mark("workbench");
     comment.render();
     focusWorkspace(root);
     void comment.loadClosingPhrase();
     void comment.restore(recommendationId, discoveryPostId, source);
   };
-  workspace.showToday = (selectedPostId) => {
-    setNavigationVisible(document, true);
-    activeSection = "today";
-    setRoute(document, selectedPostId === undefined ? "#today" : `#post/${selectedPostId}`);
-    navigation?.mark("today");
-    today.render();
-    focusWorkspace(root);
-    void today.load(selectedPostId === undefined ? {} : { selectedPostId });
-  };
+  workspace.showToday = (selectedPostId) => workspace.showWorkbench?.(selectedPostId);
   workspace.showActivity = () => {
     setNavigationVisible(document, true);
-    activeSection = "activity";
+    activeView = "activity";
     setRoute(document, "#activity");
     session.close();
-    navigation?.mark("activity");
+    navigation?.mark("more");
     activity.render();
     focusWorkspace(root);
     void activity.load();
   };
   workspace.showRemotePairing = () => {
     session.close();
+    activeView = "more";
+    setRoute(document, "#pairing");
     setNavigationVisible(document, false);
     renderRemotePairing(root, api, () => workspace.showToday?.());
     focusWorkspace(root);
   };
   workspace.showRemotePairingCode = () => {
     session.close();
+    activeView = "more";
+    setRoute(document, "#pairing-code");
     setNavigationVisible(document, true);
     renderPairingCode(root, api);
     focusWorkspace(root);
@@ -222,29 +272,34 @@ export function createWorkspace(root: Element): Workspace {
       void comment.refresh();
       return;
     }
-    if (activeSection === "today") void today.load();
-    else if (activeSection === "session") void session.load();
-    else if (activeSection === "writing") void writing.refreshActive();
-    else if (activeSection === "activity") void activity.load();
-    else void appSettings.load();
+    if (activeView === "home" || activeView === "workbench") void today.load();
+    else if (activeView === "session") void session.load();
+    else if (activeView === "writing") void writing.refreshActive();
+    else if (activeView === "activity") void activity.load();
+    else if (activeView === "settings") void appSettings.load();
   };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refreshAfterResume();
+    if (isCurrentRoot() && document.visibilityState === "visible") refreshAfterResume();
   });
-  document.defaultView?.addEventListener("pageshow", () => refreshAfterResume());
+  document.defaultView?.addEventListener("pageshow", () => {
+    if (isCurrentRoot()) refreshAfterResume();
+  });
   document.defaultView?.addEventListener("hashchange", () => {
+    if (!isCurrentRoot()) return;
     const hash = document.defaultView?.location.hash ?? "";
     const route = routeFromHash(hash);
-    if (route === "writing" && activeSection !== "writing") {
+    if (route === "writing" && activeView !== "writing") {
       workspace.showWriting?.(draftRouteFromHash(hash));
-    } else if (route === "session" && activeSection !== "session") {
+    } else if (route === "session" && activeView !== "session") {
       workspace.showSession?.(sessionRouteFromHash(hash));
-    } else if (route === "activity" && activeSection !== "activity") workspace.showActivity?.();
-    else if (route === "settings" && activeSection !== "settings") workspace.showSettings?.();
-    else if (route === "today" && activeSection !== "today") workspace.showToday?.();
+    } else if (route === "activity" && activeView !== "activity") workspace.showActivity?.();
+    else if (route === "settings" && activeView !== "settings") workspace.showSettings?.();
+    else if (route === "more" && activeView !== "more") workspace.showMore?.();
+    else if (route === "home" && activeView !== "home") workspace.showHome?.();
+    else if (route === "workbench" && activeView !== "workbench") workspace.showWorkbench?.();
     else if (route === "post" && root.querySelector("#comment-status") === null) {
       const postId = postRouteFromHash(hash);
-      if (postId !== null) workspace.showToday?.(postId);
+      if (postId !== null) workspace.showWorkbench?.(postId);
     } else if (route === "comment") {
       const context = commentRouteFromHash(hash);
       if (
@@ -275,24 +330,36 @@ export function mount(documentRef: Document = document): Workspace | null {
     workspace.showSession(sessionRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
   else if (route === "activity") workspace.showActivity();
   else if (route === "settings") workspace.showSettings();
+  else if (route === "more") workspace.showMore();
+  else if (route === "workbench") workspace.showWorkbench();
+  else if (route === "home") workspace.showHome();
   else if (route === "post") {
     const postId = postRouteFromHash(documentRef.defaultView?.location.hash ?? "");
-    workspace.showToday(postId ?? undefined);
+    workspace.showWorkbench(postId ?? undefined);
   } else if (route === "comment") {
     const context = commentRouteFromHash(documentRef.defaultView?.location.hash ?? "");
-    if (context === null) workspace.showToday();
+    if (context === null) workspace.showWorkbench();
     else
       workspace.showStoredComment(
         context.recommendationId,
         context.discoveryPostId,
         context.source,
       );
-  } else workspace.showToday();
+  } else workspace.showHome();
   return workspace;
 }
 
 if (typeof document !== "undefined" && document.getElementById(APP_ROOT_ID) !== null) {
   mount();
+  registerPwaShell();
+}
+
+/** Register only the static shell cache; API calls deliberately bypass the service worker. */
+export function registerPwaShell(): void {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  void navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {
+    // The app remains fully usable online when installation is unavailable (for example private mode).
+  });
 }
 
 function setNavigationVisible(document: Document, visible: boolean): void {
@@ -301,13 +368,28 @@ function setNavigationVisible(document: Document, visible: boolean): void {
 }
 
 /** Map public hash routes back to their owning workspace section. */
-export function routeFromHash(hash: string): NavSection | "post" | "comment" | null {
+export function routeFromHash(
+  hash: string,
+): NavSection | "session" | "activity" | "settings" | "post" | "comment" | null {
   const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
-  if (path === "today") return "today";
+  if (path === "home" || path === "today") return "home";
+  if (path === "workbench" || path === "queue" || path === "batch") return "workbench";
   if (path === "session" || path.startsWith("session/")) return "session";
   if (path === "writing" || path.startsWith("writing/")) return "writing";
-  if (path === "activity") return "activity";
-  if (path === "settings" || path.startsWith("settings/")) return "settings";
+  if (path === "activity" || path === "history" || path === "logs") return "activity";
+  if (path === "settings" || path.startsWith("settings/") || path === "config") {
+    return "settings";
+  }
+  if (
+    path === "more" ||
+    path === "menu" ||
+    path === "devices" ||
+    path === "device" ||
+    path === "pairing" ||
+    path === "pairing-code"
+  ) {
+    return "more";
+  }
   if (path.startsWith("post/")) return "post";
   if (path.startsWith("comment/")) return "comment";
   return null;
@@ -351,6 +433,71 @@ function commentRouteFromHash(hash: string): {
 function setRoute(document: Document, hash: string): void {
   const view = document.defaultView;
   if (view !== null && view.location.hash !== hash) view.location.hash = hash;
+}
+
+function renderMore(
+  root: Element,
+  handlers: { onActivity(): void; onPairing(): void; onSettings(): void; showPairing: boolean },
+): void {
+  const document = root.ownerDocument;
+  root.textContent = "";
+  const status = document.createElement("p");
+  status.id = "workspace-status";
+  status.setAttribute("role", "status");
+  status.textContent = "이력과 설정을 엽니다.";
+  root.append(status);
+
+  const section = document.createElement("section");
+  section.className = "more-menu-panel";
+  const heading = document.createElement("h2");
+  heading.textContent = "더보기";
+  const note = document.createElement("p");
+  note.textContent = "작업 흐름을 방해하지 않는 보조 기능을 여기에서 관리합니다.";
+  section.append(heading, note);
+  const cards: [string, string, string, () => void][] = [
+    [
+      "more-activity",
+      "이력",
+      "댓글, 일괄 작업, 초안의 최근 결과를 확인합니다.",
+      handlers.onActivity,
+    ],
+    [
+      "more-settings",
+      "설정",
+      "작업 기본값과 탐색·자동화, PC 연결을 관리합니다.",
+      handlers.onSettings,
+    ],
+  ];
+  if (handlers.showPairing) {
+    cards.push([
+      "more-pairing",
+      "태블릿 연결",
+      "이 PC에서만 일회용 연결 코드를 만듭니다.",
+      handlers.onPairing,
+    ]);
+  }
+  for (const [id, label, description, handler] of cards) {
+    const card = document.createElement("article");
+    card.className = "more-menu-card";
+    const labelHeading = document.createElement("h3");
+    labelHeading.textContent = label;
+    const detail = document.createElement("p");
+    detail.textContent = description;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.id = id;
+    open.textContent = `${label} 열기`;
+    open.addEventListener("click", handler);
+    card.append(labelHeading, detail, open);
+    section.append(card);
+  }
+  root.append(section);
+}
+
+/** Paired LAN clients must not even be offered desktop-owned device administration. */
+function isLoopbackDesktop(document: Document): boolean {
+  const host = document.defaultView?.location.hostname;
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
 }
 
 function renderRemotePairing(root: Element, api: LocalApiClient, onPaired: () => void): void {

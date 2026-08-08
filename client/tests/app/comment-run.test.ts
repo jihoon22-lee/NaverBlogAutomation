@@ -34,6 +34,8 @@ const RECOMMENDATION: Recommendation = {
     { id: "c2", tone: "curious", comment: "궁금한 후보?", referencedDetail: "근거2" },
     { id: "c3", tone: "supportive", comment: "응원하는 후보", referencedDetail: "근거3" },
   ],
+  createdAt: "2026-08-08T00:00:00Z",
+  updatedAt: null,
   selectedCandidateId: null,
   editedComment: null,
   reviewStatus: "drafted",
@@ -42,7 +44,10 @@ const RECOMMENDATION: Recommendation = {
   commentLength: "medium",
   commentMood: "warm",
   qualityWarnings: [],
-  version: 1,
+  personalizationApplied: false,
+  personalizationMode: "off",
+  personalizationSampleCount: 0,
+  personalizationEligible: true,
 };
 
 const GENERATION: CommentGeneration = {

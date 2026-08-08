@@ -83,9 +83,10 @@ interface Harness {
   emit(event: string, payload: Record<string, unknown>): void;
   fail(): void;
   closed(): number;
+  onBack: () => void;
 }
 
-function harness(overrides: Partial<Harness["api"]> = {}): Harness {
+function harness(overrides: Partial<Harness["api"]> = {}, onBack: () => void = vi.fn()): Harness {
   document.body.innerHTML = '<main id="workspace"></main>';
   const root = document.getElementById("workspace");
   if (root === null) throw new Error("missing root");
@@ -111,6 +112,7 @@ function harness(overrides: Partial<Harness["api"]> = {}): Harness {
   const controller = new SessionController(root, {
     api: api as never,
     stream,
+    onBack,
     onChange: () => controller.render(),
   });
   return {
@@ -120,6 +122,7 @@ function harness(overrides: Partial<Harness["api"]> = {}): Harness {
     emit: (event, payload) => handlers?.onEvent({ event, payload }),
     fail: () => handlers?.onError(),
     closed: () => closes,
+    onBack,
   };
 }
 
@@ -138,6 +141,15 @@ beforeEach(() => {
 });
 
 describe("session scope", () => {
+  it("returns to the workbench from the batch approval screen", () => {
+    const { root, controller, onBack } = harness();
+    controller.render();
+
+    click(root, "#back-to-workbench-button");
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it("shows like and comment as the default scope", () => {
     const { root, controller } = harness();
 
@@ -175,6 +187,15 @@ describe("session scope", () => {
     controller.toggleStep("like");
 
     expect(controller.state.approvedSteps).toEqual(["like", "comment", "mutual_neighbor"]);
+  });
+
+  it("accepts the non-empty workbench preflight scope in stable step order", () => {
+    const { controller } = harness();
+
+    controller.setApprovedSteps(["mutual_neighbor", "comment"]);
+    controller.setApprovedSteps([]);
+
+    expect(controller.state.approvedSteps).toEqual(["comment", "mutual_neighbor"]);
   });
 
   it("rejects a max post count below one", () => {

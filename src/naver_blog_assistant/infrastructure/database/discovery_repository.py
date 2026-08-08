@@ -232,17 +232,19 @@ class SqliteDiscoveryRepository:
         return imported
 
     def list_posts(
-        self, source: DiscoverySource, *, limit: int = 100
+        self,
+        source: DiscoverySource,
+        *,
+        limit: int = 100,
+        include_states: tuple[DiscoveryState, ...] | None = None,
     ) -> tuple[DiscoveredPost, ...]:
+        """List one source, optionally including recovered/skipped items for the web workbench."""
+        states = include_states or (DiscoveryState.QUEUED, DiscoveryState.OPENED)
         with self._engine.connect() as connection:
             rows = connection.execute(
                 select(discovered_posts)
                 .where(discovered_posts.c.source == source.value)
-                .where(
-                    discovered_posts.c.state.in_(
-                        [DiscoveryState.QUEUED.value, DiscoveryState.OPENED.value]
-                    )
-                )
+                .where(discovered_posts.c.state.in_([state.value for state in states]))
                 .order_by(
                     discovered_posts.c.published_at.desc(), discovered_posts.c.created_at.desc()
                 )

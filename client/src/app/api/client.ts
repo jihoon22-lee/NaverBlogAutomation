@@ -25,6 +25,7 @@ import type {
   BlogCategory,
   BodyBlock,
   DiscoveryPost,
+  DiscoveryQueuePage,
   DiscoverySource,
   DiscoveryState,
   EngagementRun,
@@ -46,6 +47,7 @@ import type {
   LlmProviderName,
   LlmProviderStatus,
   PostDraft,
+  PersonalizationMode,
   ProblemDetails,
   PublishRun,
   PublishStep,
@@ -68,6 +70,7 @@ const QUALITY_WARNINGS = new Set([
   "candidate_roles_blurred",
   "candidates_too_similar",
 ]);
+const PERSONALIZATION_MODES = new Set<PersonalizationMode>(["off", "completed_examples"]);
 const STEP_NAMES = new Set<EngagementStepName>(["like", "comment", "mutual_neighbor"]);
 const STEP_STATES = new Set<EngagementStepState>([
   "pending",
@@ -215,6 +218,27 @@ export class LocalApiClient {
   async discoveryQueueFor(source: DiscoverySource): Promise<DiscoveryPost[]> {
     const body = await this.#request("GET", `/api/v1/app/discovery/queue?source=${source}`);
     return readDiscoveryQueue(body);
+  }
+
+  async discoveryQueuePage(
+    options: {
+      source?: DiscoverySource;
+      state?: DiscoveryState;
+      query?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<DiscoveryQueuePage> {
+    const parameters = new URLSearchParams();
+    if (options.source !== undefined) parameters.set("source", options.source);
+    if (options.state !== undefined) parameters.set("state", options.state);
+    if (options.query?.trim()) parameters.set("query", options.query.trim());
+    if (options.cursor !== undefined) parameters.set("cursor", options.cursor);
+    if (options.limit !== undefined) parameters.set("limit", String(options.limit));
+    const query = parameters.size === 0 ? "" : `?${parameters.toString()}`;
+    return readDiscoveryQueuePage(
+      await this.#request("GET", `/api/v1/app/discovery/queue${query}`),
+    );
   }
 
   async browserSession(options: { refresh?: boolean } = {}): Promise<BrowserSession> {
@@ -879,6 +903,25 @@ export function readDiscoveryQueue(body: unknown): DiscoveryPost[] {
   return body.items.map(readDiscoveryPost);
 }
 
+export function readDiscoveryQueuePage(body: unknown): DiscoveryQueuePage {
+  if (!isRecord(body) || !Array.isArray(body.items) || !isRecord(body.counts)) {
+    throw contractError("discovery queue page");
+  }
+  return {
+    items: body.items.map(readDiscoveryPost),
+    counts: {
+      neighbor: readCount(body.counts.neighbor, "neighbor count"),
+      search: readCount(body.counts.search, "search count"),
+      skipped: readCount(body.counts.skipped, "skipped count"),
+      total: readCount(body.counts.total, "total count"),
+    },
+    nextCursor:
+      body.next_cursor === null || body.next_cursor === undefined
+        ? null
+        : readString(body.next_cursor, "next_cursor"),
+  };
+}
+
 function readDiscoveryPost(value: unknown): DiscoveryPost {
   if (!isRecord(value)) throw contractError("discovery post");
   const source = value.source;
@@ -981,6 +1024,31 @@ export function readArticleExtraction(body: unknown): ArticleExtraction {
 
 export function readRecommendation(body: unknown): Recommendation {
   if (!isRecord(body)) throw contractError("recommendation");
+  const fields = new Set([
+    "id",
+    "source_url",
+    "title",
+    "summary",
+    "topics",
+    "candidates",
+    "selected_candidate_id",
+    "edited_comment",
+    "review_status",
+    "created_at",
+    "updated_at",
+    "relationship_level",
+    "speech_style",
+    "comment_length",
+    "comment_mood",
+    "quality_warnings",
+    "personalization_applied",
+    "personalization_mode",
+    "personalization_sample_count",
+    "personalization_eligible",
+  ]);
+  for (const field of Object.keys(body)) {
+    if (!fields.has(field)) throw contractError(`recommendation.${field}`);
+  }
   const status = body.review_status;
   if (typeof status !== "string" || !REVIEW_STATUSES.has(status as ReviewStatus)) {
     throw contractError("review_status");
@@ -996,6 +1064,18 @@ export function readRecommendation(body: unknown): Recommendation {
       throw contractError("quality_warnings");
     }
   }
+  const personalizationMode = body.personalization_mode;
+  if (
+    typeof personalizationMode !== "string" ||
+    !PERSONALIZATION_MODES.has(personalizationMode as PersonalizationMode)
+  ) {
+    throw contractError("personalization_mode");
+  }
+  const personalizationSampleCount = readCount(
+    body.personalization_sample_count,
+    "personalization_sample_count",
+  );
+  if (personalizationSampleCount > 5) throw contractError("personalization_sample_count");
   return {
     id: readString(body.id, "id"),
     sourceUrl: readString(body.source_url, "source_url"),
@@ -1003,6 +1083,9 @@ export function readRecommendation(body: unknown): Recommendation {
     summary: readString(body.summary, "summary"),
     topics: topics.map((topic) => readString(topic, "topics")),
     candidates: candidates.map(readCandidate),
+    createdAt: readString(body.created_at, "created_at"),
+    updatedAt:
+      body.updated_at === undefined ? null : readNullableString(body.updated_at, "updated_at"),
     selectedCandidateId: readNullableString(
       body.selected_candidate_id ?? null,
       "selected_candidate_id",
@@ -1023,7 +1106,10 @@ export function readRecommendation(body: unknown): Recommendation {
     ) as Recommendation["commentLength"],
     commentMood: readString(body.comment_mood, "comment_mood") as Recommendation["commentMood"],
     qualityWarnings: warnings as Recommendation["qualityWarnings"],
-    version: readCount(body.version, "version"),
+    personalizationApplied: readBoolean(body.personalization_applied, "personalization_applied"),
+    personalizationMode: personalizationMode as PersonalizationMode,
+    personalizationSampleCount,
+    personalizationEligible: readBoolean(body.personalization_eligible, "personalization_eligible"),
   };
 }
 

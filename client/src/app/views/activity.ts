@@ -1,11 +1,12 @@
 /** A compact, local-only recent-work screen. */
 
 import type { RecommendationHistoryItem } from "../api/types";
-import type { ActivityState } from "../controllers/activity";
+import type { ActivityFilter, ActivityState } from "../controllers/activity";
 
 export interface ActivityHandlers {
   onClearExamples(): void;
   onDeleteRecommendation(id: string): void;
+  onFilterChange(filter: ActivityFilter): void;
   onOpenDraft(id: string): void;
   onOpenRecommendation(id: string): void;
   onOpenSession(id: string): void;
@@ -29,11 +30,35 @@ export function renderActivity(
   const refresh = button(document, "refresh-activity-button", "새로고침", handlers.onRefresh);
   refresh.disabled = state.loading;
   root.append(refresh);
-  root.append(
-    recommendations(document, state, handlers),
-    sessions(document, state, handlers),
-    drafts(document, state, handlers),
-  );
+  root.append(filters(document, state, handlers));
+  if (state.filter === "all" || state.filter === "recommendation") {
+    root.append(recommendations(document, state, handlers));
+  }
+  if (state.filter === "all" || state.filter === "session") {
+    root.append(sessions(document, state, handlers));
+  }
+  if (state.filter === "all" || state.filter === "draft")
+    root.append(drafts(document, state, handlers));
+}
+
+function filters(document: Document, state: ActivityState, handlers: ActivityHandlers): Element {
+  const section = document.createElement("div");
+  section.className = "activity-filters";
+  section.setAttribute("aria-label", "이력 종류 필터");
+  for (const [filter, label, count] of [
+    ["all", "전체", state.recommendations.length + state.sessions.length + state.drafts.length],
+    ["recommendation", "댓글", state.recommendations.length],
+    ["session", "여러 글", state.sessions.length],
+    ["draft", "초안", state.drafts.length],
+  ] as const) {
+    const choice = button(document, `activity-filter-${filter}`, `${label} ${count}`, () =>
+      handlers.onFilterChange(filter),
+    );
+    choice.className = "activity-filter";
+    choice.setAttribute("aria-pressed", String(state.filter === filter));
+    section.append(choice);
+  }
+  return section;
 }
 
 function recommendations(
@@ -53,9 +78,14 @@ function recommendations(
   if (state.recommendations.length === 0)
     return appendEmpty(document, section, "아직 저장된 댓글 작업이 없습니다.");
   const list = document.createElement("ul");
+  list.className = "activity-card-list";
   for (const item of state.recommendations) {
     const row = document.createElement("li");
-    row.textContent = `${item.title} · ${item.reviewStatus} · ${item.updatedAt ?? item.createdAt}`;
+    row.className = "activity-card";
+    const summary = document.createElement("p");
+    summary.className = "activity-card-summary";
+    summary.textContent = `${item.title} · ${item.reviewStatus} · ${item.updatedAt ?? item.createdAt}`;
+    row.append(summary);
     if (item.comment !== null) {
       const comment = document.createElement("p");
       comment.textContent = item.comment;
@@ -85,9 +115,14 @@ function sessions(document: Document, state: ActivityState, handlers: ActivityHa
   if (state.sessions.length === 0)
     return appendEmpty(document, section, "실행한 여러 글 작업이 없습니다.");
   const list = document.createElement("ul");
+  list.className = "activity-card-list";
   for (const session of state.sessions) {
     const item = document.createElement("li");
-    item.textContent = `${session.state} · ${session.createdAt}`;
+    item.className = "activity-card";
+    const summary = document.createElement("p");
+    summary.className = "activity-card-summary";
+    summary.textContent = `${session.state} · ${session.createdAt}`;
+    item.append(summary);
     item.append(
       document.createTextNode(" "),
       button(document, `open-session-${session.id}`, "작업 다시 보기", () =>
@@ -105,9 +140,14 @@ function drafts(document: Document, state: ActivityState, handlers: ActivityHand
   if (state.drafts.length === 0)
     return appendEmpty(document, section, "저장한 글 초안이 없습니다.");
   const list = document.createElement("ul");
+  list.className = "activity-card-list";
   for (const draft of state.drafts) {
     const item = document.createElement("li");
-    item.textContent = `${draft.title} · ${draft.status} · ${draft.updatedAt ?? "저장 시각 없음"}`;
+    item.className = "activity-card";
+    const summary = document.createElement("p");
+    summary.className = "activity-card-summary";
+    summary.textContent = `${draft.title} · ${draft.status} · ${draft.updatedAt ?? "저장 시각 없음"}`;
+    item.append(summary);
     item.append(
       document.createTextNode(" "),
       button(document, `open-draft-${draft.id}`, "초안 다시 열기", () =>

@@ -68,6 +68,12 @@ export interface DiscoveryPost {
   updatedAt: string;
 }
 
+export interface DiscoveryQueuePage {
+  items: DiscoveryPost[];
+  counts: { neighbor: number; search: number; skipped: number; total: number };
+  nextCursor: string | null;
+}
+
 export interface BrowserSession {
   state: BrowserSessionState;
   login: BrowserLoginState;
@@ -128,6 +134,8 @@ export interface Recommendation {
   summary: string;
   topics: string[];
   candidates: CommentCandidate[];
+  createdAt: string;
+  updatedAt: string | null;
   selectedCandidateId: string | null;
   editedComment: string | null;
   reviewStatus: ReviewStatus;
@@ -136,7 +144,10 @@ export interface Recommendation {
   commentLength: CommentLength;
   commentMood: CommentMood;
   qualityWarnings: QualityWarning[];
-  version: number;
+  personalizationApplied: boolean;
+  personalizationMode: PersonalizationMode;
+  personalizationSampleCount: number;
+  personalizationEligible: boolean;
 }
 
 export interface GenerationOptions {

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import math
 import os
@@ -1614,8 +1616,11 @@ def create_app(
 
     def visible_discovery_posts(
         source: Literal["neighbor", "search"],
+        *,
+        include_states: tuple[DiscoveryState, ...] | None = None,
+        include_orphaned_skipped: bool = False,
     ) -> tuple[tuple[DiscoveredPost, ...], dict[UUID, str]]:
-        posts = discovery.list_posts(DiscoverySource(source))
+        posts = discovery.list_posts(DiscoverySource(source), include_states=include_states)
         labels: dict[UUID, str] = {}
         if source == "neighbor":
             labels = {neighbor.id: neighbor.name for neighbor in discovery.list_neighbors()}
@@ -1624,7 +1629,9 @@ def create_app(
             visible_posts = []
             for post in posts:
                 search = searches.get(post.search_id) if post.search_id is not None else None
-                if search is not None and saved_search_title_matches(search, post.title):
+                if (search is not None and saved_search_title_matches(search, post.title)) or (
+                    include_orphaned_skipped and post.state is DiscoveryState.SKIPPED
+                ):
                     visible_posts.append(post)
             posts = tuple(visible_posts)
             labels = {search.id: search.query for search in searches.values()}
@@ -1653,23 +1660,86 @@ def create_app(
         operation_id="listWebAppDiscoveryQueue",
     )
     def list_web_app_discovery_queue(
-        source: Annotated[Literal["neighbor", "search"], Query()],
+        source: Annotated[Literal["neighbor", "search"] | None, Query()] = None,
+        state: Annotated[
+            Literal["queued", "opened", "completed", "skipped", "unavailable"] | None, Query()
+        ] = None,
+        query: Annotated[str | None, Query(max_length=120)] = None,
+        cursor: Annotated[str | None, Query(max_length=120)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 30,
     ) -> WebAppDiscoveryQueueResponse:
-        posts, labels = visible_discovery_posts(source)
+        entries: list[tuple[DiscoveredPost, str | None]] = []
+        all_entries: list[tuple[DiscoveredPost, str | None]] = []
+        visible_states = (
+            DiscoveryState.QUEUED,
+            DiscoveryState.OPENED,
+            DiscoveryState.SKIPPED,
+        )
+        # Counts drive all three workbench segments, so calculate them across both sources before
+        # the caller's segment/state filter is applied.
+        for item_source in ("neighbor", "search"):
+            posts, labels = visible_discovery_posts(
+                item_source,
+                include_states=visible_states,
+                include_orphaned_skipped=True,
+            )
+            for item in posts:
+                source_label = (
+                    labels.get(item.neighbor_id)
+                    if item.neighbor_id is not None
+                    else labels.get(item.search_id)
+                    if item.search_id is not None
+                    else None
+                )
+                all_entries.append((item, source_label))
+        counts: dict[Literal["neighbor", "search", "skipped", "total"], int] = {
+            "neighbor": sum(
+                item.source is DiscoverySource.NEIGHBOR and item.state is not DiscoveryState.SKIPPED
+                for item, _ in all_entries
+            ),
+            "search": sum(
+                item.source is DiscoverySource.SEARCH and item.state is not DiscoveryState.SKIPPED
+                for item, _ in all_entries
+            ),
+            "skipped": sum(item.state is DiscoveryState.SKIPPED for item, _ in all_entries),
+            "total": len(all_entries),
+        }
+        needle = "" if query is None else query.strip().casefold()
+        for item, source_label in all_entries:
+            if source is not None and item.source.value != source:
+                continue
+            if state is not None and item.state.value != state:
+                continue
+            searchable = " ".join(
+                value
+                for value in (item.title, item.publisher_name, item.publisher_blog_id, source_label)
+                if value is not None
+            ).casefold()
+            if needle and needle not in searchable:
+                continue
+            entries.append((item, source_label))
+        entries.sort(
+            key=lambda entry: (
+                entry[0].published_at or entry[0].created_at,
+                entry[0].id.hex,
+            ),
+            reverse=True,
+        )
+        offset = _decode_queue_cursor(cursor)
+        page = entries[offset : offset + limit]
+        next_cursor = (
+            _encode_queue_cursor(offset + limit) if offset + limit < len(entries) else None
+        )
         return WebAppDiscoveryQueueResponse(
             items=[
                 WebAppDiscoveryPostResponse.from_domain(
                     item,
-                    source_label=(
-                        labels.get(item.neighbor_id)
-                        if item.neighbor_id is not None
-                        else labels.get(item.search_id)
-                        if item.search_id is not None
-                        else None
-                    ),
+                    source_label=source_label,
                 )
-                for item in posts
-            ]
+                for item, source_label in page
+            ],
+            counts=counts,
+            next_cursor=next_cursor,
         )
 
     @app.patch(
@@ -1872,6 +1942,35 @@ def _media_root(settings: ApiSettings) -> Path:
     database = make_url(settings.database_url).database
     base = Path(database).expanduser().parent if database else Path("data")
     return base / "media"
+
+
+def _encode_queue_cursor(offset: int) -> str:
+    """Encode a bounded, opaque queue offset without exposing a database key."""
+    return base64.urlsafe_b64encode(str(offset).encode()).decode().rstrip("=")
+
+
+def _decode_queue_cursor(cursor: str | None) -> int:
+    """Decode an opaque pagination cursor and present malformed values as a normal API error."""
+    if cursor is None:
+        return 0
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+        value = int(raw)
+    except binascii.Error, UnicodeDecodeError, ValueError:
+        raise ApiError(
+            status=422,
+            code="invalid_cursor",
+            title="Invalid cursor",
+            detail="The queue cursor is not valid.",
+        ) from None
+    if value < 0:
+        raise ApiError(
+            status=422,
+            code="invalid_cursor",
+            title="Invalid cursor",
+            detail="The queue cursor is not valid.",
+        )
+    return value
 
 
 def _configured_generator(settings: ApiSettings) -> CommentGenerator:
