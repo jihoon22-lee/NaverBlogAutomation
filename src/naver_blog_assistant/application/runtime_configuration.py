@@ -179,6 +179,13 @@ class RuntimeConfiguration:
             raise RuntimeConfigurationError("launcher_restart_unavailable")
         path = path.expanduser()
         _assert_no_symlink_directory(path.parent)
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as error:
+            raise RuntimeConfigurationError(
+                "private configuration directory is unavailable"
+            ) from error
+        _assert_private_directory(path.parent)
         if path.is_symlink():
             raise RuntimeConfigurationError("private configuration file cannot be a symlink")
         if path.exists():
@@ -292,3 +299,17 @@ def _assert_no_symlink_directory(directory: Path) -> None:
         if current.is_symlink():
             raise RuntimeConfigurationError("private configuration directory cannot be a symlink")
         current = current.parent
+
+
+def _assert_private_directory(directory: Path) -> None:
+    """Require the directory receiving the private file to be owner-only on POSIX."""
+    try:
+        details = directory.stat()
+    except OSError as error:
+        raise RuntimeConfigurationError("private configuration directory is unavailable") from error
+    if not stat.S_ISDIR(details.st_mode):
+        raise RuntimeConfigurationError("private configuration parent is not a directory")
+    if hasattr(os, "getuid") and details.st_uid != os.getuid():
+        raise RuntimeConfigurationError("private configuration directory is not owned by this user")
+    if os.name == "posix" and stat.S_IMODE(details.st_mode) & 0o077:
+        raise RuntimeConfigurationError("private configuration directory permissions must be 0700")

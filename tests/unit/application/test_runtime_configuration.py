@@ -45,6 +45,16 @@ def test_rejects_a_group_readable_private_file(tmp_path: Path) -> None:
         configuration.update({"OPENAI_MODEL": "new"})
 
 
+def test_rejects_a_group_readable_private_directory(tmp_path: Path) -> None:
+    private = tmp_path / "private"
+    private.mkdir()
+    private.chmod(0o750)
+    configuration = RuntimeConfiguration(private / "env", environment={})
+
+    with pytest.raises(RuntimeConfigurationError, match="0700"):
+        configuration.update({"OPENAI_MODEL": "new"})
+
+
 def test_rejects_duplicate_known_keys_before_overwriting(tmp_path: Path) -> None:
     target = tmp_path / "env"
     private_file(target, "OPENAI_MODEL=old\nOPENAI_MODEL=older\n")

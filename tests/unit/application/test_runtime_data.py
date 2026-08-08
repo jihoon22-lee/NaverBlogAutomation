@@ -88,3 +88,25 @@ def test_export_refuses_a_symlink_inside_media(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeDataError, match="symlink"):
         manager(tmp_path, []).export()
+
+
+def test_export_refuses_a_symlinked_database_parent(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    linked = tmp_path / "linked"
+    try:
+        linked.symlink_to(actual, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available in this environment")
+    database = linked / "app.sqlite3"
+    database.write_bytes(b"SQLite format 3\x00")
+    media = tmp_path / "media"
+    media.mkdir()
+
+    data = RuntimeDataManager(
+        database_path=database,
+        media_root=media,
+        dispose_engine=lambda: None,
+    )
+    with pytest.raises(RuntimeDataError, match="symlink"):
+        data.export()

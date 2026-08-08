@@ -119,6 +119,7 @@ class RuntimeDataManager:
         return RuntimeDataReset(backup_location=str(backup))
 
     def _files(self) -> Iterable[Path]:
+        self._assert_path_layout()
         for label, target in self._targets():
             if not target.exists():
                 continue
@@ -161,6 +162,7 @@ class RuntimeDataManager:
         database = self._database_path
         if database is None:
             return None
+        self._assert_path_layout()
         try:
             common = Path(
                 os.path.commonpath((database.parent.resolve(), self._media_root.resolve()))
@@ -180,6 +182,12 @@ class RuntimeDataManager:
         if root.is_symlink() or (root.exists() and not root.is_dir()):
             raise RuntimeDataError("runtime_data_root_unsafe")
 
+    def _assert_path_layout(self) -> None:
+        """Reject symlinked database/media path components before resolving or moving them."""
+        if self._database_path is not None:
+            _assert_no_symlink_component(self._database_path)
+        _assert_no_symlink_component(self._media_root)
+
     @staticmethod
     def _assert_target(path: Path, *, directory: bool) -> None:
         if path.is_symlink():
@@ -192,6 +200,15 @@ class RuntimeDataManager:
         mode = path.stat().st_mode
         if not stat.S_ISDIR(mode) and not stat.S_ISREG(mode):
             raise RuntimeDataError("runtime_data_target_unsafe")
+
+
+def _assert_no_symlink_component(path: Path) -> None:
+    """Reject a target reached through a symlinked component, including a missing leaf."""
+    current = path.absolute()
+    while current != current.parent:
+        if current.is_symlink():
+            raise RuntimeDataError("runtime_data_path_symlink")
+        current = current.parent
 
 
 __all__ = [
