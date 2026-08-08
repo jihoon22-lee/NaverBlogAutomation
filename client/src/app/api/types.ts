@@ -134,6 +134,8 @@ export interface Recommendation {
   summary: string;
   topics: string[];
   candidates: CommentCandidate[];
+  createdAt: string;
+  updatedAt: string | null;
   selectedCandidateId: string | null;
   editedComment: string | null;
   reviewStatus: ReviewStatus;
@@ -142,6 +144,10 @@ export interface Recommendation {
   commentLength: CommentLength;
   commentMood: CommentMood;
   qualityWarnings: QualityWarning[];
+  personalizationApplied: boolean;
+  personalizationMode: PersonalizationMode;
+  personalizationSampleCount: number;
+  personalizationEligible: boolean;
 }
 
 export interface GenerationOptions {
