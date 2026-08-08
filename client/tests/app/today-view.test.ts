@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../src/app/api/client";
 import type {
+  AppReadiness,
   ArticleExtraction,
   BrowserSession,
   DiscoveryPost,
@@ -10,6 +11,8 @@ import type {
   ServiceStatus,
 } from "../../src/app/api/types";
 import { TodayController } from "../../src/app/controllers/today";
+import { initialTodayState, type TodayState } from "../../src/app/state/today";
+import { renderHome, renderToday, type TodayHandlers } from "../../src/app/views/today";
 
 const SERVICE: ServiceStatus = {
   status: "ready",
@@ -100,8 +103,111 @@ function text(selector: string): string {
   return document.querySelector(selector)?.textContent ?? "";
 }
 
+function handlers(): TodayHandlers {
+  return {
+    onCloseSession: vi.fn(),
+    onFilterChange: vi.fn(),
+    onFocusSession: vi.fn(),
+    onLaunchSession: vi.fn(),
+    onLoadMore: vi.fn(),
+    onOpenBatch: vi.fn(),
+    onOpenDirectUrl: vi.fn(),
+    onOpenPost: vi.fn(),
+    onOpenSettings: vi.fn(),
+    onOpenWorkbench: vi.fn(),
+    onPostStateChange: vi.fn(),
+    onQueryChange: vi.fn(),
+    onRefresh: vi.fn(),
+    onSelectPost: vi.fn(),
+    onSegmentChange: vi.fn(),
+    onSortChange: vi.fn(),
+    onToggleBatchStep: vi.fn(),
+    onTogglePostSelection: vi.fn(),
+  };
+}
+
+function readiness(blockers: AppReadiness["blockers"]): AppReadiness {
+  return {
+    accessMode: "local",
+    automationConsent: blockers.indexOf("automation_consent_missing") < 0,
+    blockers,
+    browserLogin: blockers.includes("naver_login_required") ? "anonymous" : "authenticated",
+    browserState: blockers.includes("browser_not_running") ? "stopped" : "ready",
+    generationAvailable: !blockers.includes("llm_provider_missing"),
+    lanAddresses: [],
+    ownBlogConfigured: !blockers.includes("own_blog_id_missing"),
+    safetyPolicyConfigured: !blockers.includes("safety_policy_missing"),
+    webAppAssetsReady: !blockers.includes("web_app_assets_missing"),
+  };
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
+});
+
+describe("home and onboarding views", () => {
+  it("renders loading, failed, empty, ready, and blocker states", () => {
+    const root = mountRoot();
+    const base = initialTodayState();
+    const viewHandlers = handlers();
+
+    renderHome(root, { ...base, phase: "loading" }, viewHandlers);
+    expect(text("#workspace-status")).toContain("불러오는 중");
+    expect(text(".home-readiness-panel")).toContain("확인하는 중");
+
+    renderHome(root, { ...base, phase: "failed", error: null }, viewHandlers);
+    expect(text("#workspace-status")).toContain("불러오지 못했습니다");
+
+    renderHome(
+      root,
+      { ...base, counts: { neighbor: 0, search: 0, skipped: 0, total: 0 } },
+      viewHandlers,
+    );
+    expect(text(".home-summary-panel")).toContain("아직 처리할 글이 없습니다");
+
+    const ready: TodayState = {
+      ...base,
+      phase: "ready",
+      counts: { neighbor: 2, search: 1, skipped: 0, total: 3 },
+      readiness: readiness([]),
+    };
+    renderHome(root, ready, viewHandlers);
+    expect(text(".home-readiness-panel")).toContain("시작할 준비");
+    expect(text(".home-summary-panel")).toContain("처리 대기 3건");
+
+    renderHome(
+      root,
+      {
+        ...ready,
+        readiness: readiness([
+          "browser_not_running",
+          "naver_login_required",
+          "llm_provider_missing",
+        ]),
+      },
+      viewHandlers,
+    );
+    expect(document.getElementById("home-launch-browser")).not.toBeNull();
+    expect(document.getElementById("home-focus-browser")).not.toBeNull();
+    expect(document.getElementById("home-llm_provider_missing")).not.toBeNull();
+  });
+
+  it("renders the workbench service/onboarding shell without a selected detail", () => {
+    const root = mountRoot();
+    const state = {
+      ...initialTodayState(),
+      phase: "ready" as const,
+      readiness: readiness(["web_app_assets_missing"]),
+      service: SERVICE,
+      session: STOPPED_SESSION,
+    };
+
+    renderToday(root, state, handlers());
+
+    expect(document.querySelector(".onboarding-panel")).not.toBeNull();
+    expect(document.querySelector(".detail-panel")).toBeNull();
+    expect(document.getElementById("launch-session-button")).not.toBeNull();
+  });
 });
 
 describe("initial render", () => {
