@@ -195,6 +195,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -218,6 +219,7 @@ export class TodayController {
       return null;
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -232,6 +234,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -281,6 +284,7 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
@@ -335,6 +339,7 @@ export class TodayController {
       return null;
     } finally {
       this.#busy = false;
+      this.render();
     }
   }
 
