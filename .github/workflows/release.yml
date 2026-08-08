@@ -44,9 +44,12 @@ jobs:
         run: |
           git fetch origin main --depth=1
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          uv sync --frozen
           npm ci --prefix client
           npm ci --prefix extension
+          # The Python wheel force-includes the generated web-app and page bundles. Build them
+          # before uv sync so Hatchling can create the editable project during dependency install.
+          npm --prefix client run build
+          uv sync --frozen
 
       - name: Verify version metadata
         id: version
