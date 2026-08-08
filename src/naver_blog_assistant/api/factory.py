@@ -1678,10 +1678,13 @@ def create_app(
     def visible_discovery_posts(
         source: Literal["neighbor", "search"],
         *,
+        limit: int | None = 100,
         include_states: tuple[DiscoveryState, ...] | None = None,
         include_orphaned_skipped: bool = False,
     ) -> tuple[tuple[DiscoveredPost, ...], dict[UUID, str]]:
-        posts = discovery.list_posts(DiscoverySource(source), include_states=include_states)
+        posts = discovery.list_posts(
+            DiscoverySource(source), limit=limit, include_states=include_states
+        )
         labels: dict[UUID, str] = {}
         if source == "neighbor":
             labels = {neighbor.id: neighbor.name for neighbor in discovery.list_neighbors()}
@@ -1736,12 +1739,17 @@ def create_app(
             DiscoveryState.OPENED,
             DiscoveryState.SKIPPED,
         )
+        requested_state = DiscoveryState(state) if state is not None else None
+        load_states = visible_states
+        if requested_state is not None and requested_state not in load_states:
+            load_states = (*load_states, requested_state)
         # Counts drive all three workbench segments, so calculate them across both sources before
         # the caller's segment/state filter is applied.
         for item_source in ("neighbor", "search"):
             posts, labels = visible_discovery_posts(
                 item_source,
-                include_states=visible_states,
+                limit=None,
+                include_states=load_states,
                 include_orphaned_skipped=True,
             )
             for item in posts:
@@ -1753,17 +1761,22 @@ def create_app(
                     else None
                 )
                 all_entries.append((item, source_label))
+        count_entries = [
+            (item, source_label)
+            for item, source_label in all_entries
+            if item.state in visible_states
+        ]
         counts: dict[Literal["neighbor", "search", "skipped", "total"], int] = {
             "neighbor": sum(
                 item.source is DiscoverySource.NEIGHBOR and item.state is not DiscoveryState.SKIPPED
-                for item, _ in all_entries
+                for item, _ in count_entries
             ),
             "search": sum(
                 item.source is DiscoverySource.SEARCH and item.state is not DiscoveryState.SKIPPED
-                for item, _ in all_entries
+                for item, _ in count_entries
             ),
-            "skipped": sum(item.state is DiscoveryState.SKIPPED for item, _ in all_entries),
-            "total": len(all_entries),
+            "skipped": sum(item.state is DiscoveryState.SKIPPED for item, _ in count_entries),
+            "total": len(count_entries),
         }
         needle = "" if query is None else query.strip().casefold()
         for item, source_label in all_entries:

@@ -613,6 +613,101 @@ def test_web_app_queue_pages_filters_and_restores_skipped_posts(client: TestClie
     assert restored.json()["state"] == "queued"
 
 
+def test_web_app_queue_cursor_reaches_posts_beyond_the_legacy_source_cap(
+    client: TestClient,
+) -> None:
+    neighbor_id = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "긴 큐 이웃",
+            "blog_url": "https://blog.naver.com/long-queue-neighbor",
+            "blog_id": "long-queue-neighbor",
+        },
+    ).json()["id"]
+    for batch_start in range(0, 101, 50):
+        batch_end = min(batch_start + 50, 101)
+        response = client.post(
+            "/api/v1/discovery/import",
+            json={
+                "source": "neighbor",
+                "neighbor_id": neighbor_id,
+                "posts": [
+                    {
+                        "source_url": f"https://blog.naver.com/long-queue-neighbor/{number}",
+                        "title": f"긴 큐 {number}",
+                    }
+                    for number in range(batch_start, batch_end)
+                ],
+            },
+        )
+        assert response.json() == {"imported_count": batch_end - batch_start}
+
+    first = client.get("/api/v1/app/discovery/queue?source=neighbor&limit=100").json()
+    assert len(first["items"]) == 100
+    assert first["counts"] == {"neighbor": 101, "search": 0, "skipped": 0, "total": 101}
+    assert first["next_cursor"] is not None
+
+    second = client.get(
+        "/api/v1/app/discovery/queue",
+        params={"source": "neighbor", "limit": 100, "cursor": first["next_cursor"]},
+    ).json()
+    assert len(second["items"]) == 1
+    assert second["next_cursor"] is None
+    assert {item["id"] for item in first["items"]}.isdisjoint(
+        {item["id"] for item in second["items"]}
+    )
+
+
+def test_web_app_queue_can_filter_completed_and_unavailable_states(client: TestClient) -> None:
+    neighbor_id = client.post(
+        "/api/v1/discovery/neighbors",
+        json={
+            "name": "상태 이웃",
+            "blog_url": "https://blog.naver.com/state-neighbor",
+            "blog_id": "state-neighbor",
+        },
+    ).json()["id"]
+    imported = client.post(
+        "/api/v1/discovery/import",
+        json={
+            "source": "neighbor",
+            "neighbor_id": neighbor_id,
+            "posts": [
+                {
+                    "source_url": "https://blog.naver.com/state-neighbor/completed",
+                    "title": "완료 상태",
+                },
+                {
+                    "source_url": "https://blog.naver.com/state-neighbor/unavailable",
+                    "title": "사용 불가 상태",
+                },
+            ],
+        },
+    )
+    assert imported.json() == {"imported_count": 2}
+    queued = client.get("/api/v1/app/discovery/queue?source=neighbor").json()["items"]
+    by_title = {item["title"]: item["id"] for item in queued}
+    assert (
+        client.patch(
+            f"/api/v1/discovery/queue/{by_title['완료 상태']}", json={"state": "completed"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/discovery/queue/{by_title['사용 불가 상태']}",
+            json={"state": "unavailable"},
+        ).status_code
+        == 200
+    )
+
+    completed = client.get("/api/v1/app/discovery/queue?state=completed").json()
+    unavailable = client.get("/api/v1/app/discovery/queue?state=unavailable").json()
+    assert [item["title"] for item in completed["items"]] == ["완료 상태"]
+    assert [item["title"] for item in unavailable["items"]] == ["사용 불가 상태"]
+    assert completed["counts"] == {"neighbor": 0, "search": 0, "skipped": 0, "total": 0}
+
+
 def test_discovery_search_import_applies_saved_exclusions_and_dated_freshness(
     client: TestClient,
 ) -> None:
