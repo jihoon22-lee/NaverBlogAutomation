@@ -4,9 +4,12 @@ import { ApiError, LocalApiClient } from "../api/client";
 import type { AutomationSession, PostDraft, RecommendationHistoryItem } from "../api/types";
 import { renderActivity } from "../views/activity";
 
+export type ActivityFilter = "all" | "draft" | "recommendation" | "session";
+
 export interface ActivityState {
   drafts: PostDraft[];
   error: string | null;
+  filter: ActivityFilter;
   loading: boolean;
   notice: string | null;
   recommendations: RecommendationHistoryItem[];
@@ -38,6 +41,7 @@ export class ActivityController {
   #state: ActivityState = {
     drafts: [],
     error: null,
+    filter: "all",
     loading: false,
     notice: null,
     recommendations: [],
@@ -60,6 +64,7 @@ export class ActivityController {
     renderActivity(this.#root, this.#state, {
       onClearExamples: () => void this.clearExamples(),
       onDeleteRecommendation: (id) => void this.deleteRecommendation(id),
+      onFilterChange: (filter) => this.setFilter(filter),
       onOpenDraft: this.#onOpenDraft,
       onOpenRecommendation: this.#onOpenRecommendation,
       onOpenSession: this.#onOpenSession,
@@ -80,6 +85,7 @@ export class ActivityController {
       this.#update({
         drafts,
         error: null,
+        filter: this.#state.filter,
         loading: false,
         notice: null,
         recommendations,
@@ -129,6 +135,11 @@ export class ActivityController {
     } catch (error) {
       this.#update({ ...this.#state, error: describe(error) });
     }
+  }
+
+  /** Filter locally loaded records without losing their place or fetching again. */
+  setFilter(filter: ActivityFilter): void {
+    this.#update({ ...this.#state, filter });
   }
 
   #update(state: ActivityState): void {

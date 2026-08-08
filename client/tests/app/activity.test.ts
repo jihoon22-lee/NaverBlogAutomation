@@ -100,4 +100,21 @@ describe("recent activity", () => {
     expect(onOpenDraft).toHaveBeenCalledWith(DRAFT.id);
     expect(onOpenSession).toHaveBeenCalledWith(SESSION.id);
   });
+
+  it("filters compact summary cards without reloading the activity records", async () => {
+    const root = document.getElementById("workspace") as Element;
+    const client = api();
+    client.drafts.mockResolvedValue([DRAFT] as never);
+    client.sessions.mockResolvedValue([SESSION] as never);
+    const controller = new ActivityController(root, client as never);
+    await controller.load();
+
+    (root.querySelector("#activity-filter-draft") as HTMLButtonElement).click();
+
+    expect(root.querySelectorAll(".activity-card")).toHaveLength(1);
+    expect(root.textContent).toContain("합성 초안");
+    expect(root.textContent).not.toContain("합성 댓글 작업");
+    expect(root.textContent).not.toContain("여러 글 처리 이력");
+    expect(client.recommendations).toHaveBeenCalledTimes(1);
+  });
 });
