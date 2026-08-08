@@ -79,6 +79,9 @@ for (const viewport of VIEWPORTS) {
         sources: ["neighbor"],
       });
       await page.locator("#back-to-workbench-button").click();
+      if (viewport.name === "tablet portrait") {
+        await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+      }
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
       await expect(page.locator("#skip-post-button")).toBeVisible();

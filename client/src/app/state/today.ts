@@ -94,9 +94,9 @@ export function withLoaded(
     phase: "ready",
     posts,
     readiness: loaded.readiness ?? state.readiness,
-    // A first workbench load should show the selected card; subsequent refreshes preserve an
-    // explicit close on a tablet sheet.
-    detailOpen: selected !== null && (state.detailOpen || state.selectedPostId === null),
+    // Narrow screens start with the list so batch selection remains reachable; selecting a row
+    // explicitly opens the detail sheet and refreshes preserve that choice.
+    detailOpen: state.detailOpen,
     selectedPostId: selected,
     service: loaded.service,
     session: loaded.session,

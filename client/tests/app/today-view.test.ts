@@ -418,6 +418,9 @@ describe("selection and opening", () => {
 
     expect(document.querySelectorAll(".detail-badges [data-badge]")).toHaveLength(4);
     expect(text('.detail-badges [data-badge="source"]')).toContain("이웃 새 글");
+    expect(controller.state.detailOpen).toBe(false);
+
+    (document.querySelector(".queue-item") as HTMLButtonElement).click();
     expect(controller.state.detailOpen).toBe(true);
 
     (document.getElementById("close-detail-sheet") as HTMLButtonElement).click();

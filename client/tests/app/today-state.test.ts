@@ -112,7 +112,7 @@ describe("withLoaded", () => {
 
     expect(state.phase).toBe("ready");
     expect(state.selectedPostId).toBe("1");
-    expect(state.detailOpen).toBe(true);
+    expect(state.detailOpen).toBe(false);
   });
 
   it("keeps a selection that still exists", () => {

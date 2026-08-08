@@ -141,6 +141,9 @@ export class TodayController {
       this.#update(withFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
+      // The request result was rendered while the guard was still set. Render once more after
+      // releasing it so a newly visible action cannot be silently ignored by a fast next click.
+      this.render();
     }
   }
 
