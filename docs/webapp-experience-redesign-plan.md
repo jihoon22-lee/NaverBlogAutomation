@@ -1,6 +1,6 @@
 # 웹앱 UX 전면 개편 — 실행·검증 기준서
 
-> 상태: **구현 완료 / local·mock 검증 완료 / 최신 PR CI 재실행 중 / 외부 live smoke 대기** · 기준일: 2026-08-08 · 적용 범위:
+> 상태: **구현 완료 / local·mock 검증 완료 / code jobs 통과 / GitHub Quality gate 계정 결제 blocker / 외부 live smoke 대기** · 기준일: 2026-08-08 · 적용 범위:
 > desktop web app, paired tablet web app, local API, browser automation adapter
 >
 > 이 문서는 이번 UX 전면 개편의 단일 실행 기준이다. 현재 구현은 두 개의 기능 단위 커밋 묶음으로
@@ -21,7 +21,7 @@
 | 로컬 자동 검증 | 완료 | Python `1462 passed`, client `628 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
 | 보안/호환성 검증 | 완료 | runtime redaction/권한/symlink/pair 제한, OpenAPI parser parity, legacy route/endpoint 회귀 검증 | 실제 배포 환경의 운영자 확인만 남음 |
 | 실제 Naver editor 확인 | 외부 opt-in 대기 | 지원 block별 trusted input smoke harness와 fail-closed 경로 준비 | 전용 로그인 profile에서 `RUN_LIVE_NAVER=1` 실행 |
-| PR 전달 | review-ready | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)이 review-ready이며 PR 1은 최신 CI green, PR 2는 보안 보강 커밋 후 CI 재실행 중 | CI 완료 확인 후 merge/review |
+| PR 전달 | review-ready / CI 외부 blocker | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)은 required checks green. [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)은 Python·Client·TypeScript·System E2E·browser·launcher가 통과했지만 aggregate Quality gate runner가 계정 결제 오류로 시작되지 않음 | GitHub Billing & plans 또는 spending limit 해결 후 Quality gate 재실행, merge/review |
 
 ## 1. 범위 잠금과 완료 선언 규칙
 
@@ -343,7 +343,7 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
 | PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) · head `5f3a2b1` | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract, `5f3a2b1` legacy hash 별칭 | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
-| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, latest head `2a8db50` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, `2a8db50` 보호 경로 보강 | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped; 최신 CI는 재실행 중 |
+| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, source head `2a8db50` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, `2a8db50` 보호 경로 보강 | 실제 Naver 계정 호출은 기본 skip | 개별 Python/client/TypeScript/E2E/browser/launcher 통과, aggregate Quality gate는 계정 결제 blocker |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
 명령의 최종 summary, 외부 opt-in 제한을 그대로 복사한다. Plan 문서는 PR 2에서 최종 실행 기록과
@@ -422,6 +422,7 @@ PR URL을 갱신한다.
 | 2026-08-08 | Web app journey E2E | 통과 | `npm --prefix extension run test:e2e`: 5 passed (desktop 1440, tablet portrait 768, landscape 1024 각각 Chromium + legacy workflow); writing autosave/preview, skipped restore, settings redaction, export/reset, PWA no-API-cache assertion 포함. |
 | 2026-08-08 | Secret/artifact audit | 통과 | runtime API/DOM/log/export tests가 plaintext secret을 거부하고, E2E는 synthetic credentials만 사용하며 screenshot artifact를 생성하지 않는다. generated `client/dist`/`extension/dist`와 Playwright temp output에 secret pattern 없음. |
 | 2026-08-08 | Runtime path hardening | 통과 | `test_runtime_configuration.py` + `test_runtime_data.py`: 15 passed. private env parent `0700`, owner check, database/media symlink parent rejection을 추가한 `2a8db50`을 검증했다. |
+| 2026-08-08 | PR 2 aggregate Quality gate | 외부 blocker | run `31258132421`에서 Python·Client·TypeScript·System E2E·Automation browser·Linux/Windows/macOS launcher·Commit convention은 통과. `Quality gate` job은 runner/step/log 없이 시작되지 않았고 annotation이 GitHub account payment failure 또는 spending limit 초과를 명시했다. Billing 해결 전에는 code failure로 분류하지 않는다. |
 
 ## 11. 문서 완료 checklist
 
@@ -442,11 +443,11 @@ PR URL을 갱신한다.
 | --- | --- | --- |
 | implementation head | `2a8db50` (`fix(runtime): 보호 경로의 부모 권한과 symlink를 검증한다`) | runtime file parent `0700`/owner와 database·media symlink parent 거부까지 포함 |
 | PR 1 | [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), `feature/webapp-workbench` → `main`, head `5f3a2b1`, review-ready | PR 1 범위의 required checks가 green이면 A 단위 수용 |
-| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, head `2a8db50`, review-ready | PR 2 head의 CI가 다시 green인지 확인한 뒤 review/merge |
+| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, source head `2a8db50`, review-ready | run `31258132421`의 개별 code/runner job은 통과. aggregate `Quality gate`는 GitHub account payment/spending-limit 오류로 job이 시작되지 않아 billing 해결 후 재실행 필요 |
 | local Python | `1462 passed, 8 skipped`, coverage 90.06% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
 | local client/extension | client 628, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
 | 외부 live | Naver staging smoke 1 skipped | `RUN_LIVE_NAVER=1`과 dedicated logged-in profile 없이는 실행하지 않음 |
-| merge 전 남은 일 | 최신 CI 확인, reviewer 승인, 실제 Naver smoke opt-in | 이 문서의 구현 수용 기준을 뒤집는 미완료 항목은 아님 |
+| merge 전 남은 일 | GitHub billing/spending limit 해소 후 aggregate Quality gate 재실행, reviewer 승인, 실제 Naver smoke opt-in | billing은 코드/테스트 실패가 아닌 외부 계정 상태이며, 해결 전 aggregate check만 failed로 남음 |
 
 문서 변경 이후의 커밋은 이 표의 implementation head를 갱신해야 한다. CI가 재실행 중일 때는
 `완료`로 미리 기록하지 않고 `재실행 중`으로 둔다. `gh pr checks 90`, `gh pr checks 91`의
@@ -709,10 +710,12 @@ stacked PR을 review하는 동안에는 PR 1의 최신 contract가 PR 2에 반�
 ### 아직 완료로 표시하지 않는 것
 
 - [ ] 실제 Naver editor에서 documented signature로 block별 trusted input을 실행한 live smoke
+- [ ] GitHub Billing & plans 또는 spending limit을 해결하고 PR 2 aggregate Quality gate를 다시 실행한 상태
 - [ ] reviewer가 PR 1/PR 2를 승인하고 merge한 상태
 - [ ] merge 후 main 기준으로 release/launcher 운영자가 private env 위치와 backup 정책을 확인한 상태
 
-위 세 항목은 local 구현을 다시 작성하는 작업이 아니다. 첫 항목은 외부 계정과 사용자의 확인이
-필요하고, 뒤의 두 항목은 GitHub review/운영 handoff 상태다. 그 외에 “구현이 덜 됐다”는 이유로
+위 네 항목은 local 구현을 다시 작성하는 작업이 아니다. 첫 항목은 GitHub 계정 결제 상태,
+두 번째 항목은 외부 계정과 사용자의 확인, 뒤의 두 항목은 GitHub review/운영 handoff 상태다.
+그 외에 “구현이 덜 됐다”는 이유로
 남겨 둔 기능 ID는 없다. 새로운 요구가 생기면 이 문서에 ID와 직접 검증을 먼저 추가한 뒤 별도
 커밋/PR 단위로 범위를 확장한다.
