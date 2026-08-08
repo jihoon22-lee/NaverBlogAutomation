@@ -197,6 +197,9 @@ describe("generation", () => {
     await controller.generate();
 
     expect(document.querySelectorAll(".candidate-item")).toHaveLength(3);
+    expect(document.querySelectorAll(".candidate-card")).toHaveLength(3);
+    expect(text(".candidate-card:nth-child(1) .candidate-tone")).toContain("따뜻한");
+    expect(text(".candidate-card:nth-child(1) .candidate-evidence")).toContain("근거1");
     expect((document.getElementById("comment-draft") as HTMLTextAreaElement).value).toBe(
       "따뜻한 후보",
     );
