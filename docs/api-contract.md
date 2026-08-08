@@ -13,8 +13,10 @@ service 구현이 반드시 보존해야 하는 행동을 기록합니다. endpo
 - Authentication: loopback desktop은 없음, paired private-LAN device는 session cookie와 CSRF header
 - Browser access: 같은 origin의 SPA
 
-기본 service는 `127.0.0.1`에 bind합니다. `WEBAPP_ACCESS_MODE=lan`을 명시한 경우에만 private
-Wi-Fi의 `0.0.0.0:8765`를 열고, PC가 발견한 private IPv4 Host와 loopback Host만 허용합니다.
+기본 service는 `127.0.0.1`에 bind합니다. PC의 runtime settings에서 LAN access를 저장하고
+supervised restart를 승인한 경우에만 private Wi-Fi의 `0.0.0.0:8765`를 열고, PC가 발견한 private
+IPv4 Host와 loopback Host만 허용합니다. 이 저장은 `WEBAPP_ACCESS_MODE`와 파생 `API_HOST`를 private
+env file에 기록하며, port는 웹 설정으로 바꿀 수 없습니다.
 non-loopback device는 PC에서 만든 일회용 code로 pair해야 하며 이후 `HttpOnly`, `SameSite=Strict`
 session cookie와 `X-NBA-CSRF` header를 사용합니다. public hosting과 port forwarding은 지원하지
 않습니다. 설정된 legacy extension origin 외의 foreign Origin은 거부합니다.
@@ -346,7 +348,19 @@ client가 선택한 단계·글 수와 비교해 표시하지만, server도 매 
 ### `GET /api/v1/drafts/{draft_id}/stage/events` — 임시저장 진행 SSE
 
 `PublishRun`의 5단계(`title`, `body`, `images`, `tags`, `save`) 진행을 event stream으로
-전달합니다.
+전달합니다. `step_completed`는 `run_id`, `step`, `state`, `result_code`를 포함합니다. `body`
+단계에는 `detail.requested_range_start`, `detail.requested_range_end`,
+`detail.observed_prefix_count`도 포함해, 요청한 block 범위와 실제로 구조 검증을 마친 앞부분을
+알립니다. 이 detail에는 초안 원문, 이미지 ID/경로, 태그, credential을 넣지 않습니다.
+
+### Runtime data — PC 전용 데이터 관리
+
+`GET /api/v1/runtime/data`는 database/media 위치와 전체 크기 외에 `database_file_count`
+(SQLite DB/WAL/SHM)와 `media_file_count`를 반환합니다. `POST /api/v1/runtime/data/export`와
+`POST /api/v1/runtime/data/reset`은 loopback PC 및 idle browser/batch/staging에서만 가능하며,
+export는 database/media만 담은 ZIP을 browser download로 반환합니다. private dotenv와 browser
+profile은 포함하지 않습니다. reset은 `RESET LOCAL DATA` typed confirmation 뒤 데이터를 private
+backup으로 이동하고 supervisor restart를 요청합니다.
 
 ## 블로그 카탈로그
 
@@ -385,8 +399,6 @@ client가 선택한 단계·글 수와 비교해 표시하지만, server도 매 
 | `automation_consent` | 자동 실행 동의 (version + accepted) |
 | `safety_policy` | 일일 상한, 허용 시간대, 연속 실패 중단, 최소 간격·jitter |
 | `schedule_policy` | 무인 스케줄 모드·시각·최대 글 수 |
-| `browser_profile` | headless 여부, channel |
-| `llm_providers` | 기본 provider, provider별 model 선택 |
 | `llm_budget` | 일일 호출 상한(`daily_call_cap`), 요청당 provider 상한(`per_request_provider_cap`) |
 | `writing_profile` | 글쓰기 기본 길이·분위기·구성·참고글 수·태그 상한·이미지 vision |
 

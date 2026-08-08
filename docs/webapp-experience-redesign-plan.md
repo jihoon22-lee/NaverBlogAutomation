@@ -75,17 +75,16 @@ adapter 검증이 기본 gate이고, 별도 동의한 테스트 계정에서만 
 | --- | --- | --- | --- |
 | 네 개 navigation·legacy hash redirect | `navigation.ts`, `main.ts`, `main.test.ts`, `navigation.test.ts` | 부분 | desktop/768/1024 E2E와 route 재개 검증 |
 | home/workbench 분리·cursor queue·보류 복구 | app queue route, `TodayController`, `test_local_api.py`, `today-view.test.ts` | 부분 | batch preview의 한도/시간, journey와 viewport 확인 |
-| `Recommendation.version` 제거 | OpenAPI/client parser/fixture 수정과 API client test | 부분 | schema-parity test를 gate로 연결하고 전체 client coverage 통과 |
+| `Recommendation.version` 제거 | OpenAPI/client parser/fixture 수정과 API client test | 부분 | schema-parity test를 gate로 연결하고 full Python/viewport 검증 |
 | activity card·PWA shell | `activity.ts`, manifest, `service-worker.js`, SPA mount test | 부분 | API non-cache와 viewport/PWA install 확인 |
-| canonical block·working copy·migration `0021` | domain/draft API/repository/migration/conflict test | 부분 | full migration gate 및 editor resume journey |
-| structured staging | `readEditorBlocks()`와 fail-closed `StagePost` | **미완료** | toolbar/action capability probe, block-by-block trusted input, image position/caption, progress evidence |
-| runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests | 부분 | data-management API/UI, app-owned data roots, full secret artifact audit |
+| canonical block·working copy·migration `0021` | domain/draft API/repository/migration/conflict test | 부분 | 실제 `0020 → 0021 → 0020 → 0021` fixture 검증은 통과; full migration gate 및 editor resume journey |
+| structured staging | unique capability probe, fail-closed `StagePost`, semantic prefix evidence | 부분 | mock/local trusted input 검증은 통과; opt-in actual Naver signature smoke와 전체 gate |
+| runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests, desktop data API/UI | 부분 | browser download E2E, full secret artifact audit |
 | schedule/budget advanced settings | settings controller/view and app setting routes | 부분 | tablet restriction and end-to-end persistence proof |
-| quality gates | targeted suites, client coverage completion, extension check | **미완료** | client function/branch 80%, Python full suite, viewport E2E, secret audit |
+| quality gates | targeted suites, client coverage completion, extension check | 부분 | Python full suite, viewport E2E, secret audit |
 
-현재 branch에는 이번 작업과 이전 미정리 변경이 함께 있을 수 있다. commit/PR 직전에는 `git diff`
-기반으로 각 단위에 속하지 않는 변경을 분리하거나 명시한다. 사용자 승인 없이 push나 PR 생성은 하지
-않는다.
+현재 branch의 각 기능 단위는 Conventional Commit으로 분리한다. PR 직전에는 `git diff` 기반으로
+각 단위에 속하지 않는 변경을 분리하거나 명시하고, quality gate 증거를 PR 설명에 남긴다.
 
 ## 4. 사용자 여정과 화면별 수용 기준
 
@@ -207,10 +206,10 @@ client coverage, desktop/768/1024 E2E가 모두 exit 0이어야 한다. 이 조�
 | ID | 작업 | 상태 | 완료 증거 |
 | --- | --- | --- | --- |
 | B1-01 | BodyBlock discriminator와 legacy body parsing을 domain/API/OpenAPI/client parser에 일치시킨다. | 부분 구현 | schema parse matrix and OpenAPI parity test |
-| B1-02 | canvas의 insert/delete/duplicate/reorder/image position/outline/preview/shortcut을 제공한다. | 부분 구현 | DOM interaction tests including keyboard and drag data |
-| B1-03 | debounce working copy는 revision을 만들지 않고 title/blocks/summary/version을 저장한다. | 부분 구현 | fake timer + API request count test |
-| B1-04 | stale version은 409 latest copy를 반환하고 client는 overwrite 없이 재로드 안내한다. | 부분 구현 | two-device integration and DOM conflict journey |
-| B1-05 | migration `0021` backfill과 downgrade/restore 절차를 fixture DB에서 검증하고 문서화한다. | 부분 구현 | upgrade/downgrade test, operations documentation |
+| B1-02 | canvas의 insert/delete/duplicate/reorder/image position/outline/preview/shortcut을 제공한다. | 부분 구현 | image position·keyboard retype 및 insert/duplicate/delete/drag reorder가 canonical block 배열을 유지하는 DOM test는 통과했다. outline focus/preview를 실제 viewport에서 확인하는 E2E가 남았다. |
+| B1-03 | debounce working copy는 revision을 만들지 않고 title/blocks/summary/version을 저장한다. | 부분 구현 | fake-timer test가 burst edit 1회 저장, in-flight 뒤 최신 edit의 2차 저장 및 승인 version 승계를 확인했다. revision count/API two-device full journey가 남았다. |
+| B1-04 | stale version은 409 latest copy를 반환하고 client는 overwrite 없이 재로드 안내한다. | 부분 구현 | API의 stale-device 409 test와 client의 conflict 뒤 latest working copy reload·queued autosave 폐기 test가 통과했다. 실제 two-device/DOM journey가 남았다. |
+| B1-05 | migration `0021` backfill과 downgrade/restore 절차를 fixture DB에서 검증하고 문서화한다. | 부분 구현 | 실제 `0020 → 0021 → 0020 → 0021` fixture가 active revision 보존과 re-backfill을 검증했다. Local Operations에 운영 downgrade 비권장·export/backup 복구 범위를 기록했다. full migration gate가 남았다. |
 
 ### B2. structured Naver staging capability contract
 
@@ -240,7 +239,7 @@ client coverage, desktop/768/1024 E2E가 모두 exit 0이어야 한다. 이 조�
 | B3-04 | runtime GET/PATCH/restart와 write-only secret replace/clear를 desktop loopback으로 제한한다. | 부분 구현 | local/paired 403, no-echo, atomic write, restart guard tests |
 | B3-05 | private env owner/0600/symlink/duplicate/unknown-comment/atomic fsync-replace를 검증한다. | 부분 구현 | RuntimeConfiguration unit matrix |
 | B3-06 | supervisor restart는 active browser/session/staging을 guard하고 readiness poll 뒤 SPA reload한다. | 부분 구현 | supervisor/router/client tests for success/unavailable/busy |
-| B3-07 | app-owned data metadata(location, export/reset availability)를 desktop-only API로 제공한다. | 부분 구현 | local metadata와 paired 403 test는 통과했다. DB/media root는 아직 legacy environment 입력도 허용하므로 경로를 앱 소유 root로 완전히 고정하는 작업이 남았다. |
+| B3-07 | app-owned data metadata(location, export/reset availability)를 desktop-only API로 제공한다. | 부분 구현 | local metadata와 paired 403 test는 통과했다. media root는 열린 SQLite database 인접 경로로 앱이 파생하고 runtime UI는 low-level path를 받지 않는다. desktop viewport E2E가 남았다. |
 | B3-08 | export는 active work가 없을 때 browser download로 redacted archive를 만든다. | 부분 구현 | idle guard, database/media-only archive, private env/browser profile 제외, media symlink 거부 test는 통과했다. 실제 browser download E2E와 export-directory 운영 선택은 남았다. |
 | B3-09 | reset은 DB/WAL/SHM·미디어별 count를 먼저 표시하고 explicit typed confirmation + idle guard 후 recoverable backup을 수행한다. | 부분 구현 | count breakdown, confirmation, browser-busy 409, backup move, symlink test는 통과했다. backup 보존 기간/복구 command 운영 문서가 남았다. |
 | B3-10 | data management UI는 PC에만 위치·export·safe reset을 보여 주며 low-level path form은 없다. | 부분 구현 | desktop/paired DOM test와 client response parser test는 통과했다. viewport E2E가 남았다. |
@@ -255,13 +254,13 @@ reset 대상(DB/WAL/SHM/media 중 무엇인지)을 API contract에 명시하고,
 | --- | --- | --- | --- |
 | B4-01 | README/Getting Started가 네 화면, desktop runtime 저장/재시작, tablet restriction을 정확히 설명한다. | 부분 구현 | documentation review against implemented capability matrix |
 | B4-02 | block support/staging failure/user Naver confirmation을 실제 adapter capability만큼 설명한다. | 부분 구현 | no unsupported-success claim search/audit |
-| B4-03 | migration upgrade/downgrade, data export/reset, test hang protocol을 운영 문서에 기록한다. | 미구현 | commands and rollback assertions reviewed |
+| B4-03 | migration upgrade/downgrade, data export/reset, test hang protocol을 운영 문서에 기록한다. | 부분 구현 | `local-operations.md`에 automatic migration, `0021` fixture rollback 범위, UI export/reset/backup 수동 복구, timeout/60초 무출력 중단 규칙을 기록했다. browser download E2E가 남았다. |
 
 ### B 검증 완료 조건
 
 `B1-01`~`B4-03`가 모두 완료되고, migration/runtime/staging/data targeted Python tests, client writing/settings
 DOM tests, structured staging smoke policy, desktop/768/1024 writing/settings E2E, secret artifact audit이
-exit 0이어야 한다. 이 조건 전에는 PR 2 commit을 만들지 않는다.
+exit 0이어야 한다. 이 조건 전에는 PR 2를 review-ready로 열지 않는다.
 
 ## 7. API·데이터 계약 작업 목록
 
@@ -381,16 +380,21 @@ PR 생성 권한을 받기 전에는 branch/commit scope와 PR description 초�
 | 2026-08-08 | Staging/checklist client targeted | 통과 | `format`, `typecheck`, `writing-state/writing-api/settings` 3 files/99 tests가 17.21초에 exit 0으로 종료했다. SSE step 즉시 반영과 네이버 확인 checklist DOM을 확인했다. |
 | 2026-08-08 | Structured staging consolidated | 통과 | `format`, `typecheck`, page bundle, selected Ruff/`ty`, `git diff --check`, client 5 files/126 tests(17.84s), Python 87 tests(24.33s)가 exit 0으로 종료했다. 바로 앞 시도는 `factory.py`의 `Path(str \| None)` narrowing 1건으로 exit 1이었고, 명시적 None 분기 후 재실행해 해소했다. 실제 Naver smoke와 전체 suite/coverage는 이 결과에 포함하지 않았다. |
 | 2026-08-08 | Runtime data contract targeted | 통과 | `format`, `typecheck`, Ruff/`ty`, `git diff --check`, client `api-client/settings` 2 files/110 tests(8.72s), Python `runtime_data/runtime_configuration_api` 7 tests(8.36s)가 exit 0으로 종료했다. PC-only, busy export guard, DB/WAL/SHM-media count, secret-free archive, reset backup을 확인했다. |
+| 2026-08-08 | Working-copy migration targeted | 통과 | `format`, Ruff/`ty`, `test_app_settings_repository.py`, `test_post_draft_repository.py`, `test_draft_revisions_api.py` 51 passed, 1 warning(31.19s)가 final summary와 exit 0으로 종료했다. 새 fixture는 `0020 → 0021 → 0020 → 0021`에서 active revision 보존, working copy backfill, re-upgrade를 확인했다. migration head assertion도 `0022`로 갱신했다. |
+| 2026-08-08 | Client working-copy autosave targeted | 통과 | client `format`, `typecheck`, `writing-api/writing-state` 2 files/64 tests(8.26s)가 final summary와 exit 0으로 종료했다. in-flight save 뒤 queued 최신 block이 승인 version을 이어 저장하고, 409 conflict에서는 queued autosave를 버리고 최신 working copy를 표시함을 확인했다. |
+| 2026-08-08 | Client block canvas DOM targeted | 통과 | client `format`, `typecheck`, `writing-state` 25 tests(17.73s)가 final summary와 exit 0으로 종료했다. image 위치, keyboard retype, append/duplicate/delete, drag reorder가 BodyBlock 배열을 유지함을 확인했다. |
+| 2026-08-08 | Client test hang guard | 통과 | command-level timeout과 final summary/exit code 확인 규칙으로 중단 실행을 통과로 기록하지 않는다. targeted suites는 모두 final summary와 exit 0으로 종료했다. |
 | 2026-08-08 | Python 106-test 묶음 | 중단됨 | PID 1719554가 41개 출력 뒤 `p9_client_rpc` I/O 대기와 60초 무출력을 보여 종료했다. final summary가 없어 통과가 아니다. |
 | 2026-08-08 | Client non-coverage full suite | 중단됨 | PID 1713782(fork), 1714780(thread)가 `settings.test.ts` 35개 출력 뒤 60초 무출력으로 종료됐다. |
-| 2026-08-08 | Client coverage full suite | 실패 (hang 아님) | 46.40초에 26 files/590 tests passed final summary를 냈으나 statements 86.25%, functions 76.30%, branches 75.06%, lines 88.83%; function/branch 80% gate로 exit 1. |
+| 2026-08-08 | Client non-coverage full suite 재시도 | 통과 | 26 files/608 tests가 final summary와 exit 0으로 종료했다. 이 기록은 이전 중단을 지우지 않으며 coverage gate는 별도다. |
+| 2026-08-08 | Client coverage full suite | 통과 | 625 tests가 종료했고 statements 90.00%, functions 81.41%, branches 80.19%, lines 92.03%로 모두 80% gate를 넘겼다. optional payload·remote device·block decoder·SSE/route resume tests로 실제 contract 경로를 보강했다. |
 | 2026-08-08 | Extension quality gate | 통과 | 37 files/368 tests passed, statements 89.38%, functions 86.07%, branches 80.18%, exit 0. |
 
 ## 11. 문서 완료 checklist
 
 - [ ] README: 새 primary navigation과 workbench-first journey가 실제 route와 일치한다.
 - [ ] Getting Started: PC write-only runtime save → explicit restart → paired tablet restriction을 설명한다.
-- [ ] Local operations: migration, app-owned data export/reset, rollback, hang protocol을 설명한다.
+- [x] Local operations: automatic migration, export/reset·backup 수동 복구 범위, fixture rollback, hang protocol과 앱 소유 media root를 설명한다.
 - [ ] API contract: runtime/data/staging response와 errors가 OpenAPI·Pydantic·client parser에 일치한다.
 - [ ] 이 문서: 모든 ID에 완료/미완료와 실행한 검증의 최종 결과가 기록되어 있다.
 - [ ] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다.

@@ -444,8 +444,18 @@ paths:
     get:
       operationId: listWebAppDiscoveryQueue
       tags: [Web app]
+      parameters:
+        - {name: source, in: query, required: false, schema: {type: string, enum: [neighbor, search]}}
+        - {name: state, in: query, required: false, schema: {type: string, enum: [queued, opened, completed, skipped, unavailable]}}
+        - {name: query, in: query, required: false, schema: {type: string, maxLength: 120}}
+        - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 120}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 30}}
       responses:
-        "200": {description: Queue items for one discovery source, with web-app presentation context.}
+        "200":
+          description: Cursor page of web-app queue items with presentation context.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WebAppDiscoveryQueueResponse"}
         "422": {$ref: "#/components/responses/ValidationError"}
   /api/v1/discovery/queue/{post_id}:
     patch:
@@ -793,7 +803,7 @@ paths:
     put:
       operationId: savePostDraftBody
       tags: [Writing]
-      summary: Store the body the user edited by hand as a new revision
+      summary: Store a versioned canvas working copy, or keep a legacy manual checkpoint
       requestBody:
         required: true
         content:
@@ -806,6 +816,7 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/DraftResponse"}
         "404": {$ref: "#/components/responses/DraftNotFound"}
+        "409": {description: A newer working copy exists on another device.}
         "422": {$ref: "#/components/responses/DraftNotUsable"}
   /api/v1/drafts/{draft_id}/compose:
     parameters:
@@ -874,6 +885,11 @@ paths:
       operationId: streamStagingEvents
       tags: [Writing]
       summary: Follow one staging run step by step
+      description: >-
+        `step_completed` events contain `run_id`, `step`, `state`, and `result_code`.
+        The `body` event additionally contains `detail.requested_range_start`,
+        `detail.requested_range_end`, and `detail.observed_prefix_count`; it never contains
+        draft text, image paths, image IDs, tags, or credentials.
       responses:
         "200":
           description: Server-sent step progress for one staging run.
@@ -1125,8 +1141,6 @@ paths:
             - automation_consent
             - safety_policy
             - schedule_policy
-            - browser_profile
-            - llm_providers
             - llm_budget
             - writing_profile
     get:
@@ -1276,6 +1290,100 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/HTTPValidationError"}
+  /api/v1/runtime/configuration:
+    get:
+      operationId: getRuntimeConfiguration
+      tags: [Runtime configuration]
+      summary: Read redacted desktop runtime configuration
+      responses:
+        "200":
+          description: Redacted runtime configuration.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeConfigurationResponse"}
+        "403": {description: Desktop request required.}
+    patch:
+      operationId: patchRuntimeConfiguration
+      tags: [Runtime configuration]
+      summary: Atomically save write-only desktop runtime configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RuntimeConfigurationPatch"}
+      responses:
+        "200":
+          description: Saved redacted runtime configuration.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeConfigurationResponse"}
+        "403": {description: Desktop request required.}
+        "409": {description: The launcher-managed private configuration is unavailable.}
+        "422": {description: Runtime configuration validation failed.}
+  /api/v1/runtime/restart:
+    post:
+      operationId: restartRuntimeConfiguration
+      tags: [Runtime configuration]
+      summary: Request an explicit launcher-supervised restart
+      responses:
+        "200":
+          description: Restart request accepted.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeConfigurationResponse"}
+        "403": {description: Desktop request required.}
+        "409": {description: Restart is unavailable or blocked by active automation.}
+  /api/v1/runtime/data:
+    get:
+      operationId: getRuntimeData
+      tags: [Runtime data]
+      summary: Read desktop-owned data locations and safe reset availability
+      responses:
+        "200":
+          description: Non-secret local data metadata.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeDataResponse"}
+        "403": {description: Desktop request required.}
+        "409": {description: Local data paths are unavailable or unsafe.}
+  /api/v1/runtime/data/export:
+    post:
+      operationId: exportRuntimeData
+      tags: [Runtime data]
+      summary: Download a user-requested archive of the local database and draft media
+      responses:
+        "200": {description: A ZIP archive.}
+        "403": {description: Desktop request required.}
+        "409": {description: Local data paths are unavailable or unsafe.}
+  /api/v1/runtime/data/reset:
+    post:
+      operationId: resetRuntimeData
+      tags: [Runtime data]
+      summary: Move local data to a recoverable backup and request a supervised restart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RuntimeDataResetRequest"}
+      responses:
+        "202":
+          description: Data was moved to a private backup and restart was requested.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeDataResetResponse"}
+        "403": {description: Desktop request required.}
+        "409": {description: Reset is unavailable or blocked by active automation.}
+        "422": {description: Reset confirmation is invalid.}
+  /api/v1/drafts/{draft_id}/checkpoint:
+    post:
+      operationId: checkpointPostDraft
+      tags: [Writing]
+      summary: Create an intentional revision from the current working copy
+      responses:
+        "200": {description: The draft with its new revision.}
+        "404": {description: The draft was not found.}
+        "409": {description: No working copy exists.}
+        "422": {description: The draft identifier is invalid.}
 components:
   parameters:
     IdempotencyKey:
@@ -1379,7 +1487,7 @@ components:
           const: ready
         generator_mode:
           type: string
-          enum: [openai, fake]
+          enum: [openai, gemini, anthropic, fake]
         generator_model:
           type: string
           minLength: 1
@@ -1430,6 +1538,44 @@ components:
               - llm_provider_missing
               - automation_consent_missing
               - safety_policy_missing
+    WebAppDiscoveryPostResponse:
+      type: object
+      additionalProperties: false
+      required:
+        [id, source, state, source_url, title, publisher_name, publisher_blog_id, published_at,
+         neighbor_id, search_id, created_at, updated_at, source_label]
+      properties:
+        id: {type: string, format: uuid}
+        source: {type: string, enum: [neighbor, search]}
+        state: {type: string, enum: [queued, opened, completed, skipped, unavailable]}
+        source_url: {type: string, minLength: 1, maxLength: 2048}
+        title: {type: string, minLength: 1, maxLength: 300}
+        publisher_name: {type: string, nullable: true}
+        publisher_blog_id: {type: string, nullable: true}
+        published_at: {type: string, format: date-time, nullable: true}
+        neighbor_id: {type: string, format: uuid, nullable: true}
+        search_id: {type: string, format: uuid, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        source_label: {type: string, minLength: 1, maxLength: 120, nullable: true}
+    WebAppDiscoveryQueueResponse:
+      type: object
+      additionalProperties: false
+      required: [items, counts, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/WebAppDiscoveryPostResponse"}
+        counts:
+          type: object
+          additionalProperties: false
+          required: [neighbor, search, skipped, total]
+          properties:
+            neighbor: {type: integer, minimum: 0}
+            search: {type: integer, minimum: 0}
+            skipped: {type: integer, minimum: 0}
+            total: {type: integer, minimum: 0}
+        next_cursor: {type: string, nullable: true}
     CreateRecommendationRequest:
       type: object
       additionalProperties: false
@@ -1987,8 +2133,48 @@ components:
           type: array
           minItems: 1
           maxItems: 200
-          items: {type: object}
+          items: {$ref: "#/components/schemas/BodyBlock"}
         summary: {type: string, maxLength: 800, default: ""}
+        base_content_version: {type: integer, minimum: 0, nullable: true}
+    BodyBlock:
+      oneOf:
+        - {$ref: "#/components/schemas/TextBodyBlock"}
+        - {$ref: "#/components/schemas/ListBodyBlock"}
+        - {$ref: "#/components/schemas/DividerBodyBlock"}
+        - {$ref: "#/components/schemas/ImageBodyBlock"}
+      discriminator: {propertyName: type}
+    TextBodyBlock:
+      type: object
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type: {type: string, enum: [heading, paragraph, quote]}
+        text: {type: string, minLength: 1, maxLength: 4000}
+    ListBodyBlock:
+      type: object
+      additionalProperties: false
+      required: [type, items]
+      properties:
+        type: {type: string, enum: [ordered_list, unordered_list]}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 4000}
+    DividerBodyBlock:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type: {type: string, enum: [divider]}
+    ImageBodyBlock:
+      type: object
+      additionalProperties: false
+      required: [type, image_id]
+      properties:
+        type: {type: string, enum: [image]}
+        image_id: {type: string, format: uuid}
+        caption: {type: string, maxLength: 4000, default: ""}
     DraftCreateRequest:
       type: object
       additionalProperties: false
@@ -2059,8 +2245,21 @@ components:
         blocks:
           type: array
           maxItems: 200
-          items: {type: object}
+          items: {$ref: "#/components/schemas/BodyBlock"}
         created_at: {type: string, format: date-time, nullable: true}
+    DraftWorkingCopyResponse:
+      type: object
+      additionalProperties: false
+      required: [title, blocks, summary, content_version]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        blocks:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: {$ref: "#/components/schemas/BodyBlock"}
+        summary: {type: string, maxLength: 800}
+        content_version: {type: integer, minimum: 0}
     DraftTagResponse:
       type: object
       additionalProperties: false
@@ -2081,6 +2280,7 @@ components:
         - use_image_vision
         - seed_text
         - revisions
+        - working_copy
         - images
         - tags
         - created_at
@@ -2097,6 +2297,10 @@ components:
         revisions:
           type: array
           items: {$ref: "#/components/schemas/DraftRevisionResponse"}
+        working_copy:
+          oneOf:
+            - {$ref: "#/components/schemas/DraftWorkingCopyResponse"}
+            - {type: "null"}
         images:
           type: array
           items: {$ref: "#/components/schemas/DraftImageResponse"}
@@ -2228,8 +2432,6 @@ components:
             - automation_consent
             - safety_policy
             - schedule_policy
-            - browser_profile
-            - llm_providers
             - llm_budget
             - writing_profile
         schema_version:
@@ -2310,6 +2512,116 @@ components:
           oneOf:
             - {type: string}
             - {type: "null"}
+    RuntimeSecretUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        replace: {type: string, minLength: 1, maxLength: 4000, nullable: true, writeOnly: true}
+        clear: {type: boolean, default: false}
+      description: Exactly one of replace or clear is required. The secret is never returned.
+    RuntimeProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [provider, configured, model]
+      properties:
+        provider: {type: string, enum: [openai, gemini, anthropic]}
+        configured: {type: boolean}
+        model: {type: string}
+    RuntimeConfigurationResponse:
+      type: object
+      additionalProperties: false
+      required: [ai, naver_search, smtp, browser, network, restart_required, launcher_restart_available]
+      properties:
+        ai:
+          type: object
+          additionalProperties: false
+          required: [active_provider, providers]
+          properties:
+            active_provider: {type: string, enum: [openai, gemini, anthropic, fake]}
+            providers:
+              type: array
+              items: {$ref: "#/components/schemas/RuntimeProviderStatus"}
+        naver_search:
+          type: object
+          additionalProperties: false
+          required: [configured]
+          properties: {configured: {type: boolean}}
+        smtp:
+          type: object
+          additionalProperties: false
+          required: [configured, host, port, security, digest_email_from, digest_email_to]
+          properties:
+            configured: {type: boolean}
+            host: {type: string}
+            port: {type: integer, minimum: 1, maximum: 65535}
+            security: {type: string, enum: [starttls, ssl]}
+            digest_email_from: {type: string}
+            digest_email_to: {type: string}
+        browser:
+          type: object
+          additionalProperties: false
+          required: [driver, headless, channel]
+          properties:
+            driver: {type: string, enum: [patchright, playwright, fake]}
+            headless: {type: boolean}
+            channel: {type: string}
+        network:
+          type: object
+          additionalProperties: false
+          required: [access_mode]
+          properties: {access_mode: {type: string, enum: [local, lan]}}
+        restart_required: {type: boolean}
+        launcher_restart_available: {type: boolean}
+    RuntimeConfigurationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        active_provider: {type: string, enum: [openai, gemini, anthropic, fake]}
+        openai_model: {type: string, minLength: 1, maxLength: 100}
+        gemini_model: {type: string, minLength: 1, maxLength: 100}
+        anthropic_model: {type: string, minLength: 1, maxLength: 100}
+        openai_api_key: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        gemini_api_key: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        anthropic_api_key: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        naver_search_client_id: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        naver_search_client_secret: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        smtp_host: {type: string, maxLength: 255}
+        smtp_port: {type: integer, minimum: 1, maximum: 65535}
+        smtp_security: {type: string, enum: [starttls, ssl]}
+        smtp_username: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        smtp_password: {$ref: "#/components/schemas/RuntimeSecretUpdate"}
+        digest_email_from: {type: string, maxLength: 320}
+        digest_email_to: {type: string, maxLength: 320}
+        browser_driver: {type: string, enum: [patchright, playwright, fake]}
+        browser_headless: {type: boolean}
+        browser_channel: {type: string, maxLength: 32}
+        access_mode: {type: string, enum: [local, lan]}
+    RuntimeDataResponse:
+      type: object
+      additionalProperties: false
+      required: [database_location, database_file_count, media_location, media_file_count, file_count, size_bytes, reset_available]
+      properties:
+        database_location: {type: string}
+        database_file_count: {type: integer, minimum: 0}
+        media_location: {type: string}
+        media_file_count: {type: integer, minimum: 0}
+        file_count: {type: integer, minimum: 0}
+        size_bytes: {type: integer, minimum: 0}
+        reset_available: {type: boolean}
+    RuntimeDataResetRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: {type: string, minLength: 1, maxLength: 64}
+    RuntimeDataResetResponse:
+      type: object
+      additionalProperties: false
+      required: [backup_location, restart_required]
+      properties:
+        backup_location: {type: string}
+        restart_required: {type: boolean}
     ProblemDetails:
       type: object
       additionalProperties: false

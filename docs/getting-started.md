@@ -73,8 +73,10 @@ APP_ENV=development
 COMMENT_GENERATOR_MODE=fake
 ```
 
-OpenAI로 실제 댓글·본문을 생성하려면 위 두 줄을 아래처럼 바꾸고, 세 번째 줄의 오른쪽에 본인이 발급한
-API key를 붙여 넣으세요.
+OpenAI로 실제 댓글·본문을 생성하려면 PC 웹앱의 **더보기 > 연결 및 앱**에서 provider를 선택하고
+write-only API key field에 본인이 발급한 key를 붙여 넣은 뒤 **저장한 설정 적용**을 선택하세요. launcher가
+API를 안전하게 다시 시작합니다. 파일을 직접 관리하는 경우에는 위 두 줄을 아래처럼 바꾸고, 세 번째 줄의
+오른쪽에 key를 붙여 넣을 수도 있습니다.
 
 ```dotenv
 APP_ENV=production
@@ -127,12 +129,9 @@ uv run --frozen --env-file .env.local naver-blog-api
 ## 태블릿에서 열기 (선택)
 
 기본값은 PC에서만 열리는 `local` mode입니다. Galaxy Tab이나 iPad를 같은 **신뢰할 수 있는 private
-Wi-Fi**에서 사용하려면 private env file에서 다음 두 값을 함께 바꾸고 start launcher를 다시 실행하세요.
-
-```dotenv
-WEBAPP_ACCESS_MODE=lan
-API_HOST=0.0.0.0
-```
+Wi-Fi**에서 사용하려면 PC 웹앱의 **더보기 > 설정 > 연결 및 앱**에서 `태블릿 연결`을 **신뢰 Wi-Fi**로
+바꾸고 **연결 설정 저장** 뒤 **저장한 설정 적용**을 누르세요. `API_HOST`와 port는 앱이 access mode에
+맞춰 고정하므로 private env file이나 일반 설정에서 직접 바꾸지 않습니다.
 
 시작 창에는 태블릿에서 열 주소(`http://192.168.x.x:8765/app/` 등)가 표시됩니다. PC 웹앱의
 **태블릿 연결**을 눌러 만든 5분짜리 일회용 코드를 태블릿의 연결 화면에 입력하면 됩니다. 연결된
@@ -144,23 +143,25 @@ network transport를 암호화하지 않으므로 신뢰할 수 있는 개인 �
 
 ## 4. 웹앱 작업 공간
 
-브라우저에서 `http://127.0.0.1:8765/app/`을 열면 다섯 작업 탭과 **태블릿 연결** 동작이 표시됩니다.
+브라우저에서 `http://127.0.0.1:8765/app/`을 열면 네 개의 primary 화면이 표시됩니다.
 
-- **오늘의 작업:** 연결 상태, 이웃 새 글·신규 이웃 후보 수와 이어서 할 작업을 확인합니다. 댓글 등록이
-  끝나고 서로이웃 신청만 남은 후보는 해당 상태를 명확히 표시합니다.
-- **여러 글 처리:** 세션 배치로 여러 글을 한 번의 승인으로 이어서 처리합니다.
-- **글 작성:** 내 블로그 글을 초안부터 임시저장까지 만듭니다.
-- **최근 작업:** 저장된 댓글 추천, 배치, 초안을 다시 열거나 recommendation과 개인화 예시를 정리합니다.
-- **설정:** 탐색, 자동 실행, provider와 글쓰기 기본값을 관리합니다.
+- **홈:** 연결 상태, 오늘의 수집 요약과 첫 실행 준비 단계를 확인합니다.
+- **작업함:** 이웃 새 글·신규 이웃 후보·보류됨을 검색·필터링하고, 한 글 처리와 세션 배치를 이어갑니다.
+- **글쓰기:** 넓은 block canvas에서 문단, 소제목, 인용, 순서/비순서 목록, 구분선, 이미지·캡션을
+  편집하고 임시저장합니다.
+- **더보기:** 이력과 일반 작업 설정을 열며, PC에서는 연결 및 앱 설정과 태블릿 연결도 관리합니다.
 
-처음에는 **오늘의 작업**과 `시작 준비` panel이 보입니다. blocker가 있으면 PC browser 시작·로그인이나
+태블릿은 작업함, 댓글, 글쓰기, 이력을 PC와 이어서 사용할 수 있습니다. API key·SMTP password·browser·LAN
+연결·기기 관리는 PC 로컬 웹앱에서만 변경할 수 있습니다.
+
+처음에는 **홈**의 `시작 준비` card가 보입니다. blocker가 있으면 PC browser 시작·로그인이나
 해당 설정 화면으로 바로 이동해 해결하세요. 대기열에서 글을 고른 뒤 **이 글 처리하기**를 누르면
 본문 추출과 저장된 기본 provider의 댓글 후보 생성이 이어집니다.
 
 ## 5. 첫 댓글 후보 만들기
 
-1. **설정 > 자동 탐색 설정**에서 내 블로그 ID를 저장하고 **지금 동기화**로 대기열을 채웁니다.
-2. **오늘의 작업**에서 처리할 이웃 글 또는 신규 이웃 후보를 선택합니다.
+1. **더보기 > 설정 > 탐색 및 자동화**에서 내 블로그 ID를 저장하고 **지금 동기화**로 대기열을 채웁니다.
+2. **작업함**에서 처리할 이웃 글 또는 신규 이웃 후보를 선택합니다.
 3. automation browser에서 title·본문 preview가 맞는지 확인합니다. 생성 옵션을 바꾸려면 **다시 생성**을
    누릅니다. 둘 이상의 provider가 구성된 경우에는 호출 수가 표시된 **AI 후보 비교**를 명시적으로
    선택할 수 있습니다.
@@ -177,7 +178,7 @@ network transport를 암호화하지 않으므로 신뢰할 수 있는 개인 �
 
 ### 사용자 승인형 자동 실행 동의
 
-웹앱 **설정 > 자동 실행과 안전**에서 범위와 네이버 이용약관 안내를 읽고 checkbox를
+웹앱 **더보기 > 설정 > 탐색 및 자동화**에서 범위와 네이버 이용약관 안내를 읽고 checkbox를
 선택하면 동의를 켤 수 있습니다. 동의는 공감, 선택한 댓글 등록, 선택적 서로이웃 신청을 허용할
 준비 단계이며, 동의만으로 외부 동작이 시작되지는 않습니다. 댓글 작성 화면에서 글별 실행 버튼을
 누르면 선택·편집한 최종 댓글과 현재 설정의 신청 메시지로 한 번만 사용할 수 있는 승인이 만들어집니다.
@@ -192,8 +193,8 @@ version이 바뀌면 다시 확인해야 하며, Captcha·로그인 제한 우�
 
 ## 6. 자동 글 탐색 설정
 
-로컬 웹앱의 **설정 > 자동 탐색 설정**에서 내 블로그 ID(`blogId`)를 한 번 입력한 뒤
-**매일 자동으로 모으기**를 켜세요. 대기열은 **오늘의 작업**에서 이웃 새 글과 신규 이웃 후보로 나누어
+로컬 웹앱의 **더보기 > 설정 > 탐색 및 자동화**에서 내 블로그 ID(`blogId`)를 한 번 입력한 뒤
+**매일 자동으로 모으기**를 켜세요. 대기열은 **작업함**에서 이웃 새 글과 신규 이웃 후보로 나누어
 확인할 수 있습니다.
 기본 시각은 `Asia/Seoul` 오전 9시이며, **지금 동기화**를 누르면 바로 공개 이웃 목록·등록 이웃 RSS를
 대기열에 모읍니다. 로컬 API가 실행 중일 때만 예약 동기화가 실행됩니다.
@@ -204,13 +205,9 @@ version이 바뀌면 다시 확인해야 하며, Captcha·로그인 제한 우�
 
 신규 이웃 검색도 사용하려면 [Naver Developers 검색 API](https://developers.naver.com/docs/serviceapi/search/blog/blog.md)에서
 **애플리케이션 등록**을 하고, **내 애플리케이션**에서 발급된 Client ID와 Client Secret을 확인하세요.
-등록할 때 검색 API의 Blog 사용 권한도 선택해야 합니다. private 환경 파일에 아래 두 값을 함께 넣고 API를
-재시작하세요. 하나만 넣으면 setup check와 API가 오류를 알려 주며, HTML 검색 결과를 대체로 읽지는 않습니다.
-
-```dotenv
-NAVER_SEARCH_CLIENT_ID=내_애플리케이션의_Client_ID
-NAVER_SEARCH_CLIENT_SECRET=내_애플리케이션의_Client_Secret
-```
+등록할 때 검색 API의 Blog 사용 권한도 선택해야 합니다. PC의 **더보기 > 설정 > 연결 및 앱**에서
+Client ID와 Client Secret을 write-only field에 함께 저장하고 **저장한 설정 적용**을 누르세요. 하나만
+설정하면 setup check와 API가 오류를 알려 주며, HTML 검색 결과를 대체로 읽지는 않습니다.
 
 검색어를 저장한 다음 **지금 동기화**를 누르면 공식 API의 최신 결과에서 후보를 가져옵니다.
 
@@ -222,10 +219,11 @@ NAVER_SEARCH_CLIENT_SECRET=내_애플리케이션의_Client_Secret
 
 ### OpenAI
 
-기본 fake workflow를 확인한 뒤에만 [환경 파일에 값 넣기](#2-환경-파일에-값-넣기)의 OpenAI 절차대로
-private 환경 파일에 다음 값을 넣고 API를 재시작합니다. API key는 [OpenAI API
+기본 fake workflow를 확인한 뒤에만 PC의 **더보기 > 설정 > 연결 및 앱**에서 OpenAI provider와
+write-only key를 저장하고 **저장한 설정 적용**을 누릅니다. API key는 [OpenAI API
 Quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request)에 따라 OpenAI Platform에서
-발급한 개인 key 전체를 사용합니다.
+발급한 개인 key 전체를 사용합니다. private env file을 직접 수정하는 방법은 수동 복구·개발 실행에만
+사용합니다.
 
 ```dotenv
 APP_ENV=production
@@ -237,7 +235,7 @@ model을 바꾸려면 `OPENAI_MODEL`을 추가합니다.
 
 ### Gemini
 
-private env file에 아래 값을 넣고 API를 재시작합니다.
+PC의 **더보기 > 설정 > 연결 및 앱**에서 Gemini key를 write-only로 저장하고 적용을 승인합니다.
 
 ```dotenv
 GEMINI_API_KEY=<private-key>
@@ -247,7 +245,7 @@ model을 바꾸려면 `GEMINI_MODEL`을 추가합니다.
 
 ### Claude (Anthropic)
 
-private env file에 아래 값을 넣고 API를 재시작합니다.
+PC의 **더보기 > 설정 > 연결 및 앱**에서 Anthropic key를 write-only로 저장하고 적용을 승인합니다.
 
 ```dotenv
 ANTHROPIC_API_KEY=<private-key>
@@ -257,15 +255,16 @@ model을 바꾸려면 `ANTHROPIC_MODEL`을 추가합니다.
 
 ### LLM 예산 설정
 
-웹앱 **설정 > llm_budget**에서 아래 두 값을 조절합니다.
+웹앱 **더보기 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**에서 아래 두 값을 조절합니다.
 
 | 필드 | 의미 | 기본값 |
 | --- | --- | --- |
 | `daily_call_cap` | 하루 전체 LLM 호출 상한 | 60 |
 | `per_request_provider_cap` | 한 요청에서 동시에 호출할 provider 수 상한 | 3 |
 
-API key는 Python process 환경에만 존재합니다. `GET /api/v1/llm/providers`는 구성 여부만 반환하고
-key 값은 웹앱에 전달하지 않습니다.
+API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 번 전달된 뒤 private env file과
+재시작한 Python process에만 남습니다. `GET /api/v1/llm/providers`는 구성 여부만 반환하고 key 값은 웹앱에
+전달하지 않습니다.
 
 생성 요청을 시작할 때 현재 글의 title·body와, 개인화가 켜진 경우 최근 완료 댓글 최대 5개의 원문이
 provider API에 전송됩니다. source URL은 전송하지 않습니다. API key를 웹앱 asset, shell history,
@@ -283,17 +282,19 @@ screenshot, log 또는 commit에 남기지 마세요.
 3. **본문 생성:** 길이(`short`/`medium`/`long`), 분위기(`calm`/`warm`/`lively`),
    구성(`plain`/`sectioned`/`story`)과 provider를 고른 뒤 **본문 생성**을 누릅니다.
 4. **다듬기와 자동 저장:** 결과를 확인하고 필요하면 요청 사항을 입력한 뒤 **다듬기 요청**을 반복합니다.
-   제목·본문 편집은 잠시 멈추면 자동 저장되며, 각 회차는 revision으로 남아 이전 버전과 단어 단위로
-   비교하고 다시 열 수 있습니다.
+   제목과 block 편집은 잠시 멈추면 working copy에 자동 저장됩니다. AI 생성·다듬기와 사용자가 선택한
+   checkpoint만 revision으로 남으므로 입력할 때마다 이력이 불필요하게 늘어나지 않습니다. 다른 기기에서
+   먼저 저장한 경우 최신 working copy를 다시 불러와 확인합니다.
 5. **태그 생성:** **태그 생성**으로 후보 태그를 만들고 사용할 태그를 선택합니다.
    직접 추가도 가능합니다.
-6. **임시저장 실행:** **임시저장 실행**을 누르면 네이버 에디터에 제목·본문·이미지·태그를 입력하고
-   임시저장합니다. 단계별 진행 상황이 표시됩니다.
-7. **발행:** 발행은 사용자가 네이버 에디터에서 직접 확인하고 클릭합니다.
+6. **임시저장 실행:** **임시저장 실행**을 누르면 네이버 editor에서 제목·지원 block 순서·이미지·태그를
+   확인한 뒤에만 임시저장합니다. 지원하지 않는 editor 구조는 평문으로 변환하지 않고 안전하게 중단하며
+   단계별 진행 상황이 표시됩니다.
+7. **발행:** 네이버 에디터에서 제목, block 순서, 이미지, 태그를 직접 확인한 뒤 발행합니다.
 
 ### 글쓰기 프로필 설정
 
-웹앱 **설정 > 글쓰기 기본값**에서 기본 생성 옵션을 저장합니다.
+웹앱 **더보기 > 설정 > 작업 기본값**에서 기본 생성 옵션을 저장합니다.
 
 | 필드 | 의미 | 기본값 |
 | --- | --- | --- |
@@ -327,7 +328,7 @@ service를 다시 시작하면 이전의 pending/running batch는 `process_resta
 
 ### 안전 정책 저장
 
-세션 배치와 무인 스케줄에 공통으로 적용되는 안전 정책을 **설정 > 자동 실행과 안전**에서 저장합니다.
+세션 배치와 무인 스케줄에 공통으로 적용되는 안전 정책을 **더보기 > 설정 > 탐색 및 자동화**에서 저장합니다.
 
 | 필드 | 의미 | 기본값 |
 | --- | --- | --- |
@@ -343,9 +344,9 @@ service를 다시 시작하면 이전의 pending/running batch는 `process_resta
 
 무인 스케줄은 opt-in이며, 아래 세 조건을 **모두** 충족해야 활성화됩니다.
 
-1. **설정 > 자동 실행과 안전**에서 자동 실행에 동의 (`accepted: true`)
+1. **더보기 > 설정 > 탐색 및 자동화**에서 자동 실행에 동의 (`accepted: true`)
 2. 같은 화면에서 안전 정책을 한 번 이상 저장
-3. **설정 > schedule_policy**의 `mode`를 `schedule`로 변경
+3. **고급 · 예약 실행과 AI 예산**의 `schedule_policy.mode`를 `schedule`로 변경
 
 세 조건을 모두 충족하면 매일 지정 시각에 최대 `max_posts`건을 자동으로 처리합니다.
 
