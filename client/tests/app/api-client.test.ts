@@ -536,6 +536,279 @@ describe("runtime configuration", () => {
       }).smtp.host,
     ).toBe("");
   });
+
+  it("sends write-only update intents and restart requests to their dedicated endpoints", async () => {
+    const handler = vi.fn(async () => jsonResponse(RUNTIME_CONFIGURATION));
+    const client = clientWith(handler as never);
+
+    await client.runtimeConfiguration();
+    await client.patchRuntimeConfiguration({
+      activeProvider: "openai",
+      openaiApiKey: { replace: "private-value" },
+      smtpHost: "smtp.example.test",
+      digestEmailFrom: "sender@example.test",
+      digestEmailTo: "recipient@example.test",
+    });
+    await client.restartRuntime();
+
+    expect(handler.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      "/api/v1/runtime/configuration",
+      "/api/v1/runtime/configuration",
+      "/api/v1/runtime/restart",
+    ]);
+    expect((handler.mock.calls[1] as unknown[])[1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({
+        active_provider: "openai",
+        openai_api_key: { replace: "private-value" },
+        smtp_host: "smtp.example.test",
+        digest_email_from: "sender@example.test",
+        digest_email_to: "recipient@example.test",
+      }),
+    });
+  });
+
+  it("returns a data archive and retains API failures for the caller", async () => {
+    const archive = new Blob(["archive"], { type: "application/zip" });
+    const exported = clientWith(vi.fn(async () => new Response(archive, { status: 200 })) as never);
+    const refused = clientWith(
+      vi.fn(async () =>
+        jsonResponse({ code: "restart_busy", title: "Busy", detail: "wait", status: 409 }, 409),
+      ) as never,
+    );
+
+    await expect(exported.exportRuntimeData()).resolves.toBeInstanceOf(Blob);
+    await expect(refused.exportRuntimeData()).rejects.toMatchObject({ code: "restart_busy" });
+  });
+});
+
+describe("optional request fields", () => {
+  it("uses the remote pairing endpoints and validates registered devices", async () => {
+    const device = {
+      id: "44444444-4444-4444-8444-444444444444",
+      device_name: "Galaxy Tab",
+      created_at: "2026-08-08T00:00:00Z",
+      last_seen_at: "2026-08-08T01:00:00Z",
+      expires_at: "2026-09-08T00:00:00Z",
+    };
+    const responses = [
+      jsonResponse({ code: "123456", expires_at: "2026-08-08T00:10:00Z" }),
+      jsonResponse({ device }),
+      jsonResponse({ items: [device] }),
+      new Response(null, { status: 204 }),
+    ];
+    const handler = vi.fn(async () => responses.shift() as Response);
+    const client = clientWith(handler as never);
+
+    await expect(client.createRemotePairingCode()).resolves.toMatchObject({ code: "123456" });
+    await expect(client.pairRemoteDevice("123456", "Galaxy Tab")).resolves.toMatchObject({
+      deviceName: "Galaxy Tab",
+    });
+    await expect(client.remoteDevices()).resolves.toEqual([
+      expect.objectContaining({ id: device.id, expiresAt: device.expires_at }),
+    ]);
+    await expect(client.revokeRemoteDevice(device.id)).resolves.toBeUndefined();
+
+    expect(handler.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      "/api/v1/remote/pairing-code",
+      "/api/v1/remote/pair",
+      "/api/v1/remote/devices",
+      `/api/v1/remote/devices/${device.id}`,
+    ]);
+    expect((handler.mock.calls[1] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({ code: "123456", device_name: "Galaxy Tab" }),
+    });
+  });
+
+  it("includes every workbench queue filter when the caller supplies them", async () => {
+    const handler = vi.fn(async () =>
+      jsonResponse({
+        items: [POST],
+        counts: { neighbor: 1, search: 0, skipped: 0, total: 1 },
+        next_cursor: "next-page",
+      }),
+    );
+    const client = clientWith(handler as never);
+
+    await client.discoveryQueuePage({
+      source: "neighbor",
+      state: "skipped",
+      query: " 전시 후기 ",
+      cursor: "cursor",
+      limit: 25,
+    });
+
+    expect((handler.mock.calls[0] as unknown[])[0]).toBe(
+      "/api/v1/app/discovery/queue?source=neighbor&state=skipped&query=%EC%A0%84%EC%8B%9C+%ED%9B%84%EA%B8%B0&cursor=cursor&limit=25",
+    );
+  });
+
+  it("serializes every optional comment and draft-generation choice", async () => {
+    const handler = vi.fn(async () => jsonResponse({}));
+    const client = clientWith(handler as never);
+    const generation = {
+      relationshipLevel: "close" as const,
+      speechStyle: "banmal" as const,
+      commentLength: "long" as const,
+      commentMood: "lively" as const,
+      personalizationMode: "completed_examples" as const,
+      replace: true,
+    };
+    const writing = {
+      provider: "openai" as const,
+      model: "gpt-test",
+      length: "long" as const,
+      tone: "lively" as const,
+      structure: "story" as const,
+      referenceLimit: 5,
+      request: "후기를 다듬어 주세요",
+    };
+
+    await expect(
+      client.generateComment("https://blog.naver.com/example/1", generation),
+    ).rejects.toThrow(/계약/u);
+    await expect(
+      client.generateCommentFanout(
+        "https://blog.naver.com/example/1",
+        [{ provider: "openai", model: "gpt-test" }],
+        generation,
+      ),
+    ).rejects.toThrow(/계약/u);
+    await expect(client.composeDraft("draft", writing)).rejects.toThrow(/계약/u);
+    await expect(
+      client.createDraft({
+        title: "새 초안",
+        seedText: "초안 메모",
+        categoryNo: null,
+        useImageVision: true,
+      }),
+    ).rejects.toThrow(/계약/u);
+    await expect(
+      client.patchDraft("draft", {
+        title: "수정 제목",
+        categoryNo: 7,
+        activeRevisionId: "revision",
+      }),
+    ).rejects.toThrow(/계약/u);
+    await expect(
+      client.saveDraftBody("draft", {
+        title: "블록 초안",
+        blocks: [{ type: "divider" }],
+        summary: "요약",
+        baseContentVersion: 3,
+      }),
+    ).rejects.toThrow(/계약/u);
+    await expect(
+      client.patchDraftTags("draft", { selected: ["전시"], added: ["후기"] }),
+    ).rejects.toThrow(/계약/u);
+
+    expect((handler.mock.calls[0] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({
+        url: "https://blog.naver.com/example/1",
+        relationship_level: "close",
+        speech_style: "banmal",
+        comment_length: "long",
+        comment_mood: "lively",
+        personalization_mode: "completed_examples",
+        replace: true,
+      }),
+    });
+    expect((handler.mock.calls[2] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({
+        provider: "openai",
+        model: "gpt-test",
+        length: "long",
+        tone: "lively",
+        structure: "story",
+        reference_limit: 5,
+        request: "후기를 다듬어 주세요",
+      }),
+    });
+    expect((handler.mock.calls[3] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({
+        title: "새 초안",
+        seed_text: "초안 메모",
+        category_no: null,
+        use_image_vision: true,
+      }),
+    });
+    expect((handler.mock.calls[4] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({
+        title: "수정 제목",
+        category_no: 7,
+        active_revision_id: "revision",
+      }),
+    });
+    expect((handler.mock.calls[5] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({
+        title: "블록 초안",
+        blocks: [{ type: "divider" }],
+        summary: "요약",
+        base_content_version: 3,
+      }),
+    });
+    expect((handler.mock.calls[6] as unknown[])[1]).toMatchObject({
+      body: JSON.stringify({ selected: ["전시"], added: ["후기"] }),
+    });
+  });
+
+  it("preserves every supported block form in a working copy", () => {
+    const draft = readPostDraft({
+      id: "11111111-1111-4111-8111-111111111111",
+      title: "블록 초안",
+      category_no: null,
+      status: "composed",
+      use_image_vision: false,
+      seed_text: "메모",
+      revisions: [
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          round_no: 1,
+          kind: "composed",
+          provider: "openai",
+          model: "gpt-test",
+          title: "블록 초안",
+          summary: "",
+          is_active: true,
+          blocks: [{ type: "paragraph", text: "문단" }],
+          created_at: null,
+        },
+      ],
+      working_copy: {
+        title: "편집 중",
+        summary: "작업본",
+        content_version: 2,
+        blocks: [
+          { type: "heading", text: "소제목" },
+          { type: "paragraph", text: "문단" },
+          { type: "quote", text: "인용" },
+          { type: "ordered_list", items: ["첫째"] },
+          { type: "unordered_list", items: ["항목"] },
+          { type: "divider" },
+          { type: "image", image_id: "33333333-3333-4333-8333-333333333333", caption: "사진" },
+        ],
+      },
+      images: [],
+      tags: [],
+      created_at: null,
+      updated_at: null,
+    });
+
+    expect(draft.workingCopy).toMatchObject({ title: "편집 중", contentVersion: 2 });
+    expect(draft.workingCopy?.blocks).toEqual([
+      { type: "heading", text: "소제목" },
+      { type: "paragraph", text: "문단" },
+      { type: "quote", text: "인용" },
+      { type: "ordered_list", items: ["첫째"] },
+      { type: "unordered_list", items: ["항목"] },
+      { type: "divider" },
+      {
+        type: "image",
+        image_id: "33333333-3333-4333-8333-333333333333",
+        caption: "사진",
+      },
+    ]);
+  });
 });
 
 describe("browser session", () => {

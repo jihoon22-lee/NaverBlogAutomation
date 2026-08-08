@@ -178,6 +178,29 @@ describe("mount", () => {
   it("uses the documented workspace root id", () => {
     expect(APP_ROOT_ID).toBe("workspace");
   });
+
+  it("mounts each supported hash route and keeps legacy today compatible", async () => {
+    installWorkspaceApi();
+    for (const hash of [
+      "#today",
+      "#home",
+      "#workbench",
+      "#more",
+      "#activity",
+      "#settings",
+      "#writing/draft-one",
+      "#session/session-one",
+      "#post/post-one",
+      "#comment/direct",
+      "#comment/recommendation-one?post=post-one&source=neighbor",
+    ]) {
+      document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+      if (document.defaultView !== null) document.defaultView.location.hash = hash;
+
+      expect(mount()).not.toBeNull();
+      await flush();
+    }
+  });
 });
 
 describe("registerPwaShell", () => {
@@ -277,6 +300,32 @@ describe("createWorkspace", () => {
 
     expect(document.defaultView?.location.hash).toContain("#comment/");
     expect(workspace.comment.state.phase).not.toBe("generating");
+  });
+
+  it("routes hash changes across home, workbench, and more before refreshing each resumable view", async () => {
+    installWorkspaceApi();
+    document.body.innerHTML = `<main id="${APP_ROOT_ID}"></main>`;
+    const root = document.getElementById(APP_ROOT_ID) as Element;
+    const workspace = createWorkspace(root);
+
+    for (const [hash, show] of [
+      ["#home", () => workspace.showWriting()],
+      ["#workbench", () => workspace.showHome()],
+      ["#more", () => workspace.showWorkbench()],
+      ["#home", () => workspace.showMore()],
+      ["#session", () => workspace.showHome()],
+      ["#writing", () => workspace.showHome()],
+      ["#activity", () => workspace.showHome()],
+      ["#settings", () => workspace.showHome()],
+    ] as const) {
+      show();
+      if (document.defaultView !== null) document.defaultView.location.hash = hash;
+      document.defaultView?.dispatchEvent(new HashChangeEvent("hashchange"));
+      document.defaultView?.dispatchEvent(new Event("pageshow"));
+      await flush();
+    }
+
+    expect(document.getElementById("workspace-status")).not.toBeNull();
   });
 
   it("pairs a tablet, and explains a rejected one-time code without leaving the pairing screen", async () => {
