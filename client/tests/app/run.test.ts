@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../src/app/api/client";
-import { decode } from "../../src/app/api/run-stream";
+import { decode, eventSourceStream } from "../../src/app/api/run-stream";
 import type { RunStreamFactory, RunStreamHandlers } from "../../src/app/api/run-stream";
 import type { EngagementRun } from "../../src/app/api/types";
 import { MAX_RECONNECTS, RunController } from "../../src/app/controllers/run";
@@ -140,6 +140,30 @@ describe("run stream decoding", () => {
 
   it("decodes an object payload", () => {
     expect(decode('{"step":"like"}')).toEqual({ step: "like" });
+  });
+
+  it("subscribes to browser events and forwards decoded progress", () => {
+    const listeners = new Map<string, (event: Event) => void>();
+    const addEventListener = vi.fn((name: string, handler: (event: Event) => void) => {
+      listeners.set(name, handler);
+    });
+    class BrowserEventSource {
+      readonly addEventListener = addEventListener;
+      readonly close = vi.fn();
+    }
+    vi.stubGlobal("EventSource", BrowserEventSource);
+    const onEvent = vi.fn();
+    const onError = vi.fn();
+
+    const subscribed = eventSourceStream("/events", { onEvent, onError });
+    listeners.get("run_started")?.({ data: '{"step":"like"}' } as MessageEvent);
+    listeners.get("error")?.(new Event("error"));
+
+    expect(subscribed).toBeInstanceOf(BrowserEventSource);
+    expect(onEvent).toHaveBeenCalledWith({ event: "run_started", payload: { step: "like" } });
+    expect(onError).toHaveBeenCalledOnce();
+    expect(addEventListener).toHaveBeenCalledTimes(8);
+    vi.unstubAllGlobals();
   });
 });
 
