@@ -23,7 +23,6 @@ const RECOMMENDATION = {
   comment_length: "medium",
   comment_mood: "warm",
   quality_warnings: [],
-  version: 1,
 };
 
 const EXTRACTION = {

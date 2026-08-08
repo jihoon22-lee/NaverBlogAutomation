@@ -48,7 +48,6 @@ function recommendation(overrides: Partial<Recommendation> = {}): Recommendation
     commentLength: "medium",
     commentMood: "warm",
     qualityWarnings: [],
-    version: 1,
     ...overrides,
   };
 }
@@ -236,7 +235,7 @@ describe("withReviewed", () => {
   it("stores the reviewed recommendation and stays in review", () => {
     const state = withGeneration(withExtraction(initialCommentState(), EXTRACTION), generation());
 
-    const reviewed = withReviewed(state, recommendation({ reviewStatus: "approved", version: 2 }));
+    const reviewed = withReviewed(state, recommendation({ reviewStatus: "approved" }));
 
     expect(reviewed.recommendation?.reviewStatus).toBe("approved");
     expect(reviewed.phase).toBe("review");

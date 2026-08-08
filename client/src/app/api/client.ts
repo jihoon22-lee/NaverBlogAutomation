@@ -1064,7 +1064,6 @@ export function readRecommendation(body: unknown): Recommendation {
     ) as Recommendation["commentLength"],
     commentMood: readString(body.comment_mood, "comment_mood") as Recommendation["commentMood"],
     qualityWarnings: warnings as Recommendation["qualityWarnings"],
-    version: readCount(body.version, "version"),
   };
 }
 

@@ -42,7 +42,6 @@ const RECOMMENDATION: Recommendation = {
   commentLength: "medium",
   commentMood: "warm",
   qualityWarnings: [],
-  version: 1,
 };
 
 const GENERATION: CommentGeneration = {

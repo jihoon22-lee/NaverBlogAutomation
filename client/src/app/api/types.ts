@@ -142,7 +142,6 @@ export interface Recommendation {
   commentLength: CommentLength;
   commentMood: CommentMood;
   qualityWarnings: QualityWarning[];
-  version: number;
 }
 
 export interface GenerationOptions {

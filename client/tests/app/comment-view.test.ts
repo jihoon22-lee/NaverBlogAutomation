@@ -39,7 +39,6 @@ function recommendation(overrides: Partial<Recommendation> = {}): Recommendation
     commentLength: "medium",
     commentMood: "warm",
     qualityWarnings: [],
-    version: 1,
     ...overrides,
   };
 }
@@ -90,9 +89,7 @@ function api(overrides: Record<string, unknown> = {}) {
       { provider: "openai" as const, configured: true, model: "gpt-test" },
     ]),
     recommendation: vi.fn(async () => recommendation()),
-    reviewRecommendation: vi.fn(async () =>
-      recommendation({ reviewStatus: "approved", version: 2 }),
-    ),
+    reviewRecommendation: vi.fn(async () => recommendation({ reviewStatus: "approved" })),
     refineRecommendation: vi.fn(async () => ({
       text: "더 자연스러운 댓글",
       provider: "openai" as const,
