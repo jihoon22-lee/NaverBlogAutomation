@@ -461,6 +461,28 @@ describe("candidate selection and editing", () => {
       false,
     );
   });
+
+  it("uses the same Unicode character count for the limit and the visible counter", async () => {
+    const controller = new CommentController(root(), { api: api() as never });
+    controller.open(EXTRACTION, "post-1", "neighbor");
+    await controller.generate();
+
+    const editor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    editor.value = "😀".repeat(500);
+    editor.dispatchEvent(new Event("input"));
+    expect(text(".draft-count")).toBe("500 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+
+    const nextEditor = document.getElementById("comment-draft") as HTMLTextAreaElement;
+    nextEditor.value = "😀".repeat(501);
+    nextEditor.dispatchEvent(new Event("input"));
+    expect(text(".draft-count")).toBe("501 / 500자");
+    expect((document.getElementById("execute-comment-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
 });
 
 describe("AI comment refinement", () => {

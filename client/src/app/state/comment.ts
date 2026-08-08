@@ -247,7 +247,7 @@ export function canApprove(state: CommentState): boolean {
     state.recommendation !== null &&
     state.selectedCandidateId !== null &&
     state.draft.trim().length > 0 &&
-    state.draft.length <= MAX_COMMENT_CODE_POINTS
+    Array.from(state.draft).length <= MAX_COMMENT_CODE_POINTS
   );
 }
 
@@ -258,7 +258,7 @@ export function appendClosingPhrase(comment: string, phrase: string): string {
   const trimmed = comment.replace(/\s+$/u, "");
   if (phrase.length === 0) return trimmed;
   if (trimmed.endsWith(phrase)) return trimmed;
-  return `${trimmed} ${phrase}`.trim().slice(0, MAX_COMMENT_CODE_POINTS);
+  return Array.from(`${trimmed} ${phrase}`.trim()).slice(0, MAX_COMMENT_CODE_POINTS).join("");
 }
 
 function draftFor(
