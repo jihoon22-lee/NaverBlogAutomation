@@ -265,24 +265,3 @@ class TestSchedulePolicy:
     def test_the_post_cap_is_bounded(self) -> None:
         with pytest.raises(DomainValidationError, match="max_posts"):
             normalize_setting_payload(AppSettingKind.SCHEDULE_POLICY, schedule(max_posts=51))
-
-
-class TestBrowserProfile:
-    def test_a_blank_channel_selects_bundled_chromium(self) -> None:
-        payload = normalize_setting_payload(
-            AppSettingKind.BROWSER_PROFILE, {"headless": True, "channel": "  "}
-        )
-
-        assert payload == {"headless": True, "channel": ""}
-
-    def test_a_non_boolean_headless_flag_is_rejected(self) -> None:
-        with pytest.raises(DomainValidationError, match="headless"):
-            normalize_setting_payload(
-                AppSettingKind.BROWSER_PROFILE, {"headless": "true", "channel": "chrome"}
-            )
-
-    def test_an_overlong_channel_is_rejected(self) -> None:
-        with pytest.raises(DomainValidationError, match="channel"):
-            normalize_setting_payload(
-                AppSettingKind.BROWSER_PROFILE, {"headless": False, "channel": "c" * 33}
-            )

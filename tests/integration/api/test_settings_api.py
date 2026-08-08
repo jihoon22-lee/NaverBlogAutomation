@@ -97,7 +97,6 @@ def test_every_kind_accepts_its_documented_default(client: TestClient) -> None:
         ("automation_consent", {"accepted": "yes", "consent_version": 1}, "boolean"),
         ("safety_policy", {"daily_like_cap": 0}, "settings field"),
         ("schedule_policy", {"mode": "unattended", "hour": 1, "minute": 0, "max_posts": 1}, "mode"),
-        ("browser_profile", {"headless": "true", "channel": "chrome"}, "headless"),
     ],
 )
 def test_invalid_payloads_are_rejected(
@@ -113,6 +112,14 @@ def test_invalid_payloads_are_rejected(
 
 def test_saving_an_unknown_kind_is_not_found(client: TestClient) -> None:
     response = client.put("/api/v1/settings/unknown_kind", json={"payload": {}})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "setting_not_found"
+
+
+@pytest.mark.parametrize("kind", ["browser_profile", "llm_providers"])
+def test_superseded_runtime_setting_kinds_are_not_available(client: TestClient, kind: str) -> None:
+    response = client.get(f"/api/v1/settings/{kind}")
 
     assert response.status_code == 404
     assert response.json()["code"] == "setting_not_found"

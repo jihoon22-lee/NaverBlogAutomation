@@ -650,8 +650,6 @@ class AppSettingResponse(StrictModel):
         "automation_consent",
         "safety_policy",
         "schedule_policy",
-        "browser_profile",
-        "llm_providers",
         "llm_budget",
         "writing_profile",
     ]

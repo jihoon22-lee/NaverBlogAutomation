@@ -61,30 +61,8 @@ def test_no_credential_appears_in_the_response(client: TestClient) -> None:
     assert ANTHROPIC_KEY not in body
 
 
-def test_the_provider_selection_setting_round_trips(client: TestClient) -> None:
-    saved = client.put(
-        "/api/v1/settings/llm_providers",
-        json={
-            "payload": {
-                "default_provider": "gemini",
-                "models": {"gemini": "gemini-test", "openai": "gpt-test"},
-            }
-        },
-    )
+def test_the_superseded_provider_selection_setting_is_not_available(client: TestClient) -> None:
+    response = client.get("/api/v1/settings/llm_providers")
 
-    assert saved.status_code == 200, saved.text
-    assert saved.json()["payload"]["default_provider"] == "gemini"
-    assert client.get("/api/v1/settings/llm_providers").json()["payload"]["models"] == {
-        "gemini": "gemini-test",
-        "openai": "gpt-test",
-    }
-
-
-def test_an_unknown_provider_is_rejected(client: TestClient) -> None:
-    response = client.put(
-        "/api/v1/settings/llm_providers",
-        json={"payload": {"default_provider": "mistral", "models": {"mistral": "m"}}},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "invalid_setting"
+    assert response.status_code == 404
+    assert response.json()["code"] == "setting_not_found"
