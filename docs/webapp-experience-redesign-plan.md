@@ -21,7 +21,7 @@
 | 로컬 자동 검증 | 완료 | Python `1462 passed`, client `628 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
 | 보안/호환성 검증 | 완료 | runtime redaction/권한/symlink/pair 제한, OpenAPI parser parity, legacy route/endpoint 회귀 검증 | 실제 배포 환경의 운영자 확인만 남음 |
 | 실제 Naver editor 확인 | 외부 opt-in 대기 | 지원 block별 trusted input smoke harness와 fail-closed 경로 준비 | 전용 로그인 profile에서 `RUN_LIVE_NAVER=1` 실행 |
-| PR 전달 | 진행 중 | 기능 단위 Conventional Commit이 이미 분리됨 | 아래 8장의 PR 1/2 push 및 review-ready PR 생성 |
+| PR 전달 | 완료 | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)을 review-ready 상태로 생성 | merge/review 대기 |
 
 ## 1. 범위 잠금과 완료 선언 규칙
 
@@ -51,7 +51,7 @@
 | DONE-04 | 🟡 외부 opt-in 대기 — 지원 block을 요청 순서대로 trusted input으로 넣고 결과 구조를 읽는 adapter contract와 fail-closed 경로는 완료했다. | mock/local sequence·negative matrix 통과; 실제 로그인된 Naver editor smoke만 계정 prerequisite로 남음 |
 | DONE-05 | ✅ 완료 — runtime secret은 write-only private env 외에 남지 않으며 restart guard가 적용을 제어한다. | redaction/permission/symlink/duplicate/pair/restart/data export test 및 생성 artifact audit |
 | DONE-06 | ✅ 완료 — client·extension·Python 품질 게이트와 secret/viewport 검증이 최종 종료 상태까지 통과했다. | Python 90.06%, client 80% 이상, extension 80% 이상, E2E 5 passed, 최종 exit 0 |
-| DONE-07 | 🟡 전달 마무리 — 두 review-ready 변경 단위의 커밋 경계와 설명을 이 문서에 기록한다. | 기능 단위 Conventional Commit 목록은 정리됨; 8장에 PR URL/검증을 push 후 기록 |
+| DONE-07 | ✅ 완료 — 두 review-ready 변경 단위의 커밋 경계와 설명을 이 문서에 기록했다. | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), 각 PR의 검증/제한/커밋 경계 |
 
 `DONE-04`의 live smoke는 실제 네이버 계정 조작을 기본 test에 넣는다는 뜻이 아니다. mock
 adapter 검증이 기본 gate이고, 별도 동의한 테스트 계정에서만 opt-in으로 실행한다. live smoke가
@@ -343,7 +343,7 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
 | PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
-| PR 2 | `feature/webapp-experience-redesign` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped |
+| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
 명령의 최종 summary, 외부 opt-in 제한을 그대로 복사한다. Plan 문서는 PR 2에서 최종 실행 기록과
@@ -429,4 +429,4 @@ PR URL을 갱신한다.
 - [x] Local operations: automatic migration, export/reset·backup 수동 복구 범위, fixture rollback, hang protocol과 앱 소유 media root를 설명한다.
 - [x] API contract: runtime/data/staging response와 errors가 OpenAPI·Pydantic·client parser에 일치한다.
 - [x] 이 문서: 모든 ID에 완료/외부 대기와 실행한 검증의 최종 결과가 기록되어 있다.
-- [ ] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다. PR 1은 [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)으로 생성했고, PR 2 생성 후 URL을 추가한다.
+- [x] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다. [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)이 review-ready 상태다.
