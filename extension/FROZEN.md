@@ -1,6 +1,6 @@
-# FROZEN — Chrome extension v0.5.6
+# FROZEN — Chrome extension v0.6.0
 
-이 디렉터리는 **동결(FROZEN)** 상태입니다. v0.5.6에서 기능 개발을 멈췄고, 이후 모든 작업은
+이 디렉터리는 **동결(FROZEN)** 상태입니다. v0.6.0에서도 기능 개발을 멈췄고, 이후 모든 작업은
 로컬 웹앱(`client/`)과 FastAPI 서비스(`src/naver_blog_assistant/`)에서 이어집니다.
 
 ## 무엇이 동결됐는가
@@ -15,7 +15,7 @@
 
 ## 여전히 유효한 것
 
-- 이미 설치한 v0.5.6은 그대로 동작합니다. `npm --prefix extension run check`도 계속 통과합니다.
+- 이미 설치한 v0.6.0은 그대로 동작합니다. `npm --prefix extension run check`도 계속 통과합니다.
 - 보안 결함이나 Chrome의 파괴적 변경에는 대응합니다. 그 외 변경은 받지 않습니다.
 
 ## 웹앱으로 옮겨간 기능

@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### 추가
+
+- 홈·작업함·글쓰기·더보기의 네 화면으로 웹앱 navigation을 정리하고, 데스크톱과 태블릿에서 이어서
+  작업할 수 있는 responsive workbench를 제공했습니다.
+- 문단·소제목·인용·목록·구분선·이미지 블록을 편집하는 네이버 스타일 writing studio와
+  working copy 자동저장을 추가했습니다.
+- AI·Naver Search·SMTP·브라우저 연결을 PC 전용 보호 설정에서 관리하고, 설정 적용을 명시적으로
+  재시작하는 runtime configuration 흐름을 추가했습니다.
+
+### 개선
+
+- 작업함에 source·검색어·작성자·시각 맥락, cursor pagination, 보류 글 복구, 일괄 처리 안전 확인을
+  제공해 긴 목록에서도 현재 작업 위치를 잃지 않도록 했습니다.
+- 네이버 임시저장은 지원하는 block 구조와 순서를 검증하며, 구조를 확인할 수 없을 때 평문으로
+  조용히 변환하지 않고 안전하게 중단하도록 했습니다.
+- standalone PWA shell, onboarding 준비 카드, activity 요약 카드와 tablet detail sheet를
+  추가해 재개 흐름과 상태 확인을 단순화했습니다.
+
+### 수정
+
+- 댓글 recommendation 응답에 없는 `version` 필드를 client fixture와 parser가 임의로 기대하던
+  계약 불일치를 제거했습니다.
+- queue를 새로고침하는 동안 상세 action이 조용히 무시되던 race를 막고, 완료 후에만 보류 복구를
+  실행하도록 했습니다.
+
 ## [0.5.6]
 
 ### 수정
