@@ -1,6 +1,6 @@
 # 웹앱 UX 전면 개편 — 실행·검증 기준서
 
-> 상태: **구현 완료 / 기본 검증 완료 / 외부 live smoke 대기** · 기준일: 2026-08-08 · 적용 범위:
+> 상태: **구현 완료 / local·mock 검증 완료 / 최신 PR CI 재실행 중 / 외부 live smoke 대기** · 기준일: 2026-08-08 · 적용 범위:
 > desktop web app, paired tablet web app, local API, browser automation adapter
 >
 > 이 문서는 이번 UX 전면 개편의 단일 실행 기준이다. 현재 구현은 두 개의 기능 단위 커밋 묶음으로
@@ -21,7 +21,7 @@
 | 로컬 자동 검증 | 완료 | Python `1462 passed`, client `628 passed`, extension `368 passed`, E2E `5 passed` | 없음 |
 | 보안/호환성 검증 | 완료 | runtime redaction/권한/symlink/pair 제한, OpenAPI parser parity, legacy route/endpoint 회귀 검증 | 실제 배포 환경의 운영자 확인만 남음 |
 | 실제 Naver editor 확인 | 외부 opt-in 대기 | 지원 block별 trusted input smoke harness와 fail-closed 경로 준비 | 전용 로그인 profile에서 `RUN_LIVE_NAVER=1` 실행 |
-| PR 전달 | 완료 | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)을 review-ready 상태로 생성 | merge/review 대기 |
+| PR 전달 | review-ready | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)이 review-ready이며 PR 1은 최신 CI green, PR 2는 보안 보강 커밋 후 CI 재실행 중 | CI 완료 확인 후 merge/review |
 
 ## 1. 범위 잠금과 완료 선언 규칙
 
@@ -49,7 +49,7 @@
 | DONE-02 | ✅ 완료 — 작업함의 queue·댓글·보류 복구·일괄 승인 전 확인이 source/state 조합에서 동작한다. | queue API integration, comment/workbench DOM, skipped restore, batch preflight/session handoff test |
 | DONE-03 | ✅ 완료 — canonical block/working copy/충돌 처리가 기존 초안을 훼손하지 않는다. | `0020 → 0021 → 0020 → 0021` migration fixture, API 409 conflict, editor autosave DOM |
 | DONE-04 | 🟡 외부 opt-in 대기 — 지원 block을 요청 순서대로 trusted input으로 넣고 결과 구조를 읽는 adapter contract와 fail-closed 경로는 완료했다. | mock/local sequence·negative matrix 통과; 실제 로그인된 Naver editor smoke만 계정 prerequisite로 남음 |
-| DONE-05 | ✅ 완료 — runtime secret은 write-only private env 외에 남지 않으며 restart guard가 적용을 제어한다. | redaction/permission/symlink/duplicate/pair/restart/data export test 및 생성 artifact audit |
+| DONE-05 | ✅ 완료 — runtime secret의 영속 저장은 write-only private env로 제한되고 restart guard가 적용을 제어한다. 프로세스 실행 중 환경 변수 사용은 API/DB/브라우저 저장과 구분한다. | redaction/permission/parent-mode/symlink/duplicate/pair/restart/data export test 및 생성 artifact audit |
 | DONE-06 | ✅ 완료 — client·extension·Python 품질 게이트와 secret/viewport 검증이 최종 종료 상태까지 통과했다. | Python 90.06%, client 80% 이상, extension 80% 이상, E2E 5 passed, 최종 exit 0 |
 | DONE-07 | ✅ 완료 — 두 review-ready 변경 단위의 커밋 경계와 설명을 이 문서에 기록했다. | [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), 각 PR의 검증/제한/커밋 경계 |
 
@@ -90,7 +90,7 @@ local/mock 검증은 완료했지만 실제 Naver 계정 또는 운영 launcher�
 | activity card·PWA shell | `activity.ts`, manifest, `service-worker.js`, SPA mount test, E2E | 완료 | static shell만 cache하고 `/api/`는 cache하지 않는 browser assertion 및 3 viewport 통과 |
 | canonical block·working copy·migration `0021` | domain/draft API/repository/migration/conflict test, writing DOM/E2E | 완료 | `0020 → 0021 → 0020 → 0021` fixture, autosave/version conflict, resume/preview 통과 |
 | structured staging | unique capability probe, fail-closed `StagePost`, semantic prefix evidence, opt-in harness | 외부 대기 | mock/local trusted input과 negative matrix 통과; 실제 Naver signature smoke는 계정 필요 |
-| runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests, desktop data API/UI, supervisor | 완료 | write-only/atomic/private/pair/restart/export/reset 검증 및 settings/data E2E 통과 |
+| runtime protected configuration·supervisor | runtime service/router/settings UI/unit+integration tests, desktop data API/UI, supervisor | 완료 | write-only/atomic/private file·0700 parent/symlink/owner/pair/restart/export/reset 검증 및 settings/data E2E 통과; parent 경로 보강은 `2a8db50` |
 | schedule/budget advanced settings | settings controller/view and app setting routes | 완료 | advanced disclosure, persistence/validation, paired restriction 테스트 통과 |
 | quality gates | targeted suites, full Python/client/extension, viewport E2E, artifact checks | 완료 | Python 1462/8 skip, client 628, extension 368, E2E 5, all required exits 0 |
 
@@ -342,8 +342,8 @@ PR 2는 `feature/webapp-experience-redesign`에서 PR 1을 base로 삼는 stacke
 
 | PR | branch | 포함 범위 | 제외/제한 | 핵심 검증 |
 | --- | --- | --- | --- | --- |
-| PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
-| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped |
+| PR 1 | `feature/webapp-workbench` · [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90) · head `5f3a2b1` | `8fc7377` 이후 A0~A4의 queue/navigation/activity/PWA/UI 및 A 테스트, `173c03d` 태블릿 overflow, `cdb4a60` recommendation contract, `5f3a2b1` legacy hash 별칭 | writing/migration/staging/runtime/data 설정 | client targeted/coverage, Python queue/API, Chromium workbench + 기존 workflow E2E |
+| PR 2 | `feature/webapp-experience-redesign` · [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91) · base `5f3a2b1`, latest head `2a8db50` | PR 1 위에 B1~B4의 working copy/block canvas/staging/runtime/settings/data/docs, full 3 viewport E2E, opt-in live harness, `2a8db50` 보호 경로 보강 | 실제 Naver 계정 호출은 기본 skip | Python full, client/extension check, E2E 5 passed, live smoke 1 skipped; 최신 CI는 재실행 중 |
 
 PR 1과 PR 2 모두 review-ready 상태로 생성한다. PR 설명에는 이 표와 commit 목록, 실제 실행한
 명령의 최종 summary, 외부 opt-in 제한을 그대로 복사한다. Plan 문서는 PR 2에서 최종 실행 기록과
@@ -398,7 +398,7 @@ PR URL을 갱신한다.
 | --- | --- | --- | --- |
 | 2026-08-08 | Python runtime configuration targeted | 통과 | ruff format/check, ty, `test_runtime_configuration.py` + `test_runtime_configuration_api.py`: 8 passed, 1 warning, 7.22s. |
 | 2026-08-08 | Python SPA asset targeted | 통과 | `test_spa_mount.py`: 9 passed, 1 warning, 6.05s. static service-worker asset만 확인했다. |
-| 2026-08-08 | Client targeted | 통과 | `main.test.ts` 23 (18.32s), `activity.test.ts` 4 (17.72s), `settings.test.ts` 37 (18.68s), `today-view.test.ts` 22 (17.50s); 해당 파일 범위만이다. |
+| 2026-08-08 | Client targeted | 통과 | `main.test.ts` 26 (legacy hash 별칭 포함), `activity.test.ts` 4, `settings.test.ts` 37, `today-view.test.ts` 22; 해당 파일 범위만이다. |
 | 2026-08-08 | Client workbench batch preflight targeted | 통과 | `format`, `typecheck`, `today-state/today-view/session/main` 4 files/103 tests가 13.08초에 final summary와 exit 0으로 종료했다. selection order, step scope, cap exhaustion, min-interval lower bound, session handoff/back을 확인했다. |
 | 2026-08-08 | Structured staging Python targeted | 통과 | `ruff format/check` 및 `test_stage_post.py` + `test_staging_api.py`: 55 passed, 1 warning, 11.02s, exit 0. six text block action, image before/between/after, fail-closed, SSE non-content body range/prefix detail을 확인했다. 실제 Naver smoke는 포함하지 않았다. |
 | 2026-08-08 | Staging/checklist client targeted | 통과 | `format`, `typecheck`, `writing-state/writing-api/settings` 3 files/99 tests가 17.21초에 exit 0으로 종료했다. SSE step 즉시 반영과 네이버 확인 checklist DOM을 확인했다. |
@@ -421,6 +421,7 @@ PR URL을 갱신한다.
 | 2026-08-08 | Naver staging smoke harness | 기본 skip | `uv run pytest --no-cov -q tests/live/test_naver_staging_smoke.py`: 1 skipped. 실제 계정/profile 없이는 실행하지 않으며, 실행 명령과 no-publish 정책을 local operations에 기록. |
 | 2026-08-08 | Web app journey E2E | 통과 | `npm --prefix extension run test:e2e`: 5 passed (desktop 1440, tablet portrait 768, landscape 1024 각각 Chromium + legacy workflow); writing autosave/preview, skipped restore, settings redaction, export/reset, PWA no-API-cache assertion 포함. |
 | 2026-08-08 | Secret/artifact audit | 통과 | runtime API/DOM/log/export tests가 plaintext secret을 거부하고, E2E는 synthetic credentials만 사용하며 screenshot artifact를 생성하지 않는다. generated `client/dist`/`extension/dist`와 Playwright temp output에 secret pattern 없음. |
+| 2026-08-08 | Runtime path hardening | 통과 | `test_runtime_configuration.py` + `test_runtime_data.py`: 15 passed. private env parent `0700`, owner check, database/media symlink parent rejection을 추가한 `2a8db50`을 검증했다. |
 
 ## 11. 문서 완료 checklist
 
@@ -430,3 +431,288 @@ PR URL을 갱신한다.
 - [x] API contract: runtime/data/staging response와 errors가 OpenAPI·Pydantic·client parser에 일치한다.
 - [x] 이 문서: 모든 ID에 완료/외부 대기와 실행한 검증의 최종 결과가 기록되어 있다.
 - [x] PR 1/PR 2: 각각 포함/제외 파일, acceptance evidence, known limitation, review command를 한국어로 설명한다. [PR 1 #90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90)과 [PR 2 #91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91)이 review-ready 상태다.
+
+## 12. 문서 통제와 현재 상태 snapshot
+
+이 절은 “무엇을 했는가”와 “무엇이 아직 외부 조건인가”를 섞지 않기 위한 운영 기록이다. `완료`는
+코드·계약·local/mock test가 끝났다는 뜻이고, `외부 대기`는 구현이 없다는 뜻이 아니라 실제 계정,
+운영 launcher 또는 사용자의 최종 확인이 필요한 뜻이다.
+
+| 항목 | 현재 값 | 판정 기준 |
+| --- | --- | --- |
+| implementation head | `2a8db50` (`fix(runtime): 보호 경로의 부모 권한과 symlink를 검증한다`) | runtime file parent `0700`/owner와 database·media symlink parent 거부까지 포함 |
+| PR 1 | [#90](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/90), `feature/webapp-workbench` → `main`, head `5f3a2b1`, review-ready | PR 1 범위의 required checks가 green이면 A 단위 수용 |
+| PR 2 | [#91](https://github.com/jihoon22-lee/NaverBlogAutomation/pull/91), `feature/webapp-experience-redesign` → `feature/webapp-workbench`, head `2a8db50`, review-ready | PR 2 head의 CI가 다시 green인지 확인한 뒤 review/merge |
+| local Python | `1462 passed, 8 skipped`, coverage 90.06% | skip은 Playwright binary 4, Naver live 1, OpenAI live 3이며 숨겨진 pass로 취급하지 않음 |
+| local client/extension | client 628, extension 368 | 각 package의 format/type/lint/build/coverage 명령이 final summary와 exit 0 |
+| 외부 live | Naver staging smoke 1 skipped | `RUN_LIVE_NAVER=1`과 dedicated logged-in profile 없이는 실행하지 않음 |
+| merge 전 남은 일 | 최신 CI 확인, reviewer 승인, 실제 Naver smoke opt-in | 이 문서의 구현 수용 기준을 뒤집는 미완료 항목은 아님 |
+
+문서 변경 이후의 커밋은 이 표의 implementation head를 갱신해야 한다. CI가 재실행 중일 때는
+`완료`로 미리 기록하지 않고 `재실행 중`으로 둔다. `gh pr checks 90`, `gh pr checks 91`의
+모든 required job이 `pass`가 된 뒤에만 최종 상태를 `CI green`으로 바꾼다.
+
+## 13. 요구사항-코드-검증 traceability matrix
+
+아래 표는 각 사용자 가치 단위가 어느 파일과 테스트로 닫히는지 보여 준다. 한 행의 production
+파일만 바뀌고 transport model, parser, fixture 또는 test가 빠지면 그 행은 완료로 표시할 수 없다.
+
+| 요구 ID | production boundary | 계약·상태 저장 | 직접 검증 | 잔여 조건 |
+| --- | --- | --- | --- | --- |
+| A1 navigation/home/more | `client/src/app/main.ts`, `navigation.ts`, `views/today.ts`, `views/settings.ts` | `routeFromHash`, `NavSection`, `AppReadiness` | `client/tests/app/main.test.ts`, `navigation.test.ts`, `extension/tests/e2e/webapp.e2e.ts` | legacy route의 실제 외부 bookmark 확인은 운영 smoke |
+| A2 queue/detail/comment | `api/factory.py` queue routes, `discovery_repository.py`, `controllers/today.ts`, `state/today.ts`, `views/today.ts` | `WebAppDiscoveryQueueResponse`, `DiscoveryState`, `source_label` | `tests/integration/api/test_local_api.py`, `client/tests/app/api-client.test.ts`, `today-state.test.ts`, `today-view.test.ts` | queue item body는 API에 포함하지 않음 |
+| A2-05 recommendation contract | `api/models.py`, `client/src/app/api/client.ts` `readRecommendation` | OpenAPI `RecommendationResponse`의 `additionalProperties: false` | `client/tests/app/comment-api.test.ts` version-extra rejection, comment/run/state/view 83 targeted tests | server가 `version`을 추가하지 않는지 release diff에서 재확인 |
+| A3 batch preflight | `controllers/today.ts`, `state/today.ts`, `controllers/session.ts`, `views/session.ts` | `SafetyStatus`, `AutomationSession`, ordered `postIds` | `today-state.test.ts`, `today-view.test.ts`, `session.test.ts`, session API integration, E2E batch journey | 실제 실행은 명시적 승인 없이는 시작하지 않음 |
+| A4 activity/PWA/responsive | `controllers/activity.ts`, `views/activity.ts`, `service-worker.js`, `app.css`, `main.ts` | activity filter state, shell-only cache list | activity tests, `test_spa_mount.py`, 3 viewport E2E/cache assertion | offline mutation은 지원하지 않음 |
+| B1 working copy | `domain/writing.py`, `api/draft_models.py`, `routers/drafts.py`, `post_draft_repository.py` | `BodyBlock[]`, `DraftWorkingCopy`, `base_content_version`, migration `0021` | `test_writing.py`, `test_post_draft_repository.py`, `test_draft_revisions_api.py`, writing state/API tests | 기존 legacy JSON은 read-only 호환 입력으로만 허용 |
+| B2 structured staging | `application/automation/stage_post.py`, `client/src/page/editor.ts`, page bundle, browser port | probe capability, `PublishStep`, SSE `detail` prefix evidence | `test_stage_post.py`, `test_staging_api.py`, editor tests, staging client tests, live harness | 실제 Naver DOM signature만 외부 대기 |
+| B3 runtime connection | `application/runtime_configuration.py`, `api/routers/runtime_configuration.py`, `client/views/settings.ts`, `scripts/start_webapp.py` | private dotenv known-key merge, replace/clear intent, restart marker | runtime unit/API tests, settings tests, supervisor tests, settings E2E | launcher 없는 수동 API는 409 안내 |
+| B3 data management | `application/runtime_data.py`, `api/routers/runtime_data.py`, settings UI | derived SQLite/WAL/SHM + media only, backup move | runtime data tests/API, export/reset E2E | backup 보존/삭제는 별도 운영 정책이며 자동 삭제하지 않음 |
+| B4 documentation | `README.md`, `docs/getting-started.md`, `docs/local-operations.md`, `docs/api-contract.md`, this file | route/settings/operation text must match source | documentation review + release diff audit | Naver live 결과가 생기면 supported signature 기록 갱신 |
+
+### 13.1 변경 시 함께 갱신해야 하는 파일
+
+1. Python response model을 바꾸면 `docs/api/openapi.yaml`과 `client/src/app/api/types.ts`를 먼저
+   같이 바꾼다.
+2. parser가 읽는 필드를 바꾸면 `client/tests/app/api-client.test.ts` 또는 해당 domain fixture에서
+   정상·누락·extra·enum 경계를 모두 만든다.
+3. DB 필드를 바꾸면 migration upgrade/downgrade fixture와 repository/API test를 같은 커밋 단위에
+   둔다. migration head만 바꾸고 fixture를 남겨두지 않는다.
+4. 화면 route를 바꾸면 `main.test.ts`, direct hash route, legacy alias, 768/1024 E2E를 함께 확인한다.
+5. secret 또는 filesystem 경계를 바꾸면 response body·DOM·log·archive·symlink·permission test를
+   동시에 실행한다.
+
+## 14. API와 상태 전이의 실행 계약
+
+### 14.1 SPA discovery queue
+
+`/api/v1/discovery/queue`는 extension이 이미 사용하는 legacy contract라서 `source` required와
+기존 item shape를 보존한다. 웹앱은 `/api/v1/app/discovery/queue`만 사용한다.
+
+| 입력 | 허용값 | 의미 | 화면 동작 |
+| --- | --- | --- | --- |
+| `source` | 생략/`neighbor`/`search` | 생략이면 두 출처를 합산 | segment 또는 source filter |
+| `state` | 생략/`queued`/`opened`/`skipped`/공통 state enum | 생략이면 작업 가능한 pending과 hold를 조회 | status filter |
+| `query` | trim 후 최대 120자 | title, publisher, publisher blog id, source label을 case-fold 검색 | 검색 input |
+| `cursor` | URL-safe opaque offset | 현재 정렬 snapshot의 다음 page 시작 위치 | “더 불러오기” |
+| `limit` | 1–100, 기본 30 | 한 요청의 item 상한 | page append |
+
+응답 `counts`는 현재 작업함에서 사용하는 `neighbor`, `search`, `skipped`, `total` 수이며 현재
+filter로 줄어든 page의 count가 아니다. `source_label`은 neighbor 이름 또는 saved-search query다.
+삭제된 saved search의 candidate는 `skipped`일 때만 보류 화면에 남긴다. 저장 검색어를 지웠다고
+기존 보류 후보가 조용히 사라지지 않는다.
+
+상태 action은 다음과 같이 제한한다.
+
+| 현재 상태 | 작업함 action | 결과 |
+| --- | --- | --- |
+| `queued`/`opened` | 이 글 건너뛰기 | `skipped`, 보류 segment와 count에 반영 |
+| `skipped` | 다시 대기 | `queued`, neighbor/search segment와 count에 반영 |
+| 어떤 item | 처리하기 | 기존 선택 row/filter/query/cursor를 유지한 comment context로 이동 |
+| item 없음/삭제 | 처리하기 | API 404 또는 extraction 오류를 inline status로 표시, 재시도 loop 없음 |
+
+`cursor`는 DB id를 노출하지 않기 위한 base64 offset이며, 새 sync가 page 사이에 삽입되면 다음
+요청 전에 refresh하여 snapshot을 다시 읽는다. 따라서 cursor는 장기 bookmark가 아니며, 서버는
+오래된 cursor를 성공으로 가장하지 않고 malformed cursor에 `422 invalid_cursor`를 반환한다.
+
+### 14.2 Block working copy
+
+| discriminator | 필수 필드 | 제한 | staging action |
+| --- | --- | --- | --- |
+| `paragraph`/`heading`/`quote` | `text` | 1–4,000자 | editor clear/type 또는 block-specific toolbar |
+| `ordered_list`/`unordered_list` | `items` | 1–100개, item 1–4,000자 | list toolbar + line-by-line Enter |
+| `divider` | 없음 | content field 금지 | divider capability |
+| `image` | UUID `image_id` | media에 실제 존재, caption 최대 4,000자, 동일 image UUID 중복 금지 | exact position attachment + caption verification |
+
+전체 `BodyBlock[]`는 1–200개다. 서버는 unknown field, 잘못된 discriminator, 빈 block, 존재하지
+않는 image UUID, 중복 image reference를 저장·staging 전에 거부한다. client parser는 canonical
+배열을 그대로 보존하고 화면에서만 `bodyText` 요약을 계산한다. `blocksFromText`는 구버전 호출자를
+위한 deprecated shim이며 block canvas나 autosave의 production 경로에서는 호출하지 않는다.
+
+working copy 저장은 다음 순서를 따른다.
+
+1. client debounce가 마지막 title/blocks/summary를 하나로 모은다.
+2. 요청은 `base_content_version`을 포함한다. 서버 version과 다르면 `409 draft_content_conflict`
+   와 최신 working copy를 반환한다.
+3. client는 in-flight 뒤의 queued edit를 자동 재생하지 않고 최신 copy를 보여 준다. 사용자가
+   다시 편집한 뒤에만 새 base version으로 저장한다.
+4. “revision으로 남기기” 같은 명시적 checkpoint만 immutable revision을 생성한다.
+
+### 14.3 Runtime secret lifecycle
+
+| 단계 | 허용 데이터 | 금지 데이터 | 검증 |
+| --- | --- | --- | --- |
+| PATCH request | 알려진 key의 replace/clear intent | raw secret을 query/path에 넣기, unknown key | Pydantic strict model, single-line/length |
+| process memory | child가 provider 호출에 필요한 env | SQLite/localStorage에 복사 | factory/provider registry audit |
+| private file | known key, 기존 주석/unknown key 보존 | duplicate known key, symlink path, group/world readable | owner, file `0600`, parent `0700`, atomic fsync/replace |
+| GET response | configured boolean, model, SMTP address/host/port, browser non-secret | key/password/credential value | response model + client parser redaction test |
+| UI state | 빈 write-only input과 clear checkbox | saved secret repopulation, URL/history/DOM text | paired/local settings DOM test |
+| log/archive/screenshot | result code와 redacted metadata | secret-derived error/body, env file, browser profile | artifact audit와 export archive test |
+
+`clear`는 의도적으로 해당 known key line을 제거한다. 빈 replace는 허용하지 않으며, active
+provider를 바꿀 때 선택된 provider가 구성되지 않았으면 저장 자체를 거부한다. 이 guard는 사용자가
+기존 credential을 지우는 보안 작업까지 막지는 않는다.
+
+### 14.4 Restart supervisor sequence
+
+```text
+PATCH runtime config
+  └─ private env atomic write + restart_required=true
+POST runtime/restart (desktop loopback only)
+  ├─ launcher unavailable → 409 launcher_restart_unavailable
+  ├─ no pending config → 409 restart_not_required
+  ├─ browser/session/staging active → 409 restart_busy
+  └─ marker write + restart_required=false → 200
+supervisor sees marker
+  ├─ child SIGINT → bounded terminate fallback
+  ├─ same private env file로 child 재실행
+  └─ /health 200까지 최대 60초 polling
+SPA
+  └─ 짧은 지연 후 status polling, 준비되면 reload; timeout이면 수동 새로고침 안내
+```
+
+수동 `uv run ... naver-blog-api` 실행은 marker를 전달하지 않으므로 설정 저장은 가능하지만
+restart는 `launcher_restart_unavailable`로 명시적으로 중단한다. reset/export도 브라우저가
+stopped이고 session/publish/staging이 idle인 경우에만 수행한다.
+
+## 15. Block staging의 capability와 fail-closed 규칙
+
+### 15.1 Probe 결과
+
+page probe는 editor root, title control, save control, image input, 각 block action을 식별한다.
+visible/enabled control이 0개이거나 2개 이상이면 `capability_missing` 또는 `capability_ambiguous`
+결과로 중단한다. native file input만 hidden인 것은 허용하지만 중복 input은 허용하지 않는다.
+
+| 단계 | 요청 | 관찰 증거 | 실패 code 예 |
+| --- | --- | --- | --- |
+| title | draft title | title value/semantic snapshot | `title_control_missing`, `title_not_observed` |
+| body | block index와 kind 하나 | 요청 prefix가 관찰 snapshot에 포함 | `block_action_missing`, `body_prefix_mismatch` |
+| image | image UUID와 block index | attachment count/position/caption | `unknown_image_reference`, `image_position_mismatch`, `caption_unresolved` |
+| tags | selected tags | tag chip/text snapshot | `tags_control_missing`, `tags_not_observed` |
+| save | 임시저장 click | 네이버 저장 완료/상태 변화 | `save_control_missing`, `save_unconfirmed` |
+
+지원하지 않는 block이 한 개라도 있으면 title/body 입력 전에 preflight에서 중단한다. body 전체를
+한 번에 plain text로 넣거나, snapshot이 우연히 같다는 이유로 성공 처리하지 않는다. SSE body
+`step_completed.detail`에는 content body 대신 `requested_range_start/end`와
+`observed_prefix_count`만 남긴다. 최종 UI는 “네이버에서 제목·block 순서·이미지·태그를 직접 확인”
+checklist를 보여 주며 발행 control을 제공하지 않는다.
+
+### 15.2 Live smoke 운영 절차
+
+1. 외부 동의된 test account와 dedicated browser profile을 준비한다. 기존 개인 profile/cookie를
+   사용하지 않는다.
+2. `RUN_LIVE_NAVER=1`, `NAVER_LIVE_BLOG_ID`, `AUTOMATION_PROFILE_DIR`를 설정하고
+   `uv run pytest --no-cov -q tests/live/test_naver_staging_smoke.py`만 실행한다.
+3. 지원 signature, 단계별 observed result, user-confirmed draft URL을 기록하되 publish하지 않는다.
+4. selector/signature가 바뀌거나 결과 구조가 불명확하면 support flag를 false로 기록하고 adapter를
+   수정하기 전까지 기본 suite에 성공을 추가하지 않는다.
+
+## 16. 데이터 관리·PWA·responsive 수용 기준
+
+### 16.1 Data export/reset 대상
+
+| 작업 | 포함 | 제외 | 안전장치 |
+| --- | --- | --- | --- |
+| metadata | DB, WAL, SHM, media file count/size와 앱 소유 위치 | env, browser profile, arbitrary user path | local desktop only, resolved path, symlink rejection |
+| export | `database.sqlite3*`, `media/**` regular files | private env, profile, unrelated files | idle guard, `Cache-Control: no-store`, ZIP name fixed |
+| reset | DB/WAL/SHM와 media를 timestamp+UUID backup으로 move | delete, env/profile, unrelated sibling | typed `RESET LOCAL DATA`, idle guard, recoverable backup, restart marker |
+
+reset은 데이터를 영구 삭제하지 않는다. backup retention/삭제는 아직 자동 정책으로 만들지 않았고,
+운영자가 backup 위치를 확인한 뒤 별도 절차로 관리한다. DB와 media가 서로 다른 filesystem root에
+있거나 root 자체가 symlink이면 reset을 지원하지 않는다.
+
+### 16.2 PWA/cache
+
+`client/public/service-worker.js`는 `./`, HTML/CSS/JS, manifest, icon만 `nba-app-shell-v1`에
+cache한다. method가 GET이 아니거나 origin이 다르거나 pathname이 `/api/`이면 fetch handler를
+가로채지 않는다. API response와 mutation은 항상 network이며, offline 상태에서는 stale 작업
+목록을 성공처럼 보여 주지 않는다.
+
+### 16.3 viewport와 접근성
+
+| viewport | layout | 필수 확인 |
+| --- | --- | --- |
+| desktop | left navigation + workbench list/detail 2열 + wide writing canvas | keyboard focus, selected row, no secret field leakage |
+| 768px portrait | list와 detail/comment가 전환되는 sheet | back/close가 query/filter/scroll context 보존, horizontal overflow 0 |
+| 1024px landscape | list/detail 2열 | 44px 이상 touch target, focus ring, detail action 접근 |
+| paired tablet | 일반 workbench/comment/writing/activity만 | runtime connection/browser/LAN/device management와 secret input 미렌더 |
+
+## 17. 커밋·PR ledger와 review 순서
+
+커밋은 하나의 거대 변경으로 합치지 않고 사용자 가치와 검증 경계로 나뉜다. 아래 순서는 실제
+history의 review 순서이며, 후속 base sync 커밋은 PR 1의 기능 내용을 중복 구현하지 않는다.
+
+### PR 1 — workbench
+
+| 순서 | commit | 단위 |
+| --- | --- | --- |
+| 1 | `8fc7377` | 이 UX 개편 기준서의 초기 실행 경계 |
+| 2 | `d521c45` | discovery cursor queue와 web-only response |
+| 3 | `8cdc30f` | version 없는 recommendation response 호환 |
+| 4 | `133adc5` | 홈/작업함 navigation과 detail 흐름 |
+| 5 | `2fee83e` | activity summary card |
+| 6 | `d10daf1` | responsive design token/PWA UI |
+| 7 | `173c03d` | tablet overflow regression |
+| 8 | `cdb4a60` | OpenAPI/client recommendation contract |
+| 9 | `d62bc20` | stream route coverage |
+| 10 | `11e946f` | readiness path tests |
+| 11 | `41277d1` | workbench batch journey E2E |
+| 12 | `f4bf4b3` | E2E formatting gate |
+| 13 | `5f3a2b1` | legacy hash aliases (`#queue/#batch/#more/#history/#config/#devices`) |
+
+### PR 2 — studio/settings
+
+| 순서 | commit | 단위 |
+| --- | --- | --- |
+| 1 | `ef02c94` | working copy/content version |
+| 2 | `9810509` | block canvas/autosave |
+| 3 | `777d755` | structured staging/fail-closed |
+| 4 | `5fe3c11` | protected runtime/data service |
+| 5 | `3708b63` | stale SQLite setting cleanup/migration `0022` |
+| 6 | `ec25472` | SMTP non-secret addresses |
+| 7 | `6918c3c` | settings center/restart UI |
+| 8 | `2fd1d1f` | supervisor tests |
+| 9 | `0e1d03b` | duplicate image reference validation |
+| 10 | `07c9e8a` | client contract tests |
+| 11 | `ba2376d` | user-facing docs |
+| 12 | `ab3aa80` | 3 viewport webapp E2E |
+| 13 | `fc99f20` | opt-in Naver staging harness |
+| 14 | `b7bfdb4` | settings/restore E2E |
+| 15 | `04092b5` | live smoke platform typing |
+| 16 | `2dd4428` | E2E formatting |
+| 17 | `2c9bedb` → `1af12bf` | staged plan/verification records |
+| 18 | `0445a29` | PR 1 stream fixture merge cleanup |
+| 19 | `833b615` | wheel smoke migration head |
+| 20 | `5c72b2c` | PR 1 format base sync |
+| 21 | `3e18dbc` | PR 1 legacy hash base sync |
+| 22 | `2a8db50` | protected parent mode and symlink hardening |
+
+Review는 PR 1에서 A 범위가 독립적으로 이해되는지 먼저 확인하고, PR 2에서 B 범위와 base sync를
+확인한다. PR 2의 `3e18dbc`와 같은 base sync는 PR 1이 merge되면 자동으로 사라질 수 있지만,
+stacked PR을 review하는 동안에는 PR 1의 최신 contract가 PR 2에 반영됐다는 증거다.
+
+## 18. 완료/잔여 판정 checklist
+
+### 구현 완료로 판정한 것
+
+- [x] 네 개 primary navigation, legacy route alias, home/workbench 분리
+- [x] neighbor/search/skipped queue, source label, query/state/sort, cursor append, restore
+- [x] comment context 보존, live character/limit/executable state, batch selection/preflight
+- [x] activity cards, PWA shell-only cache, desktop/768/1024 layout 및 focus/overflow 검증
+- [x] canonical blocks, image position/caption, working copy debounce, checkpoint, 409 conflict
+- [x] capability probe, trusted block-by-block staging, image/prefix verification, SSE checklist
+- [x] runtime write-only private env, `0600` file/`0700` parent/owner/symlink/duplicate/atomic write
+- [x] desktop loopback restriction, paired tablet redaction, restart busy/unavailable guard, supervisor
+- [x] app-owned data metadata/export/reset/backup, stale setting migration `0022`
+- [x] OpenAPI/Pydantic/client parser/fixture parity, README/Getting Started/Local Operations update
+
+### 아직 완료로 표시하지 않는 것
+
+- [ ] 실제 Naver editor에서 documented signature로 block별 trusted input을 실행한 live smoke
+- [ ] reviewer가 PR 1/PR 2를 승인하고 merge한 상태
+- [ ] merge 후 main 기준으로 release/launcher 운영자가 private env 위치와 backup 정책을 확인한 상태
+
+위 세 항목은 local 구현을 다시 작성하는 작업이 아니다. 첫 항목은 외부 계정과 사용자의 확인이
+필요하고, 뒤의 두 항목은 GitHub review/운영 handoff 상태다. 그 외에 “구현이 덜 됐다”는 이유로
+남겨 둔 기능 ID는 없다. 새로운 요구가 생기면 이 문서에 ID와 직접 검증을 먼저 추가한 뒤 별도
+커밋/PR 단위로 범위를 확장한다.
