@@ -285,6 +285,23 @@ RUN_LIVE_OPENAI=1 uv run --frozen --env-file .env.local \
   pytest --no-cov -m live_openai tests/live
 ```
 
+네이버 editor의 실제 DOM signature는 별도 테스트 계정과 이미 로그인된 전용 browser profile이
+있을 때만 확인합니다. 아래 smoke는 합성 제목·본문을 네이버 임시저장까지 입력하고 `draft_saved`
+결과를 검증한 뒤 멈춥니다. 발행은 하지 않지만 테스트 계정에 초안이 생기므로 실행 전에 대상과
+정리 방법을 확인하세요. 본문·cookie·screenshot은 출력하지 않습니다.
+
+```bash
+RUN_LIVE_NAVER=1 \
+NAVER_LIVE_BLOG_ID='your-test-blog-id' \
+AUTOMATION_PROFILE_DIR='/path/to/signed-in-test-profile' \
+uv run pytest --no-cov -m live_naver tests/live/test_naver_staging_smoke.py
+```
+
+`AUTOMATION_DRIVER`(기본 `patchright`), `AUTOMATION_BROWSER_CHANNEL`, `LIVE_NAVER_HEADLESS=1`을
+필요할 때만 추가합니다. probe가 `editor_ambiguous`, `*_unconfirmed` 또는 unsupported code를
+반환하면 네이버 markup이 바뀐 것이므로 지원 완료로 표시하지 말고 sanitized fixture와 adapter
+검증을 먼저 갱신합니다.
+
 Manual Naver/OpenAI smoke는 본인이 공개 전송과 실제 교류를 허용한 테스트 글에서만 수행합니다.
 Preview 확인, generation, 후보 선택, 편집과 copy를 먼저 검증합니다. 실제 공감·댓글
 등록·서로이웃 신청 검증이 필요하면 versioned 동의의 범위를 확인하고, 댓글 작성 화면에서 최종 댓글과
