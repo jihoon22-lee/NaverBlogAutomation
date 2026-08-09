@@ -1866,6 +1866,346 @@ summary:focus-visible,
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* PR3 onboarding setup                                                       */
+/* -------------------------------------------------------------------------- */
+
+.onboarding-shell {
+  display: grid;
+  gap: clamp(0.85rem, 2vw, 1.35rem);
+  grid-template-columns: minmax(15rem, 0.78fr) minmax(0, 1.22fr);
+  margin-inline: auto;
+  max-width: 72rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.onboarding-hero,
+.onboarding-progress,
+.onboarding-current-panel,
+.onboarding-complete {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-hero {
+  align-content: start;
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-top: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-lg);
+  box-shadow: var(--nba-shadow);
+  display: grid;
+  gap: 0.65rem;
+  grid-column: 1 / -1;
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+
+.onboarding-hero :where(h1, h2, h3, p) {
+  margin: 0;
+}
+
+.onboarding-hero :where(h1, h2) {
+  font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.35rem);
+  line-height: 1.2;
+  max-width: 28ch;
+}
+
+.onboarding-hero :where(p) {
+  color: var(--nba-muted);
+  line-height: 1.65;
+  max-width: 65ch;
+}
+
+.onboarding-progress {
+  align-content: start;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+  padding: 0.9rem 1rem;
+}
+
+.onboarding-progress > :where(h2, h3, p, span) {
+  margin: 0;
+}
+
+.onboarding-progress > :where(h2, h3) {
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.onboarding-progress-label {
+  color: var(--nba-muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+  justify-self: end;
+}
+
+.onboarding-progress > progress {
+  accent-color: var(--nba-primary);
+  appearance: none;
+  background: var(--nba-line);
+  block-size: 0.75rem;
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-pill);
+  color: var(--nba-primary);
+  display: block;
+  inline-size: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.onboarding-progress > progress::-webkit-progress-bar {
+  background: var(--nba-line);
+  border-radius: inherit;
+}
+
+.onboarding-progress > progress::-webkit-progress-value {
+  background: var(--nba-primary);
+  border-radius: inherit;
+}
+
+.onboarding-progress > progress::-moz-progress-bar {
+  background: var(--nba-primary);
+  border-radius: inherit;
+}
+
+.onboarding-step-list {
+  align-content: start;
+  display: grid;
+  gap: 0.7rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.onboarding-step {
+  align-content: start;
+  align-items: center;
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+}
+
+.onboarding-step :where(h2, h3, h4, p, small) {
+  margin: 0;
+}
+
+.onboarding-step-number {
+  align-items: center;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-pill);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  font-weight: 750;
+  justify-content: center;
+  min-height: 2rem;
+  min-width: 2rem;
+}
+
+.onboarding-step-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-step-state {
+  color: var(--nba-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.onboarding-step[data-state="complete"] {
+  background: var(--nba-ready-soft);
+  border-color: #b8e5c5;
+  border-inline-start: 0.3rem solid var(--nba-primary);
+}
+
+.onboarding-step[data-state="complete"] :where(h2, h3, h4) {
+  color: var(--nba-primary);
+}
+
+.onboarding-step[data-state="current"] {
+  background: var(--nba-surface);
+  border: 2px solid var(--nba-primary);
+  box-shadow: 0 0 0 3px rgb(8 116 67 / 10%);
+}
+
+.onboarding-step[data-state="current"] :where(h2, h3, h4) {
+  font-weight: 750;
+}
+
+.onboarding-step[data-state="upcoming"] {
+  background: var(--nba-canvas);
+  border-color: #cbd8ce;
+  border-style: dashed;
+  color: var(--nba-muted);
+}
+
+.onboarding-step[data-state="upcoming"] :where(h2, h3, h4) {
+  color: var(--nba-muted);
+  font-weight: 650;
+}
+
+.onboarding-step[data-state="complete"] .onboarding-step-number,
+.onboarding-step[data-state="complete"] .onboarding-step-state {
+  color: var(--nba-primary);
+}
+
+.onboarding-step[data-state="current"] .onboarding-step-number,
+.onboarding-step[data-state="current"] .onboarding-step-state {
+  color: var(--nba-primary);
+}
+
+.onboarding-step[data-state="current"] .onboarding-step-label {
+  font-weight: 750;
+}
+
+.onboarding-step[data-state="upcoming"] .onboarding-step-number {
+  background: transparent;
+  border-style: dashed;
+}
+
+.onboarding-current-panel {
+  align-content: start;
+  align-self: start;
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-lg);
+  box-shadow: var(--nba-shadow);
+  display: grid;
+  gap: 0.8rem;
+  padding: clamp(1.25rem, 2.5vw, 2rem);
+}
+
+.onboarding-current-panel :where(h2, h3, h4, p) {
+  margin: 0;
+}
+
+.onboarding-current-panel :where(h2, h3) {
+  line-height: 1.3;
+}
+
+.onboarding-current-panel :where(p, small) {
+  color: var(--nba-muted);
+  line-height: 1.55;
+}
+
+.onboarding-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  grid-column: 1 / -1;
+  margin-top: 0.15rem;
+}
+
+.onboarding-shell :where(button, .ui-button, a) {
+  min-height: 2.75rem;
+}
+
+.onboarding-primary-action {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 2.75rem;
+  min-width: min(14rem, 100%);
+}
+
+.onboarding-complete {
+  align-content: start;
+  align-self: start;
+  background: var(--nba-ready-soft);
+  border: 1px solid #b8e5c5;
+  border-inline-start: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-lg);
+  display: grid;
+  gap: 0.5rem;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.onboarding-complete :where(h2, h3, h4, p) {
+  margin: 0;
+}
+
+.onboarding-shell .onboarding-complete :where(h2, h3, h4) {
+  color: var(--nba-primary);
+}
+
+@media (max-width: 48rem) {
+  .onboarding-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 30rem) {
+  .onboarding-shell {
+    gap: 0.75rem;
+  }
+
+  .onboarding-hero,
+  .onboarding-current-panel,
+  .onboarding-complete {
+    padding: 1rem;
+  }
+
+  .onboarding-step {
+    padding: 0.85rem;
+  }
+
+  .onboarding-actions {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .onboarding-actions :where(button, .ui-button, a),
+  .onboarding-primary-action {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  .onboarding-progress > progress {
+    accent-color: ButtonText;
+    appearance: auto;
+    background: Canvas;
+    border-color: ButtonText;
+    color: ButtonText;
+  }
+
+  .onboarding-progress > progress::-webkit-progress-bar {
+    background: Canvas;
+  }
+
+  .onboarding-progress > progress::-webkit-progress-value,
+  .onboarding-progress > progress::-moz-progress-bar {
+    background: ButtonText;
+  }
+
+  .onboarding-step[data-state="complete"],
+  .onboarding-step[data-state="current"],
+  .onboarding-step[data-state="upcoming"],
+  .onboarding-shell .onboarding-complete {
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --nba-motion-fast: 0.01ms;
