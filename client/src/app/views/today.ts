@@ -7,6 +7,7 @@
  */
 
 import type {
+  AppReadiness,
   BrowserSession,
   DiscoveryPost,
   DiscoveryState,
@@ -22,6 +23,7 @@ import {
   type TodayState,
   visiblePosts,
 } from "../state/today";
+import { Button, Card, StatusChip } from "../ui/elements";
 
 export interface TodayHandlers {
   onCloseSession(): void;
@@ -33,6 +35,7 @@ export interface TodayHandlers {
   onOpenPost(postId: string): void;
   onOpenDirectUrl(url: string): void;
   onOpenWorkbench(): void;
+  onOpenWriting(): void;
   onOpenBatch(): void;
   onOpenSettings(section?: SettingsSection): void;
   onCloseDetail(): void;
@@ -113,75 +116,418 @@ export function renderHome(root: Element, state: TodayState, handlers: TodayHand
   status.id = "workspace-status";
   status.setAttribute("role", "status");
   status.textContent =
-    state.phase === "loading"
+    state.phase === "idle" || state.phase === "loading"
       ? "홈 준비 상태를 불러오는 중입니다."
       : state.phase === "failed"
         ? (state.error ?? "홈 준비 상태를 불러오지 못했습니다.")
         : "오늘의 블로그 작업을 준비했습니다.";
   root.append(status);
 
+  const next = homeNextAction(state, handlers);
+  const hero = document.createElement("section");
+  hero.className = "home-hero";
+  hero.setAttribute("aria-labelledby", "home-hero-title");
+  const heroTitle = document.createElement("h2");
+  heroTitle.id = "home-hero-title";
+  heroTitle.textContent = "오늘의 블로그 작업을 시작하세요";
+  const intro = document.createElement("p");
+  intro.className = "home-hero-intro";
+  intro.textContent =
+    "댓글을 만들고 초안을 작성하는 데 필요한 상태를 한눈에 확인하고 다음 작업으로 이동하세요.";
+  const nextPanel = document.createElement("div");
+  nextPanel.className = "home-next-action";
+  nextPanel.setAttribute("aria-labelledby", "home-next-action-title");
+  const nextTitle = document.createElement("h2");
+  nextTitle.id = "home-next-action-title";
+  nextTitle.textContent = "다음 작업";
+  const nextStatus = StatusChip(document, {
+    status: next.status,
+    label: next.statusLabel,
+    className: "home-next-status",
+  });
+  const nextDescription = document.createElement("p");
+  nextDescription.className = "home-next-action-description";
+  nextDescription.textContent = next.description;
+  const primary = Button(document, {
+    id: next.id,
+    label: next.label,
+    variant: "primary",
+    disabled: next.disabled,
+    onClick: next.onClick,
+  });
+  primary.classList.add("home-primary-action");
+  nextPanel.append(nextTitle, nextStatus, nextDescription, primary);
+  hero.append(heroTitle, intro, nextPanel);
+  root.append(hero);
+
   const summary = document.createElement("section");
   summary.className = "home-summary-panel";
-  summary.append(heading(document, "오늘의 수집 요약"));
+  summary.setAttribute("aria-labelledby", "home-summary-title");
+  const summaryTitle = heading(document, "오늘의 수집 요약");
+  summaryTitle.id = "home-summary-title";
+  summary.append(summaryTitle);
   const counts = state.counts;
+  const activeCount = counts.neighbor + counts.search;
   const description = document.createElement("p");
+  description.className = "home-summary-description";
   description.textContent =
-    counts.total === 0
+    activeCount === 0
       ? "아직 처리할 글이 없습니다. 탐색 설정을 확인하거나 새로 수집하세요."
-      : `처리 대기 ${counts.total}건 · 이웃 새 글 ${counts.neighbor}건 · 신규 이웃 후보 ${counts.search}건`;
+      : `처리할 글 ${activeCount}건을 출처별로 확인하세요.`;
   summary.append(description);
-  const open = button(document, "home-open-workbench", "작업함 열기", handlers.onOpenWorkbench);
-  open.disabled = state.phase === "loading";
-  summary.append(open);
+  const metrics = document.createElement("div");
+  metrics.className = "home-metrics-grid";
+  metrics.setAttribute("role", "group");
+  metrics.setAttribute("aria-label", "수집 요약 지표");
+  for (const [key, label, value] of [
+    ["total", "전체 항목", counts.total],
+    ["neighbor", "이웃 새 글", counts.neighbor],
+    ["search", "검색 후보", counts.search],
+    ["skipped", "보류됨", counts.skipped],
+  ] as const) {
+    const metricTitle = document.createElement("h3");
+    metricTitle.textContent = label;
+    const metricValue = document.createElement("p");
+    metricValue.className = "home-metric-value";
+    metricValue.textContent = String(value);
+    const metric = Card(document, {
+      variant: "flat",
+      className: "home-metric-card",
+      children: [metricTitle, metricValue],
+    });
+    metric.dataset.metric = key;
+    metrics.append(metric);
+  }
+  summary.append(metrics);
   root.append(summary);
 
   const readiness = document.createElement("section");
   readiness.className = "home-readiness-panel";
-  readiness.append(heading(document, "시작 준비"));
-  if (state.readiness === null) {
-    const loading = document.createElement("p");
-    loading.textContent = "AI, 브라우저, 네이버 로그인 상태를 확인하는 중입니다.";
-    readiness.append(loading);
-  } else if (state.readiness.blockers.length === 0) {
-    const complete = document.createElement("p");
-    complete.textContent = "댓글 생성과 자동화 작업을 시작할 준비가 되었습니다.";
-    readiness.append(complete);
-  } else {
-    const list = document.createElement("ul");
-    for (const blocker of state.readiness.blockers) {
-      const item = document.createElement("li");
-      item.textContent = blockerLabel(blocker);
-      if (blocker === "browser_not_running") {
-        item.append(document.createTextNode(" "));
-        item.append(
-          button(document, "home-launch-browser", "브라우저 시작", handlers.onLaunchSession),
-        );
-      } else if (blocker === "naver_login_required") {
-        item.append(document.createTextNode(" "));
-        item.append(
-          button(document, "home-focus-browser", "PC 브라우저 열기", handlers.onFocusSession),
-        );
-      } else if (blocker !== "web_app_assets_missing") {
-        item.append(document.createTextNode(" "));
-        item.append(
-          button(document, `home-${blocker}`, "설정 열기", () =>
-            handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
-          ),
-        );
-      }
-      list.append(item);
-    }
-    readiness.append(list);
-  }
+  readiness.setAttribute("aria-labelledby", "home-readiness-title");
+  const readinessTitle = heading(document, "시작 준비");
+  readinessTitle.id = "home-readiness-title";
+  readiness.append(readinessTitle);
+  const readinessState = homeReadinessState(state);
+  const readinessChip = StatusChip(document, {
+    status: readinessState.status,
+    label: readinessState.label,
+    className: "home-readiness-status",
+  });
+  const readinessDescription = document.createElement("p");
+  readinessDescription.className = "home-readiness-description";
+  readinessDescription.textContent = readinessState.description;
+  readiness.append(readinessChip, readinessDescription);
+  appendReadinessDetails(document, readiness, state, handlers, next.blocker);
   root.append(readiness);
 
   const quick = document.createElement("section");
   quick.className = "home-quick-panel";
-  quick.append(heading(document, "빠른 시작"));
+  quick.setAttribute("aria-labelledby", "home-quick-title");
+  const quickTitle = heading(document, "빠른 시작");
+  quickTitle.id = "home-quick-title";
+  quick.append(quickTitle);
   const note = document.createElement("p");
-  note.textContent = "글을 고르고 댓글을 작성하거나, 넓은 글쓰기 canvas에서 새 초안을 시작하세요.";
-  quick.append(note, button(document, "home-refresh", "준비 상태 새로고침", handlers.onRefresh));
+  note.textContent =
+    "글을 고르고 댓글을 작성하거나, 집중할 수 있는 글쓰기 화면에서 새 초안을 시작하세요.";
+  const quickActions = document.createElement("div");
+  quickActions.className = "home-quick-actions";
+  const openWorkbench = Button(document, {
+    id: "home-quick-workbench",
+    label: "작업함 열기",
+    variant: "secondary",
+    disabled: state.phase === "loading",
+    onClick: handlers.onOpenWorkbench,
+  });
+  const openWriting = Button(document, {
+    id: "home-start-writing",
+    label: "새 글 시작",
+    variant: "secondary",
+    onClick: handlers.onOpenWriting,
+  });
+  quickActions.append(openWorkbench, openWriting);
+  quick.append(note, quickActions);
   root.append(quick);
+}
+
+interface HomeNextAction {
+  id: string;
+  label: string;
+  description: string;
+  status: "ready" | "needs-action" | "running" | "error" | "neutral";
+  statusLabel: string;
+  disabled: boolean;
+  blocker?: AppReadiness["blockers"][number];
+  onClick: () => void;
+}
+
+interface HomeReadinessState {
+  status: "ready" | "needs-action" | "running" | "error" | "neutral";
+  label: string;
+  description: string;
+}
+
+function homeNextAction(state: TodayState, handlers: TodayHandlers): HomeNextAction {
+  if (state.phase === "failed") {
+    return {
+      id: "home-refresh",
+      label: "다시 시도",
+      description: state.error ?? "홈 준비 상태를 불러오지 못했습니다.",
+      status: "error",
+      statusLabel: "확인 실패",
+      disabled: false,
+      onClick: handlers.onRefresh,
+    };
+  }
+  if (state.phase === "idle" || state.phase === "loading") {
+    return {
+      id: "home-refresh",
+      label: "준비 상태 확인 중",
+      description: "AI, 브라우저, 네이버 로그인 상태를 확인하고 있습니다.",
+      status: "running",
+      statusLabel: "확인 중",
+      disabled: true,
+      onClick: handlers.onRefresh,
+    };
+  }
+  if (state.readiness === null) {
+    return {
+      id: "home-refresh",
+      label: "준비 상태 다시 확인",
+      description: "일부 준비 상태를 확인하지 못했습니다. 새로고침해 다시 확인하세요.",
+      status: "neutral",
+      statusLabel: "일부 미확인",
+      disabled: false,
+      onClick: handlers.onRefresh,
+    };
+  }
+
+  const blocker = priorityBlocker(state.readiness.blockers);
+  if (blocker !== null) {
+    if (blocker === "browser_not_running") {
+      return {
+        id: "home-launch-browser",
+        label: "브라우저 시작",
+        description: "댓글 생성과 수집을 시작하려면 PC 자동화 브라우저를 먼저 열어야 합니다.",
+        status: "needs-action",
+        statusLabel: "필요 조치",
+        blocker,
+        disabled: false,
+        onClick: handlers.onLaunchSession,
+      };
+    }
+    if (blocker === "naver_login_required") {
+      return {
+        id: "home-focus-browser",
+        label: "PC 브라우저 열기",
+        description: "PC 자동화 브라우저에서 네이버 로그인 상태를 확인하세요.",
+        status: "needs-action",
+        statusLabel: "필요 조치",
+        blocker,
+        disabled: false,
+        onClick: handlers.onFocusSession,
+      };
+    }
+    if (settingsSectionForBlocker(blocker) !== undefined) {
+      return {
+        id: `home-${blocker}`,
+        label: "설정 열기",
+        description: blockerLabel(blocker),
+        status: "needs-action",
+        statusLabel: "필요 조치",
+        blocker,
+        disabled: false,
+        onClick: () => handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
+      };
+    }
+    return {
+      id: `home-${blocker}`,
+      label: "다시 확인",
+      description: blockerLabel(blocker),
+      status: "needs-action",
+      statusLabel: "필요 조치",
+      blocker,
+      disabled: false,
+      onClick: handlers.onRefresh,
+    };
+  }
+
+  const activeCount = state.counts.neighbor + state.counts.search;
+  if (activeCount > 0) {
+    return {
+      id: "home-open-workbench",
+      label: "작업함 열기",
+      description: `처리할 글 ${activeCount}건이 있습니다. 작업함에서 다음 글을 선택하세요.`,
+      status: "ready",
+      statusLabel: "준비됨",
+      disabled: false,
+      onClick: handlers.onOpenWorkbench,
+    };
+  }
+  return {
+    id: "home-refresh",
+    label: "새로 수집",
+    description: "처리할 글이 없습니다. 최신 작업을 확인하려면 수집 상태를 새로고침하세요.",
+    status: "neutral",
+    statusLabel: "대기 중",
+    disabled: false,
+    onClick: handlers.onRefresh,
+  };
+}
+
+function priorityBlocker(
+  blockers: readonly AppReadiness["blockers"][number][],
+): AppReadiness["blockers"][number] | null {
+  for (const code of ["browser_not_running", "naver_login_required"] as const) {
+    if (blockers.includes(code)) return code;
+  }
+  const settingsBlocker = blockers.find(
+    (blocker) =>
+      blocker === "llm_provider_missing" || settingsSectionForBlocker(blocker) !== undefined,
+  );
+  return settingsBlocker ?? blockers[0] ?? null;
+}
+
+function homeReadinessState(state: TodayState): HomeReadinessState {
+  if (state.phase === "failed") {
+    return {
+      status: "error",
+      label: "확인 실패",
+      description: state.error ?? "필수 조건 상태를 확인하지 못했습니다.",
+    };
+  }
+  if (state.phase === "idle" || state.phase === "loading") {
+    return {
+      status: "running",
+      label: "확인 중",
+      description: "AI, 브라우저, 네이버 로그인 상태를 확인하는 중입니다.",
+    };
+  }
+  if (state.readiness === null) {
+    return {
+      status: "neutral",
+      label: "일부 미확인",
+      description: "일부 준비 상태를 확인하지 못했습니다. 새로고침해 다시 확인하세요.",
+    };
+  }
+  if (state.readiness.blockers.length > 0) {
+    return {
+      status: "needs-action",
+      label: "필요 조치",
+      description: "아래 항목을 확인하면 댓글 생성과 수집을 시작할 수 있습니다.",
+    };
+  }
+  return {
+    status: "ready",
+    label: "준비 완료",
+    description: "AI, 브라우저, 네이버 로그인 상태가 모두 준비되었습니다.",
+  };
+}
+
+function appendReadinessDetails(
+  document: Document,
+  parent: Element,
+  state: TodayState,
+  handlers: TodayHandlers,
+  primaryBlocker: AppReadiness["blockers"][number] | undefined,
+): void {
+  if (state.phase === "failed") {
+    const list = document.createElement("ul");
+    list.className = "home-readiness-list";
+    const item = document.createElement("li");
+    item.textContent = "필수 조건을 다시 확인하세요.";
+    list.append(item);
+    parent.append(list);
+    return;
+  }
+  if (state.phase === "idle" || state.phase === "loading") {
+    const list = document.createElement("ul");
+    list.className = "home-readiness-list";
+    const item = document.createElement("li");
+    item.textContent = "필수 조건을 확인하는 중입니다.";
+    list.append(item);
+    parent.append(list);
+    return;
+  }
+  if (state.readiness === null) {
+    const list = document.createElement("ul");
+    list.className = "home-readiness-list";
+    const item = document.createElement("li");
+    item.textContent = "준비 상태 정보를 불러오지 못했습니다.";
+    list.append(item);
+    parent.append(list);
+    return;
+  }
+  if (state.readiness.blockers.length === 0) {
+    const list = document.createElement("ul");
+    list.className = "home-readiness-list";
+    for (const label of ["AI 생성 준비됨", "자동화 브라우저 준비됨", "네이버 로그인 준비됨"]) {
+      const item = document.createElement("li");
+      item.textContent = label;
+      list.append(item);
+    }
+    parent.append(list);
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "home-readiness-list";
+  for (const blocker of state.readiness.blockers) {
+    const item = document.createElement("li");
+    item.className = "home-readiness-item";
+    item.dataset.blocker = blocker;
+    const chip = StatusChip(document, { status: "needs-action", label: "필요 조치" });
+    chip.setAttribute("aria-hidden", "true");
+    const message = document.createElement("span");
+    message.className = "home-readiness-item-label";
+    message.textContent = blockerLabel(blocker);
+    item.append(chip, message);
+
+    if (blocker === primaryBlocker) {
+      list.append(item);
+      continue;
+    }
+    const action = blockerAction(document, blocker, handlers);
+    if (action !== null) item.append(action);
+    list.append(item);
+  }
+  parent.append(list);
+}
+
+function blockerAction(
+  document: Document,
+  blocker: AppReadiness["blockers"][number],
+  handlers: TodayHandlers,
+): HTMLButtonElement | null {
+  if (blocker === "browser_not_running") {
+    return Button(document, {
+      id: "home-launch-browser",
+      label: "브라우저 시작",
+      variant: "secondary",
+      onClick: handlers.onLaunchSession,
+    });
+  }
+  if (blocker === "naver_login_required") {
+    return Button(document, {
+      id: "home-focus-browser",
+      label: "PC 브라우저 열기",
+      variant: "secondary",
+      onClick: handlers.onFocusSession,
+    });
+  }
+  if (blocker === "web_app_assets_missing") {
+    return Button(document, {
+      id: "home-web_app_assets_missing",
+      label: "다시 확인",
+      variant: "secondary",
+      onClick: handlers.onRefresh,
+    });
+  }
+  return Button(document, {
+    id: `home-${blocker}`,
+    label: "설정 열기",
+    variant: "secondary",
+    onClick: () => handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
+  });
 }
 
 function renderDirectUrl(document: Document, handlers: TodayHandlers): Element {

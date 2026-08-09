@@ -99,6 +99,7 @@ export function createWorkspace(root: Element): Workspace {
     onRemotePairingRequired: () => workspace.showRemotePairing?.(),
     onSettingsRequested: (section) => workspace.showSettings?.(section),
     onWorkbenchRequested: () => workspace.showWorkbench?.(),
+    onWritingRequested: () => workspace.showWriting?.(),
     onBatchRequested: ({ postIds, approvedSteps }) => {
       session.setSelectedPosts(postIds);
       session.setApprovedSteps(approvedSteps);

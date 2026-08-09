@@ -59,6 +59,20 @@ for (const viewport of VIEWPORTS) {
         await expect(button.locator("svg.nav-icon")).toHaveAttribute("aria-hidden", "true");
         await expect(button.locator("span.nav-label")).toHaveText(label);
       }
+      await expect(page.locator(".home-hero")).toBeVisible();
+      await expect(page.locator('[data-metric="total"]')).toHaveCount(1);
+      await expect(page.locator(".home-primary-action")).toBeVisible();
+      await expect(page.locator("#home-start-writing")).toBeVisible();
+
+      await page.locator("#home-start-writing").click();
+      await expect(page).toHaveURL(/#writing$/);
+      await expect(page.locator("#writing-status")).toContainText("본문");
+      await expect(page.locator('[data-section="writing"]')).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      await page.locator('[data-section="home"]').click();
+      await expect(page.locator(".home-hero")).toBeVisible();
       await page.goto(`${apiOrigin}/app/#today`);
       await expect(page.locator('[data-section="home"]')).toHaveAttribute("aria-current", "page");
 

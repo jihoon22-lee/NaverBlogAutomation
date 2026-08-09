@@ -549,6 +549,24 @@ describe("navigation", () => {
     expect(tab("writing").getAttribute("aria-current")).toBe("page");
   });
 
+  it("opens writing from the home dashboard and updates the route and primary nav", () => {
+    installWorkspaceApi();
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showHome();
+
+    const action = document.getElementById("home-start-writing") as HTMLButtonElement | null;
+    expect(action).not.toBeNull();
+    action?.click();
+
+    expect(document.defaultView?.location.hash).toBe("#writing");
+    expect(tab("writing").getAttribute("aria-current")).toBe("page");
+    expect(tab("home").hasAttribute("aria-current")).toBe(false);
+    expect(root.querySelector(".seed-panel")).not.toBeNull();
+    expect(workspace.writing.state.phase).toBe("seed");
+  });
+
   it("returns to the workbench from the nav", () => {
     const root = shell();
     const workspace = createWorkspace(root);
