@@ -17,6 +17,7 @@ import type {
 import {
   type TodayState,
   initialTodayState,
+  resetQueueFilters,
   selectedPost,
   startLoading,
   withFailure,
@@ -81,6 +82,7 @@ export class TodayController {
   readonly #onOnboardingRequested: () => void;
   readonly #onOnboardingCompleted: () => void;
   readonly #onBatchRequested: (request: BatchPreflightRequest) => void;
+  #focusRestoreId: string | null = null;
   #state: TodayState = initialTodayState();
   #busy = false;
   #view: "home" | "workbench" | "onboarding" = "workbench";
@@ -159,20 +161,37 @@ export class TodayController {
 
   /** Render the current state without contacting the service. */
   render(): void {
+    const active = this.#root.ownerDocument.activeElement;
+    const activeFocusId =
+      this.#view === "workbench" &&
+      active !== null &&
+      this.#root.contains(active) &&
+      (active.id.startsWith("queue-") || active.id.startsWith("batch-step-"))
+        ? active.id
+        : null;
+    if (activeFocusId !== null) this.#focusRestoreId = activeFocusId;
     if (this.#view === "home") {
       renderHome(this.#root, this.#state, this.#handlers());
-      return;
-    }
-    if (this.#view === "onboarding") {
+    } else if (this.#view === "onboarding") {
       renderOnboarding(this.#root, this.#state, this.#onboardingHandlers());
-      return;
+    } else {
+      renderToday(this.#root, this.#state, this.#handlers());
     }
-    renderToday(this.#root, this.#state, this.#handlers());
+    if (this.#focusRestoreId !== null) {
+      const replacement = this.#root.ownerDocument.getElementById(this.#focusRestoreId);
+      if (replacement instanceof HTMLElement && !replacement.matches(":disabled")) {
+        replacement.focus({ preventScroll: true });
+        this.#focusRestoreId = null;
+      } else if (this.#state.phase !== "loading") {
+        this.#focusRestoreId = null;
+      }
+    }
   }
 
   /** Switch between the summary-only home and the queue-owning workbench without discarding state. */
   setView(view: "home" | "workbench" | "onboarding"): void {
     this.#view = view;
+    if (view !== "workbench") this.#focusRestoreId = null;
   }
 
   #handlers(): TodayHandlers {
@@ -186,6 +205,7 @@ export class TodayController {
       onOpenWorkbench: this.#onWorkbenchRequested,
       onOpenWriting: this.#onWritingRequested,
       onOpenOnboarding: this.#onOnboardingRequested,
+      onClearFilters: () => void this.clearFilters(),
       onOpenBatch: () =>
         this.#onBatchRequested({
           approvedSteps: this.#state.approvedSteps,
@@ -195,7 +215,7 @@ export class TodayController {
       onCloseDetail: () => this.#update(withDetailOpen(this.#state, false)),
       onPostStateChange: (postId, state) => void this.changePostState(postId, state),
       onRefresh: () => void this.load(),
-      onSelectPost: (postId: string) => this.#update(withSelection(this.#state, postId)),
+      onSelectPost: (postId: string) => this.#selectPost(postId),
       onFilterChange: (filter, value) => this.setFilter(filter, value),
       onSegmentChange: (segment) => this.setSegment(segment),
       onQueryChange: (value) => this.setQuery(value),
@@ -268,6 +288,7 @@ export class TodayController {
   }
 
   async setFilter(filter: "source" | "state", value: string): Promise<void> {
+    if (this.#busy) return;
     this.#state = withFilters(
       this.#state,
       filter === "source"
@@ -278,6 +299,7 @@ export class TodayController {
   }
 
   async setSegment(segment: "neighbor" | "search" | "skipped"): Promise<void> {
+    if (this.#busy) return;
     this.#state = withFilters(
       this.#state,
       segment === "skipped"
@@ -288,12 +310,29 @@ export class TodayController {
   }
 
   async setQuery(value: string): Promise<void> {
+    if (this.#busy) return;
     this.#state = withQuery(this.#state, value);
     await this.load();
   }
 
+  async clearFilters(): Promise<void> {
+    if (this.#busy) return;
+    this.#state = resetQueueFilters(this.#state);
+    await this.load();
+    const query = this.#root.ownerDocument.getElementById("queue-query");
+    if (query instanceof HTMLElement) query.focus({ preventScroll: true });
+  }
+
   setSort(value: "newest" | "oldest"): void {
     this.#update(withSort(this.#state, value));
+  }
+
+  #selectPost(postId: string): void {
+    this.#update(withSelection(this.#state, postId));
+    const view = this.#root.ownerDocument.defaultView;
+    if (view?.matchMedia?.("(max-width: 60rem)").matches !== true) return;
+    const close = this.#root.ownerDocument.getElementById("close-detail-sheet");
+    if (close instanceof HTMLElement) close.focus({ preventScroll: true });
   }
 
   async loadMore(): Promise<void> {

@@ -25,6 +25,7 @@ const VIEWPORTS = [
   { name: "desktop", width: 1440, height: 900 },
   { name: "tablet portrait", width: 768, height: 1024 },
   { name: "tablet landscape", width: 1024, height: 768 },
+  { name: "phone", width: 320, height: 720 },
 ] as const;
 
 for (const viewport of VIEWPORTS) {
@@ -109,7 +110,52 @@ for (const viewport of VIEWPORTS) {
 
       await page.locator('[data-section="workbench"]').click();
       await expect(page.locator(".queue-panel")).toBeVisible();
+      await expect(page.locator(".workbench-header")).toBeVisible();
+      await expect(page.locator(".workbench-header-summary")).toHaveAttribute(
+        "aria-label",
+        "작업함 요약",
+      );
+      await expect(page.locator('.workbench-header-metric[data-metric="active"]')).toContainText(
+        "1",
+      );
+      const serviceDetails = page.locator(".workbench-service-details");
+      await expect(serviceDetails.locator("summary")).toHaveText("연결 상태 상세");
+      await serviceDetails.locator("summary").click();
+      await expect(serviceDetails.locator(".workbench-service-details-content")).toContainText(
+        "서비스",
+      );
+      const advancedFilters = page.locator(".queue-advanced-filters");
+      await expect(advancedFilters.locator("summary")).toHaveText("고급 필터");
+      await advancedFilters.locator("summary").click();
+      await expect(page.locator('label[for="queue-source-filter"]')).toHaveText("출처");
+      await expect(page.locator('label[for="queue-state-filter"]')).toHaveText("상태");
+      await expect(page.locator('label[for="queue-sort"]')).toHaveText("정렬");
       await expect(page.locator(`#queue-batch-${postId}`)).toBeVisible();
+      const queueItem = page.locator(`.queue-item[data-post-id="${postId}"]`);
+      await expect(queueItem.locator(".queue-item-topline")).toBeVisible();
+      await expect(queueItem.locator(".queue-item-source")).toHaveText("이웃 새 글");
+      await expect(queueItem.locator(".queue-item-state")).toContainText("대기");
+      await expect(queueItem.locator(".queue-item-title")).toHaveText("웹앱 배치 합성 글");
+      await expect(queueItem.locator(".queue-item-meta")).toContainText("합성 이웃");
+      await expect(queueItem.locator("time.queue-item-date")).toHaveAttribute("datetime");
+      await page.locator("#queue-query").fill("일치하지 않는 검색어");
+      await page.locator("#queue-query").press("Enter");
+      await expect(page.locator(".queue-empty")).toContainText(
+        "검색 또는 필터 조건에 맞는 글이 없습니다.",
+      );
+      await expect(page.locator("#queue-query")).toBeFocused();
+      await expect(page.locator("#queue-clear-filters")).toBeVisible();
+      await page.locator("#queue-clear-filters").click();
+      await expect(page.locator("#queue-query")).toHaveValue("");
+      await expect(queueItem).toBeVisible();
+      if (viewport.width === 320) {
+        expect(
+          await page
+            .locator(".workbench-readiness-banner")
+            .evaluate((element) => element.getBoundingClientRect().height),
+        ).toBeLessThan(240);
+      }
+      expect(await page.locator("#load-more-queue-button").count()).toBeLessThanOrEqual(1);
       await page.locator(`#queue-batch-${postId}`).check();
       await expect(page.locator(".queue-batch-preview")).toContainText("선택 순서대로 1건");
       await expect(page.locator("#open-batch-preview")).toBeEnabled();
@@ -134,13 +180,14 @@ for (const viewport of VIEWPORTS) {
         sources: ["neighbor"],
       });
       await page.locator("#back-to-workbench-button").click();
-      if (viewport.name === "tablet portrait") {
+      if (viewport.width <= 768) {
         await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator("#close-detail-sheet")).toBeFocused();
       }
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
       await expect(page.locator("#skip-post-button")).toBeVisible();
-      if (viewport.name === "tablet portrait") {
+      if (viewport.width <= 768) {
         await expect(page.locator("#close-detail-sheet")).toBeVisible();
         await page.locator("#close-detail-sheet").click();
         await expect(page.locator(".detail-panel")).toBeHidden();
@@ -149,13 +196,13 @@ for (const viewport of VIEWPORTS) {
       }
       await page.locator("#skip-post-button").click();
       await expect(page.locator("#skip-post-button")).toHaveText("다시 대기");
-      if (viewport.name === "tablet portrait") {
+      if (viewport.width <= 768) {
         await page.locator("#close-detail-sheet").click();
         await expect(page.locator(".detail-panel")).toBeHidden();
       }
       await page.locator('[data-segment="skipped"]').click();
       await expect(page.locator(`.queue-item[data-post-id="${postId}"]`)).toBeVisible();
-      if (viewport.name === "tablet portrait") {
+      if (viewport.width <= 768) {
         await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
         await expect(page.locator(".detail-panel")).toBeVisible();
       }
@@ -189,7 +236,7 @@ for (const viewport of VIEWPORTS) {
           : getComputedStyle(layout).gridTemplateColumns.trim().split(/\s+/).length;
       });
       expect(gridColumnCount).not.toBeNull();
-      if (viewport.name === "tablet portrait") expect(gridColumnCount).toBe(1);
+      if (viewport.width <= 768) expect(gridColumnCount).toBe(1);
       else expect(gridColumnCount).toBeGreaterThan(1);
 
       await page.locator('[data-section="more"]').click();
