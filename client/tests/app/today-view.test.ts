@@ -409,6 +409,21 @@ describe("home and onboarding views", () => {
     expect((document.getElementById("close-session-button") as HTMLButtonElement).disabled).toBe(
       true,
     );
+    expect((document.getElementById("queue-query") as HTMLInputElement).disabled).toBe(true);
+    expect((document.getElementById("queue-search-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((document.getElementById("queue-source-filter") as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect((document.getElementById("queue-state-filter") as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect(
+      Array.from(document.querySelectorAll<HTMLButtonElement>(".queue-segment")).every(
+        (segment) => segment.disabled,
+      ),
+    ).toBe(true);
 
     renderToday(root, { ...base, phase: "failed", error: "서비스 오류" }, handlers());
     expect((document.getElementById("focus-session-button") as HTMLButtonElement).disabled).toBe(
@@ -642,13 +657,18 @@ describe("load", () => {
     expect(document.getElementById("queue-batch-dated")).not.toBeNull();
   });
 
-  it("marks the selected queue item with aria-pressed", async () => {
+  it("marks the selected queue item and preserves its desktop focus", async () => {
     const controller = new TodayController(mountRoot(), { api: api() as never });
 
     await controller.load();
+    await controller.setFilter("source", "all");
 
-    const [first] = Array.from(document.querySelectorAll(".queue-item"));
+    const [first, second] = Array.from(document.querySelectorAll<HTMLButtonElement>(".queue-item"));
     expect(first?.getAttribute("aria-pressed")).toBe("true");
+    second?.focus();
+    second?.click();
+    expect(document.activeElement?.id).toBe("queue-post-2");
+    expect(document.getElementById("queue-post-2")?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("renders an empty queue message", async () => {
@@ -977,9 +997,15 @@ describe("workbench queue controls", () => {
     await controller.load();
 
     (document.querySelector("[data-segment='search']") as HTMLButtonElement).click();
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(controller.state.phase).toBe("ready");
+      expect(controller.state.sourceFilter).toBe("search");
+    });
     (document.querySelector("[data-segment='neighbor']") as HTMLButtonElement).click();
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(controller.state.phase).toBe("ready");
+      expect(controller.state.sourceFilter).toBe("neighbor");
+    });
     (document.querySelector("#queue-sort") as HTMLSelectElement).value = "oldest";
     document.querySelector("#queue-sort")?.dispatchEvent(new Event("change"));
     (document.querySelector("#queue-batch-1") as HTMLInputElement).click();

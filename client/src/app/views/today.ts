@@ -765,6 +765,7 @@ function renderQueue(document: Document, state: TodayState, handlers: TodayHandl
     item.append(batchLabel);
     const select = document.createElement("button");
     select.type = "button";
+    select.id = `queue-post-${post.id}`;
     select.className = "queue-item";
     select.dataset.postId = post.id;
     select.setAttribute("aria-pressed", String(post.id === state.selectedPostId));
@@ -857,6 +858,7 @@ function renderSegments(document: Document, state: TodayState, handlers: TodayHa
     const choice = document.createElement("button");
     choice.type = "button";
     choice.id = `queue-segment-${segment}`;
+    choice.disabled = state.phase === "loading";
     choice.className = "queue-segment";
     choice.dataset.segment = segment;
     choice.setAttribute("aria-pressed", String(selected === segment));
@@ -888,6 +890,7 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
   query.type = "search";
   query.placeholder = "제목, 작성자, 검색어 검색";
   query.value = state.query;
+  query.disabled = state.phase === "loading";
   const applyQuery = () => handlers.onQueryChange(query.value);
   query.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.isComposing) return;
@@ -898,6 +901,7 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     id: "queue-search-button",
     label: "검색 적용",
     variant: "secondary",
+    disabled: state.phase === "loading",
     onClick: applyQuery,
   });
   panel.append(queryLabel, query, search);
@@ -914,6 +918,7 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
 
   const source = document.createElement("select");
   source.id = "queue-source-filter";
+  source.disabled = state.phase === "loading";
   for (const [value, label] of [
     ["all", "모든 출처"],
     ["neighbor", "이웃 새 글"],
@@ -931,6 +936,7 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
   source.addEventListener("change", () => handlers.onFilterChange("source", source.value));
   const status = document.createElement("select");
   status.id = "queue-state-filter";
+  status.disabled = state.phase === "loading";
   for (const [value, label] of [
     ["all", "모든 상태"],
     ["queued", "대기"],

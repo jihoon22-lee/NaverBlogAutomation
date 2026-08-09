@@ -209,7 +209,7 @@ describe("TodayController workbench controls", () => {
     expect(document.activeElement?.id).toBe("queue-query");
   });
 
-  it("does not start a second queue request while the current load is busy", async () => {
+  it("does not mutate filters or start a second queue request while a load is busy", async () => {
     const root = document.getElementById("workspace");
     if (root === null) throw new Error("missing workspace root");
     const deferred: {
@@ -256,9 +256,15 @@ describe("TodayController workbench controls", () => {
 
     const load = controller.load();
     await Promise.resolve();
+    await controller.setQuery("버려질 검색어");
+    await controller.setFilter("source", "search");
+    await controller.setSegment("skipped");
     await controller.clearFilters();
 
     expect(queue).toHaveBeenCalledOnce();
+    expect(controller.state.query).toBe("");
+    expect(controller.state.sourceFilter).toBe("neighbor");
+    expect(controller.state.stateFilter).toBe("all");
     if (deferred.release === null) throw new Error("queue did not start");
     deferred.release({
       items: [],

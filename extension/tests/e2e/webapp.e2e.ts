@@ -182,6 +182,7 @@ for (const viewport of VIEWPORTS) {
       await page.locator("#back-to-workbench-button").click();
       if (viewport.width <= 768) {
         await page.locator(`.queue-item[data-post-id="${postId}"]`).click();
+        await expect(page.locator("#close-detail-sheet")).toBeFocused();
       }
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
