@@ -36,7 +36,9 @@ const REFUSALS: Record<string, string> = {
 
 export interface SettingsState {
   section: SettingsSection;
-  phase: "idle" | "loading" | "ready" | "saving" | "syncing" | "failed";
+  /** Explicit disclosure choices survive async state updates and section changes. */
+  expandedPanels: Record<string, boolean>;
+  phase: "idle" | "loading" | "ready" | "saving" | "syncing" | "restarting" | "failed";
   settings: AutoDiscoverySettings | null;
   searches: SavedSearch[];
   neighbors: DiscoveryNeighbor[];
@@ -151,6 +153,7 @@ export function initialSettingsState(): SettingsState {
   return {
     phase: "idle",
     section: "defaults",
+    expandedPanels: {},
     settings: null,
     searches: [],
     neighbors: [],
@@ -229,7 +232,12 @@ export function initialSettingsState(): SettingsState {
 
 /** Report whether a request is in flight and the form must not be submitted again. */
 export function isSettingsBusy(state: SettingsState): boolean {
-  return state.phase === "loading" || state.phase === "saving" || state.phase === "syncing";
+  return (
+    state.phase === "loading" ||
+    state.phase === "saving" ||
+    state.phase === "syncing" ||
+    state.phase === "restarting"
+  );
 }
 
 export class SettingsController {
@@ -306,6 +314,12 @@ export class SettingsController {
         this.#state = { ...this.#state, section };
         this.render();
       },
+      onPanelToggle: (id, open) => {
+        this.#state = {
+          ...this.#state,
+          expandedPanels: { ...this.#state.expandedPanels, [id]: open },
+        };
+      },
       onScheduleFieldChange: (patch) => {
         this.#state = { ...this.#state, scheduleForm: { ...this.#state.scheduleForm, ...patch } };
       },
@@ -329,6 +343,16 @@ export class SettingsController {
   /** Load the saved discovery settings and searches. */
   async load(): Promise<void> {
     if (isSettingsBusy(this.#state)) return;
+    const formSnapshot = {
+      form: this.#state.form,
+      digestForm: this.#state.digestForm,
+      commentForm: this.#state.commentForm,
+      automationForm: this.#state.automationForm,
+      writingForm: this.#state.writingForm,
+      scheduleForm: this.#state.scheduleForm,
+      budgetForm: this.#state.budgetForm,
+      runtimeForm: this.#state.runtimeForm,
+    };
     this.#patch({ phase: "loading", error: null, notice: null });
     try {
       const [
@@ -397,26 +421,52 @@ export class SettingsController {
         searches,
         neighbors,
         digest,
-        form: {
-          ownBlogId: settings.ownBlogId,
-          enabled: settings.enabled,
-          hour: settings.hour,
-          minute: settings.minute,
-        },
-        digestForm: {
-          timezone: digest.timezone,
-          hour: digest.hour,
-          minute: digest.minute,
-          emailEnabled: digest.emailEnabled,
-        },
-        commentForm: commentForm(generation, closing, neighborMessage),
-        automationForm: automationForm(consent, safety),
-        writingForm: writingForm(writing),
-        scheduleForm: scheduleForm(schedule),
-        budgetForm: budgetForm(budget),
+        form:
+          this.#state.form === formSnapshot.form
+            ? {
+                ownBlogId: settings.ownBlogId,
+                enabled: settings.enabled,
+                hour: settings.hour,
+                minute: settings.minute,
+              }
+            : this.#state.form,
+        digestForm:
+          this.#state.digestForm === formSnapshot.digestForm
+            ? {
+                timezone: digest.timezone,
+                hour: digest.hour,
+                minute: digest.minute,
+                emailEnabled: digest.emailEnabled,
+              }
+            : this.#state.digestForm,
+        commentForm:
+          this.#state.commentForm === formSnapshot.commentForm
+            ? commentForm(generation, closing, neighborMessage)
+            : this.#state.commentForm,
+        automationForm:
+          this.#state.automationForm === formSnapshot.automationForm
+            ? automationForm(consent, safety)
+            : this.#state.automationForm,
+        writingForm:
+          this.#state.writingForm === formSnapshot.writingForm
+            ? writingForm(writing)
+            : this.#state.writingForm,
+        scheduleForm:
+          this.#state.scheduleForm === formSnapshot.scheduleForm
+            ? scheduleForm(schedule)
+            : this.#state.scheduleForm,
+        budgetForm:
+          this.#state.budgetForm === formSnapshot.budgetForm
+            ? budgetForm(budget)
+            : this.#state.budgetForm,
         runtime,
         runtimeData,
-        runtimeForm: runtime === null ? this.#state.runtimeForm : runtimeForm(runtime),
+        runtimeForm:
+          this.#state.runtimeForm === formSnapshot.runtimeForm
+            ? runtime === null
+              ? this.#state.runtimeForm
+              : runtimeForm(runtime)
+            : this.#state.runtimeForm,
       });
     } catch (error) {
       this.#fail(error);
@@ -466,13 +516,14 @@ export class SettingsController {
       this.#patch({ error: "이미 저장한 검색어입니다.", notice: null });
       return;
     }
+    const querySnapshot = this.#state.newQuery;
     this.#patch({ phase: "saving", error: null, notice: null });
     try {
       const saved = await this.#api.saveSearch({ query });
       this.#patch({
         phase: "ready",
         searches: [...this.#state.searches, saved],
-        newQuery: "",
+        newQuery: this.#state.newQuery === querySnapshot ? "" : this.#state.newQuery,
         notice: `검색어 "${saved.query}"를 저장했습니다.`,
       });
     } catch (error) {
@@ -520,6 +571,7 @@ export class SettingsController {
       this.#patch({ error: "이웃 이름, 블로그 ID, 공개 URL을 모두 입력하세요.", notice: null });
       return;
     }
+    const neighborFormSnapshot = this.#state.neighborForm;
     this.#patch({ phase: "saving", error: null, notice: null });
     try {
       const saved = await this.#api.saveDiscoveryNeighbor({
@@ -530,7 +582,10 @@ export class SettingsController {
       this.#patch({
         phase: "ready",
         neighbors: upsertNeighbor(this.#state.neighbors, saved),
-        neighborForm: { name: "", blogId: "", blogUrl: "" },
+        neighborForm:
+          this.#state.neighborForm === neighborFormSnapshot
+            ? { name: "", blogId: "", blogUrl: "" }
+            : this.#state.neighborForm,
         notice: `이웃 "${saved.name}"을 저장했습니다.`,
       });
     } catch (error) {
@@ -566,18 +621,22 @@ export class SettingsController {
   /** Persist the local digest time and optional email preference. */
   async saveDigest(): Promise<void> {
     if (isSettingsBusy(this.#state)) return;
+    const digestFormSnapshot = this.#state.digestForm;
     this.#patch({ phase: "saving", error: null, notice: null });
     try {
       const digest = await this.#api.saveDigestSettings(this.#state.digestForm);
       this.#patch({
         phase: "ready",
         digest,
-        digestForm: {
-          timezone: digest.timezone,
-          hour: digest.hour,
-          minute: digest.minute,
-          emailEnabled: digest.emailEnabled,
-        },
+        digestForm:
+          this.#state.digestForm === digestFormSnapshot
+            ? {
+                timezone: digest.timezone,
+                hour: digest.hour,
+                minute: digest.minute,
+                emailEnabled: digest.emailEnabled,
+              }
+            : this.#state.digestForm,
         notice: "이메일 요약 설정을 저장했습니다.",
       });
     } catch (error) {
@@ -679,6 +738,7 @@ export class SettingsController {
   async saveRuntimeConfiguration(): Promise<void> {
     if (isSettingsBusy(this.#state) || this.#state.runtime === null) return;
     const form = this.#state.runtimeForm;
+    const runtimeFormSnapshot = form;
     this.#patch({ phase: "saving", error: null, notice: null });
     try {
       const runtime = await this.#api.patchRuntimeConfiguration({
@@ -714,7 +774,10 @@ export class SettingsController {
       this.#patch({
         phase: "ready",
         runtime,
-        runtimeForm: runtimeForm(runtime),
+        runtimeForm:
+          this.#state.runtimeForm === runtimeFormSnapshot
+            ? runtimeForm(runtime)
+            : this.#state.runtimeForm,
         notice: runtime.restartRequired
           ? "연결 설정을 저장했습니다. 적용하려면 재시작하세요."
           : "연결 설정을 저장했습니다.",
@@ -726,13 +789,17 @@ export class SettingsController {
 
   async restartRuntime(): Promise<void> {
     if (isSettingsBusy(this.#state) || this.#state.runtime === null) return;
+    const runtimeFormSnapshot = this.#state.runtimeForm;
     this.#patch({ phase: "saving", error: null, notice: null });
     try {
       const runtime = await this.#api.restartRuntime();
       this.#patch({
-        phase: "ready",
+        phase: "restarting",
         runtime,
-        runtimeForm: runtimeForm(runtime),
+        runtimeForm:
+          this.#state.runtimeForm === runtimeFormSnapshot
+            ? runtimeForm(runtime)
+            : this.#state.runtimeForm,
         notice: "재시작을 요청했습니다. 준비되면 화면이 자동으로 새로고침됩니다.",
       });
       await this.#waitForRestart();
@@ -767,7 +834,7 @@ export class SettingsController {
     try {
       await this.#api.resetRuntimeData(this.#state.runtimeDataResetConfirmation);
       this.#patch({
-        phase: "ready",
+        phase: "restarting",
         notice: "기존 데이터는 복구 가능한 backup으로 옮겼습니다. 서비스를 다시 시작합니다.",
       });
       await this.#waitForRestart();
@@ -790,6 +857,7 @@ export class SettingsController {
       }
     }
     this.#patch({
+      phase: "ready",
       notice: "서비스 재시작을 기다리는 중입니다. 잠시 후 화면을 새로고침하세요.",
     });
   }

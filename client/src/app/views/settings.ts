@@ -29,6 +29,7 @@ export interface SettingsHandlers {
   onSaveAutomationSettings(): void;
   onSaveWritingSettings(): void;
   onSectionChange(section: SettingsState["section"]): void;
+  onPanelToggle?(id: string, open: boolean): void;
   onScheduleFieldChange(patch: Partial<SettingsState["scheduleForm"]>): void;
   onBudgetFieldChange(patch: Partial<SettingsState["budgetForm"]>): void;
   onSaveScheduleAndBudget(): void;
@@ -60,6 +61,13 @@ export function renderSettings(
   handlers: SettingsHandlers,
 ): void {
   const document = root.ownerDocument;
+  const panelContext: SettingsPanelContext = {
+    openPanels: captureOpenPanels(root),
+    expandedPanels: state.expandedPanels,
+  };
+  if (handlers.onPanelToggle !== undefined) {
+    panelContext.onPanelToggle = handlers.onPanelToggle;
+  }
   root.textContent = "";
 
   const status = document.createElement("p");
@@ -68,26 +76,98 @@ export function renderSettings(
   status.textContent = statusMessage(state);
   root.append(status);
 
+  const pageHeader = document.createElement("header");
+  pageHeader.className = "settings-page-header";
+  const pageTitle = document.createElement("h1");
+  pageTitle.textContent = "설정";
+  const pageDescription = document.createElement("p");
+  pageDescription.textContent = "자주 쓰는 기본값은 바로 바꾸고, 나머지는 필요한 때만 열어 보세요.";
+  pageHeader.append(pageTitle, pageDescription);
+  root.append(pageHeader);
+
   root.append(renderSettingsNavigation(document, state, handlers));
-  const defaults = settingsSection(document, "defaults", state.section);
-  defaults.append(
-    renderCommentSettings(document, state, handlers),
-    renderWritingSettings(document, state, handlers),
+  const defaults = settingsSection(document, "defaults", state.section, state);
+  const commentDetails = settingsDetails(
+    document,
+    "comment-copy-details",
+    "문구와 개인화 세부 설정",
+    state.phase === "failed",
+    panelContext,
   );
-  const automation = settingsSection(document, "automation", state.section);
-  automation.append(
-    renderDiscoveryForm(document, state, handlers),
-    renderSyncPanel(document, state, handlers),
+  commentDetails.append(
+    textField(document, "closing-phrase", "마무리 문구", state.commentForm.closingPhrase, (value) =>
+      handlers.onCommentFieldChange({ closingPhrase: value }),
+    ),
+    textField(
+      document,
+      "neighbor-message",
+      "서로이웃 기본 메시지",
+      state.commentForm.neighborMessage,
+      (value) => handlers.onCommentFieldChange({ neighborMessage: value }),
+    ),
+  );
+  const writingDetails = settingsDetails(
+    document,
+    "writing-advanced-details",
+    "참고 글과 이미지 분석 세부 설정",
+    state.phase === "failed",
+    panelContext,
+  );
+  writingDetails.append(
+    numberField(
+      document,
+      "writing-reference-post-count",
+      "참고할 최근 글 수",
+      state.writingForm.referencePostCount,
+      (value) => handlers.onWritingFieldChange({ referencePostCount: value }),
+      1,
+      10,
+    ),
+    numberField(
+      document,
+      "writing-body-tag-cap",
+      "본문 태그 상한",
+      state.writingForm.bodyTagCap,
+      (value) => handlers.onWritingFieldChange({ bodyTagCap: value }),
+      1,
+      30,
+    ),
+    checkboxField(
+      document,
+      "writing-image-vision",
+      "이미지 분석 사용",
+      state.writingForm.useImageVision,
+      (checked) => handlers.onWritingFieldChange({ useImageVision: checked }),
+    ),
+  );
+  defaults.append(
+    renderCommentSettings(document, state, handlers, commentDetails),
+    renderWritingSettings(document, state, handlers, writingDetails),
+  );
+  const automation = settingsSection(document, "automation", state.section, state);
+  const sourceDetails = settingsDetails(
+    document,
+    "automation-source-details",
+    "검색어·이웃·이메일 요약 관리",
+    state.phase === "failed",
+    panelContext,
+  );
+  sourceDetails.append(
     renderSearchPanel(document, state, handlers),
     renderNeighborPanel(document, state, handlers),
     renderDigestPanel(document, state, handlers),
-    renderAutomationSettings(document, state, handlers),
-    renderAdvancedAutomation(document, state, handlers),
   );
-  const connections = settingsSection(document, "connections", state.section);
+  automation.append(
+    renderDiscoveryForm(document, state, handlers),
+    renderSyncPanel(document, state, handlers),
+    renderAutomationSettings(document, state, handlers, panelContext),
+    sourceDetails,
+    renderAdvancedAutomation(document, state, handlers, panelContext),
+  );
+  const connections = settingsSection(document, "connections", state.section, state);
   connections.append(
-    renderRuntimeSettings(document, state, handlers),
-    renderRuntimeData(document, state, handlers),
+    renderRuntimeSettings(document, state, handlers, panelContext),
+    renderRuntimeData(document, state, handlers, panelContext),
   );
   root.append(defaults, automation, connections);
 }
@@ -96,12 +176,129 @@ function settingsSection(
   document: Document,
   name: SettingsState["section"],
   active: SettingsState["section"],
+  state: SettingsState,
 ): HTMLDivElement {
   const section = document.createElement("div");
   section.className = "settings-section";
   section.dataset.settingsSection = name;
+  section.id = `settings-section-${name}`;
   section.hidden = name !== active;
+  section.append(renderSectionSummary(document, name, state));
   return section;
+}
+
+function renderSectionSummary(
+  document: Document,
+  name: SettingsState["section"],
+  state: SettingsState,
+): HTMLElement {
+  const summary = document.createElement("header");
+  summary.className = "settings-section-summary";
+  summary.dataset.settingsSummary = name;
+  const title = document.createElement("h2");
+  const purpose = document.createElement("p");
+  purpose.className = "settings-summary-purpose";
+  const current = document.createElement("p");
+  current.className = "settings-summary-current";
+  const next = document.createElement("p");
+  next.className = "settings-summary-next";
+  const copy = sectionSummaryCopy(name, state);
+  title.textContent = copy.title;
+  purpose.textContent = copy.purpose;
+  current.textContent = `현재 상태 · ${copy.current}`;
+  next.textContent = `다음 행동 · ${copy.next}`;
+  summary.append(title, purpose, current, next);
+  return summary;
+}
+
+function sectionSummaryCopy(
+  name: SettingsState["section"],
+  state: SettingsState,
+): { current: string; next: string; purpose: string; title: string } {
+  if (name === "defaults") {
+    return {
+      title: "작업 기본값",
+      purpose: "댓글과 글쓰기에서 AI가 기본으로 사용할 말투와 구성을 정합니다.",
+      current: `댓글 ${commentLengthLabel(state.commentForm.commentLength)} · 글 ${writingLengthLabel(state.writingForm.targetLength)}`,
+      next: "자주 바꾸는 기본값을 확인하고 필요한 묶음만 저장하세요.",
+    };
+  }
+  if (name === "automation") {
+    const blog = state.form.ownBlogId.trim().length === 0 ? "블로그 ID 필요" : state.form.ownBlogId;
+    const sync =
+      state.settings === null ? "동기화 이력 없음" : syncStatusLabel(state.settings.lastStatus);
+    return {
+      title: "탐색 및 자동화",
+      purpose: "공개 정보를 모을 대상과 자동 실행의 안전 한도를 관리합니다.",
+      current: `${blog} · 자동 수집 ${state.form.enabled ? "켜짐" : "꺼짐"} · ${sync}`,
+      next:
+        state.form.ownBlogId.trim().length === 0
+          ? "내 블로그 ID를 저장하세요."
+          : "지금 동기화하거나 수집원 세부 설정을 확인하세요.",
+    };
+  }
+  const connection =
+    state.runtime === null
+      ? "연결된 PC에서만 확인 가능"
+      : `AI ${state.runtime.ai.providers.filter((item) => item.configured).length}개 · 검색 ${state.runtime.naverSearch.configured ? "연결됨" : "미연결"} · 메일 ${state.runtime.smtp.configured ? "연결됨" : "미연결"}`;
+  return {
+    title: "연결 및 앱",
+    purpose: "AI, Naver Search, SMTP, 브라우저와 태블릿 접근을 한곳에서 관리합니다.",
+    current: connection,
+    next:
+      state.runtime?.restartRequired === true
+        ? "저장한 연결 설정을 적용하려면 재시작하세요."
+        : "필요한 연결 그룹만 열어 설정을 저장하세요.",
+  };
+}
+
+function commentLengthLabel(value: SettingsState["commentForm"]["commentLength"]): string {
+  return { short: "짧은 댓글", medium: "보통 댓글", long: "긴 댓글" }[value];
+}
+
+function writingLengthLabel(value: SettingsState["writingForm"]["targetLength"]): string {
+  return { short: "짧은 글", medium: "보통 글", long: "긴 글" }[value];
+}
+
+function syncStatusLabel(value: string): string {
+  return SYNC_STATUS_LABELS[value] ?? value;
+}
+
+interface SettingsPanelContext {
+  openPanels: ReadonlyMap<string, boolean>;
+  expandedPanels: Readonly<Record<string, boolean>>;
+  onPanelToggle?: (id: string, open: boolean) => void;
+}
+
+function captureOpenPanels(root: Element): Map<string, boolean> {
+  const openPanels = new Map<string, boolean>();
+  for (const panel of root.querySelectorAll<HTMLDetailsElement>("details[data-settings-panel]")) {
+    const id = panel.dataset.settingsPanel;
+    if (id !== undefined) openPanels.set(id, panel.open);
+  }
+  return openPanels;
+}
+
+function settingsDetails(
+  document: Document,
+  id: string,
+  label: string,
+  defaultOpen = false,
+  context?: SettingsPanelContext,
+): HTMLDetailsElement {
+  const details = document.createElement("details");
+  details.className = "settings-details";
+  details.id = id;
+  details.dataset.settingsPanel = id;
+  const rememberedOpen = context?.openPanels.get(id) ?? context?.expandedPanels[id] ?? false;
+  details.open = defaultOpen || rememberedOpen;
+  const summary = document.createElement("summary");
+  summary.textContent = label;
+  details.append(summary);
+  if (context?.onPanelToggle !== undefined) {
+    details.addEventListener("toggle", () => context.onPanelToggle?.(id, details.open));
+  }
+  return details;
 }
 
 function renderSettingsNavigation(
@@ -122,6 +319,8 @@ function renderSettingsNavigation(
     choice.className = "settings-navigation-item";
     choice.dataset.settingsSection = name;
     choice.setAttribute("aria-pressed", String(state.section === name));
+    choice.setAttribute("aria-controls", `settings-section-${name}`);
+    choice.disabled = isSettingsBusy(state);
     choice.textContent = `${label} · ${detail}`;
     choice.addEventListener("click", () => handlers.onSectionChange(name));
     section.append(choice);
@@ -133,12 +332,16 @@ function renderAdvancedAutomation(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  panelContext: SettingsPanelContext,
 ): Element {
-  const section = document.createElement("details");
-  section.className = "advanced-automation-panel";
-  const summary = document.createElement("summary");
-  summary.textContent = "고급 · 예약 실행과 AI 예산";
-  section.append(summary);
+  const section = settingsDetails(
+    document,
+    "advanced-automation-panel",
+    "고급 · 예약 실행과 AI 예산",
+    state.phase === "failed",
+    panelContext,
+  );
+  section.classList.add("advanced-automation-panel");
   const content = document.createElement("div");
   content.append(
     selectField(
@@ -195,7 +398,7 @@ function renderAdvancedAutomation(
     numberField(
       document,
       "llm-provider-call-cap",
-      "한 요청의 provider 호출 상한",
+      "한 요청의 AI 서비스 호출 상한",
       state.budgetForm.perRequestProviderCap,
       (value) => handlers.onBudgetFieldChange({ perRequestProviderCap: value }),
       1,
@@ -211,6 +414,7 @@ function renderAdvancedAutomation(
     ),
   );
   section.append(content);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -218,6 +422,7 @@ function renderRuntimeSettings(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  panelContext: SettingsPanelContext,
 ): Element {
   const section = document.createElement("section");
   section.className = "runtime-settings-panel";
@@ -227,12 +432,15 @@ function renderRuntimeSettings(
     note.className = "settings-note";
     note.textContent = "연결 설정은 PC의 로컬 웹앱에서만 볼 수 있습니다.";
     section.append(note);
+    disableSettingsControls(section, state);
     return section;
   }
   const configured = document.createElement("p");
   configured.textContent = `AI ${state.runtime.ai.providers.filter((item) => item.configured).length}개 · Naver Search ${state.runtime.naverSearch.configured ? "연결됨" : "미연결"} · SMTP ${state.runtime.smtp.configured ? "연결됨" : "미연결"}`;
   section.append(configured);
-  section.append(
+
+  const aiGroup = runtimeGroup(document, "AI 연결", "댓글 생성에 사용할 AI 서비스와 모델입니다.");
+  aiGroup.append(
     selectField(
       document,
       "runtime-provider",
@@ -249,17 +457,26 @@ function renderRuntimeSettings(
           activeProvider: value as SettingsState["runtimeForm"]["activeProvider"],
         }),
     ),
+  );
+  const aiDetails = settingsDetails(
+    document,
+    "runtime-ai-details",
+    "모델과 API 키 (고급)",
+    state.runtime.restartRequired || state.phase === "failed",
+    panelContext,
+  );
+  aiDetails.append(
     textField(
       document,
       "runtime-openai-model",
-      "OpenAI model",
+      "OpenAI 모델",
       state.runtimeForm.openaiModel,
       (value) => handlers.onRuntimeFieldChange?.({ openaiModel: value }),
     ),
     secretField(
       document,
       "runtime-openai-key",
-      "OpenAI API key",
+      "OpenAI API 키",
       state.runtimeForm.clearOpenaiApiKey,
       (value) => handlers.onRuntimeFieldChange?.({ openaiApiKey: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearOpenaiApiKey: clear }),
@@ -267,14 +484,14 @@ function renderRuntimeSettings(
     textField(
       document,
       "runtime-gemini-model",
-      "Gemini model",
+      "Gemini 모델",
       state.runtimeForm.geminiModel,
       (value) => handlers.onRuntimeFieldChange?.({ geminiModel: value }),
     ),
     secretField(
       document,
       "runtime-gemini-key",
-      "Gemini API key",
+      "Gemini API 키",
       state.runtimeForm.clearGeminiApiKey,
       (value) => handlers.onRuntimeFieldChange?.({ geminiApiKey: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearGeminiApiKey: clear }),
@@ -282,18 +499,36 @@ function renderRuntimeSettings(
     textField(
       document,
       "runtime-anthropic-model",
-      "Claude model",
+      "Claude 모델",
       state.runtimeForm.anthropicModel,
       (value) => handlers.onRuntimeFieldChange?.({ anthropicModel: value }),
     ),
     secretField(
       document,
       "runtime-anthropic-key",
-      "Anthropic API key",
+      "Anthropic API 키",
       state.runtimeForm.clearAnthropicApiKey,
       (value) => handlers.onRuntimeFieldChange?.({ anthropicApiKey: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearAnthropicApiKey: clear }),
     ),
+  );
+  aiGroup.append(aiDetails);
+
+  const searchGroup = runtimeGroup(
+    document,
+    "Naver Search 연결",
+    state.runtime.naverSearch.configured
+      ? "검색 후보를 가져올 수 있습니다."
+      : "Client ID와 Secret을 입력하면 검색 후보를 사용할 수 있습니다.",
+  );
+  const searchDetails = settingsDetails(
+    document,
+    "runtime-search-details",
+    "Naver Search API 자격 증명",
+    state.runtime.restartRequired || state.phase === "failed",
+    panelContext,
+  );
+  searchDetails.append(
     secretField(
       document,
       "runtime-naver-id",
@@ -310,7 +545,25 @@ function renderRuntimeSettings(
       (value) => handlers.onRuntimeFieldChange?.({ naverSearchClientSecret: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearNaverSearchClientSecret: clear }),
     ),
-    textField(document, "runtime-smtp-host", "SMTP host", state.runtimeForm.smtpHost, (value) =>
+  );
+  searchGroup.append(searchDetails);
+
+  const smtpGroup = runtimeGroup(
+    document,
+    "SMTP 연결",
+    state.runtime.smtp.configured
+      ? "이메일 요약을 보낼 SMTP가 연결되어 있습니다."
+      : "이메일 요약을 사용하려면 SMTP를 설정하세요.",
+  );
+  const smtpDetails = settingsDetails(
+    document,
+    "runtime-smtp-details",
+    "SMTP 서버와 요약 주소",
+    state.runtime.restartRequired || state.phase === "failed",
+    panelContext,
+  );
+  smtpDetails.append(
+    textField(document, "runtime-smtp-host", "SMTP 서버", state.runtimeForm.smtpHost, (value) =>
       handlers.onRuntimeFieldChange?.({ smtpHost: value }),
     ),
     numberField(
@@ -336,7 +589,7 @@ function renderRuntimeSettings(
     secretField(
       document,
       "runtime-smtp-user",
-      "SMTP username",
+      "SMTP 사용자 이름",
       state.runtimeForm.clearSmtpUsername,
       (value) => handlers.onRuntimeFieldChange?.({ smtpUsername: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearSmtpUsername: clear }),
@@ -344,7 +597,7 @@ function renderRuntimeSettings(
     secretField(
       document,
       "runtime-smtp-password",
-      "SMTP password",
+      "SMTP 비밀번호",
       state.runtimeForm.clearSmtpPassword,
       (value) => handlers.onRuntimeFieldChange?.({ smtpPassword: value }),
       (clear) => handlers.onRuntimeFieldChange?.({ clearSmtpPassword: clear }),
@@ -363,6 +616,22 @@ function renderRuntimeSettings(
       state.runtimeForm.digestEmailTo,
       (value) => handlers.onRuntimeFieldChange?.({ digestEmailTo: value }),
     ),
+  );
+  smtpGroup.append(smtpDetails);
+
+  const browserGroup = runtimeGroup(
+    document,
+    "브라우저 · 접근",
+    "자동화 브라우저와 태블릿에서의 접근 범위를 정합니다.",
+  );
+  const browserDetails = settingsDetails(
+    document,
+    "runtime-browser-details",
+    "브라우저와 접근 세부 설정",
+    state.runtime.restartRequired || state.phase === "failed",
+    panelContext,
+  );
+  browserDetails.append(
     selectField(
       document,
       "runtime-browser-driver",
@@ -385,14 +654,14 @@ function renderRuntimeSettings(
       String(state.runtimeForm.browserHeadless),
       [
         ["false", "표시"],
-        ["true", "headless"],
+        ["true", "백그라운드 실행"],
       ],
       (value) => handlers.onRuntimeFieldChange?.({ browserHeadless: value === "true" }),
     ),
     textField(
       document,
       "runtime-browser-channel",
-      "브라우저 channel (선택)",
+      "브라우저 채널 (선택)",
       state.runtimeForm.browserChannel,
       (value) => handlers.onRuntimeFieldChange?.({ browserChannel: value }),
     ),
@@ -408,6 +677,8 @@ function renderRuntimeSettings(
       (value) => handlers.onRuntimeFieldChange?.({ accessMode: value as "local" | "lan" }),
     ),
   );
+  browserGroup.append(browserDetails);
+  section.append(aiGroup, searchGroup, smtpGroup, browserGroup);
   const save = button(document, "save-runtime-configuration-button", "연결 설정 저장", () =>
     handlers.onSaveRuntimeConfiguration?.(),
   );
@@ -420,6 +691,7 @@ function renderRuntimeSettings(
     restart.disabled = isSettingsBusy(state) || !state.runtime.launcherRestartAvailable;
     section.append(restart);
   }
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -428,6 +700,7 @@ function renderRuntimeData(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  panelContext: SettingsPanelContext,
 ): Element {
   const section = document.createElement("section");
   section.className = "runtime-data-panel";
@@ -436,6 +709,7 @@ function renderRuntimeData(
     const note = document.createElement("p");
     note.textContent = "연결된 PC에서만 데이터 위치와 내보내기를 확인할 수 있습니다.";
     section.append(note);
+    disableSettingsControls(section, state);
     return section;
   }
   const details = document.createElement("dl");
@@ -460,14 +734,18 @@ function renderRuntimeData(
   exportButton.disabled = isSettingsBusy(state);
   section.append(exportButton);
 
-  const reset = document.createElement("details");
-  reset.className = "runtime-data-reset";
-  const summary = document.createElement("summary");
-  summary.textContent = "안전한 초기화";
+  const reset = settingsDetails(
+    document,
+    "runtime-data-reset",
+    "위험 영역 · 데이터 초기화",
+    state.phase === "failed",
+    panelContext,
+  );
+  reset.classList.add("runtime-data-reset", "runtime-danger-zone", "settings-danger-zone");
   const note = document.createElement("p");
   note.textContent =
-    "현재 데이터는 삭제하지 않고 복구 가능한 backup으로 이동한 뒤 서비스를 다시 시작합니다. 진행 중인 작업이 있으면 실행할 수 없습니다.";
-  reset.append(summary, note);
+    "현재 데이터는 삭제하지 않고 복구 가능한 백업으로 이동한 뒤 서비스를 다시 시작합니다. 진행 중인 작업이 있으면 실행할 수 없습니다.";
+  reset.append(note);
   if (!state.runtimeData.resetAvailable) {
     const unavailable = document.createElement("p");
     unavailable.textContent = "supervisor로 실행한 PC에서만 초기화할 수 있습니다.";
@@ -480,17 +758,21 @@ function renderRuntimeData(
     confirmation.id = "runtime-data-reset-confirmation";
     confirmation.value = state.runtimeDataResetConfirmation;
     confirmation.autocomplete = "off";
-    confirmation.addEventListener("input", () =>
-      handlers.onRuntimeDataResetConfirmationChange?.(confirmation.value),
-    );
     const resetButton = button(document, "reset-runtime-data-button", "데이터 초기화", () =>
       handlers.onResetRuntimeData?.(),
     );
-    resetButton.disabled =
-      isSettingsBusy(state) || state.runtimeDataResetConfirmation !== "RESET LOCAL DATA";
+    const syncResetAvailability = () => {
+      resetButton.disabled = isSettingsBusy(state) || confirmation.value !== "RESET LOCAL DATA";
+    };
+    confirmation.addEventListener("input", () => {
+      handlers.onRuntimeDataResetConfirmationChange?.(confirmation.value);
+      syncResetAvailability();
+    });
+    syncResetAvailability();
     reset.append(label, confirmation, resetButton);
   }
   section.append(reset);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -504,6 +786,7 @@ function renderCommentSettings(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  advanced: Element,
 ): Element {
   const section = document.createElement("section");
   section.className = "comment-settings-panel";
@@ -585,18 +868,7 @@ function renderCommentSettings(
     ),
   );
   section.append(
-    textField(document, "closing-phrase", "마무리 문구", state.commentForm.closingPhrase, (value) =>
-      handlers.onCommentFieldChange({ closingPhrase: value }),
-    ),
-    textField(
-      document,
-      "neighbor-message",
-      "서로이웃 기본 메시지",
-      state.commentForm.neighborMessage,
-      (value) => handlers.onCommentFieldChange({ neighborMessage: value }),
-    ),
-  );
-  section.append(
+    advanced,
     button(
       document,
       "save-comment-settings-button",
@@ -604,6 +876,7 @@ function renderCommentSettings(
       handlers.onSaveCommentSettings,
     ),
   );
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -611,6 +884,7 @@ function renderAutomationSettings(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  panelContext: SettingsPanelContext,
 ): Element {
   const section = document.createElement("section");
   section.className = "automation-settings-panel";
@@ -625,7 +899,14 @@ function renderAutomationSettings(
   );
   consent.append(input, document.createTextNode("공감·댓글·서로이웃 신청 자동 실행에 동의합니다."));
   section.append(consent);
-  section.append(
+  const safetyDetails = settingsDetails(
+    document,
+    "automation-safety-details",
+    "세부 안전 한도와 허용 시간",
+    state.phase === "failed",
+    panelContext,
+  );
+  safetyDetails.append(
     numberField(
       document,
       "daily-like-cap",
@@ -673,6 +954,7 @@ function renderAutomationSettings(
     ),
   );
   section.append(
+    safetyDetails,
     button(
       document,
       "save-automation-settings-button",
@@ -680,6 +962,7 @@ function renderAutomationSettings(
       handlers.onSaveAutomationSettings,
     ),
   );
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -715,6 +998,7 @@ function renderWritingSettings(
   document: Document,
   state: SettingsState,
   handlers: SettingsHandlers,
+  advanced: Element,
 ): Element {
   const section = document.createElement("section");
   section.className = "writing-settings-panel";
@@ -763,36 +1047,9 @@ function renderWritingSettings(
           structure: value as SettingsState["writingForm"]["structure"],
         }),
     ),
-    numberField(
-      document,
-      "writing-reference-post-count",
-      "참고할 최근 글 수",
-      state.writingForm.referencePostCount,
-      (value) => handlers.onWritingFieldChange({ referencePostCount: value }),
-      1,
-      10,
-    ),
-    numberField(
-      document,
-      "writing-body-tag-cap",
-      "본문 태그 상한",
-      state.writingForm.bodyTagCap,
-      (value) => handlers.onWritingFieldChange({ bodyTagCap: value }),
-      1,
-      30,
-    ),
   );
-  const vision = document.createElement("label");
-  const check = document.createElement("input");
-  check.id = "writing-image-vision";
-  check.type = "checkbox";
-  check.checked = state.writingForm.useImageVision;
-  check.addEventListener("change", () =>
-    handlers.onWritingFieldChange({ useImageVision: check.checked }),
-  );
-  vision.append(check, document.createTextNode("이미지 분석 사용"));
   section.append(
-    vision,
+    advanced,
     button(
       document,
       "save-writing-settings-button",
@@ -800,6 +1057,7 @@ function renderWritingSettings(
       handlers.onSaveWritingSettings,
     ),
   );
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -807,6 +1065,7 @@ function statusMessage(state: SettingsState): string {
   if (state.phase === "loading") return "설정을 불러오는 중입니다.";
   if (state.phase === "saving") return "설정을 저장하는 중입니다.";
   if (state.phase === "syncing") return "공개 정보를 모으는 중입니다.";
+  if (state.phase === "restarting") return "서비스를 다시 시작하는 중입니다.";
   if (state.phase === "failed") return state.error ?? "설정을 불러오지 못했습니다.";
   if (state.error !== null) return state.error;
   if (state.notice !== null) return state.notice;
@@ -880,6 +1139,7 @@ function renderDiscoveryForm(
   refresh.disabled = isSettingsBusy(state);
   refresh.addEventListener("click", () => handlers.onRefresh());
   section.append(refresh);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -941,7 +1201,7 @@ function renderSyncPanel(
       const missing = document.createElement("p");
       missing.className = "sync-provider-missing";
       missing.textContent =
-        "검색 API key가 없어 검색 후보는 건너뜁니다. 이웃 새 글은 그대로 모았습니다.";
+        "검색 API 키가 없어 검색 후보는 건너뜁니다. 이웃 새 글은 그대로 모았습니다.";
       section.append(missing);
     }
   }
@@ -953,6 +1213,7 @@ function renderSyncPanel(
   sync.disabled = isSettingsBusy(state) || state.settings === null;
   sync.addEventListener("click", () => handlers.onSync());
   section.append(sync);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -988,7 +1249,11 @@ function renderSearchPanel(
   add.type = "button";
   add.id = "add-search-button";
   add.textContent = "검색어 저장";
-  add.disabled = isSettingsBusy(state);
+  const updateAddAvailability = () => {
+    add.disabled = isSettingsBusy(state) || input.value.trim().length === 0;
+  };
+  add.disabled = isSettingsBusy(state) || input.value.trim().length === 0;
+  input.addEventListener("input", updateAddAvailability);
   add.addEventListener("click", () => handlers.onAddSearch());
   section.append(add);
 
@@ -997,6 +1262,7 @@ function renderSearchPanel(
     empty.className = "search-empty";
     empty.textContent = "저장한 검색어가 없습니다. 이웃 새 글만 모읍니다.";
     section.append(empty);
+    disableSettingsControls(section, state);
     return section;
   }
 
@@ -1033,6 +1299,7 @@ function renderSearchPanel(
     }
   }
   section.append(list);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -1093,6 +1360,7 @@ function renderNeighborPanel(
     empty.className = "neighbor-empty";
     empty.textContent = "저장한 이웃이 없습니다. 자동 동기화에서 찾거나 직접 추가하세요.";
     section.append(empty);
+    disableSettingsControls(section, state);
     return section;
   }
 
@@ -1118,6 +1386,7 @@ function renderNeighborPanel(
     list.append(item);
   }
   section.append(list);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -1179,6 +1448,7 @@ function renderDigestPanel(
   save.disabled = isSettingsBusy(state);
   save.addEventListener("click", () => handlers.onSaveDigest());
   section.append(save);
+  disableSettingsControls(section, state);
   return section;
 }
 
@@ -1198,6 +1468,45 @@ function textInput(
   input.value = value;
   input.disabled = isSettingsBusy(state);
   return { label: fieldLabel, input };
+}
+
+function runtimeGroup(document: Document, label: string, description: string): HTMLFieldSetElement {
+  const group = document.createElement("fieldset");
+  group.className = "runtime-settings-group";
+  const legend = document.createElement("legend");
+  legend.textContent = label;
+  const note = document.createElement("p");
+  note.className = "settings-note";
+  note.textContent = description;
+  group.append(legend, note);
+  return group;
+}
+
+function checkboxField(
+  document: Document,
+  id: string,
+  label: string,
+  checked: boolean,
+  onChange: (checked: boolean) => void,
+): Element {
+  const field = document.createElement("label");
+  field.className = "checkbox-label";
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
+  field.append(input, document.createTextNode(label));
+  return field;
+}
+
+function disableSettingsControls(root: Element, state: SettingsState): void {
+  if (!isSettingsBusy(state)) return;
+  for (const control of root.querySelectorAll("button, input, select, textarea")) {
+    (
+      control as HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    ).disabled = true;
+  }
 }
 
 function heading(document: Document, text: string): HTMLHeadingElement {

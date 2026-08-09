@@ -187,6 +187,120 @@ h2 {
   text-align: left;
 }
 
+.settings-page-header,
+.settings-section-summary {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+  max-width: 68rem;
+}
+
+.settings-page-header :where(h1, p),
+.settings-section-summary :where(h2, p) {
+  margin: 0;
+}
+
+.settings-page-header h1 {
+  font-size: clamp(1.5rem, 1.15rem + 1.2vw, 2.15rem);
+  line-height: 1.2;
+}
+
+.settings-page-header p,
+.settings-summary-purpose,
+.settings-summary-current,
+.settings-summary-next {
+  color: var(--nba-muted);
+  line-height: 1.55;
+}
+
+.settings-section-summary {
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-inline-start: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-md);
+  padding: 0.9rem 1rem;
+}
+
+.settings-section-summary h2 {
+  color: var(--nba-ink);
+  margin: 0;
+}
+
+.settings-summary-current,
+.settings-summary-next {
+  font-size: 0.9rem;
+}
+
+.settings-summary-next {
+  color: var(--nba-primary);
+  font-weight: 700;
+}
+
+.settings-details,
+.runtime-data-reset {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  margin-block: 0.8rem;
+  padding: 0.8rem 1rem;
+}
+
+.settings-details > summary,
+.runtime-data-reset > summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 2.75rem;
+  padding-block: 0.55rem;
+}
+
+.settings-details[open] > summary,
+.runtime-data-reset[open] > summary {
+  border-bottom: 1px solid var(--nba-line);
+  margin-bottom: 0.75rem;
+}
+
+.runtime-settings-group {
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.35rem;
+  margin-block: 0.8rem;
+  min-width: 0;
+  padding: 0.85rem 1rem 1rem;
+}
+
+.runtime-settings-group legend {
+  color: var(--nba-ink);
+  font-size: 1rem;
+  font-weight: 750;
+  padding-inline: 0.35rem;
+}
+
+:where(.runtime-settings-group) > :where(.settings-note) {
+  margin: 0;
+}
+
+.runtime-settings-group .settings-details {
+  margin-block: 0.45rem 0;
+}
+
+.runtime-danger-zone {
+  border-color: color-mix(in srgb, var(--nba-danger) 45%, var(--nba-line));
+  border-inline-start: 0.3rem solid var(--nba-danger);
+}
+
+.runtime-danger-zone > summary {
+  color: var(--nba-danger);
+}
+
+.settings-page-header,
+.settings-section-summary,
+.runtime-settings-group,
+.settings-details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .advanced-automation-panel {
   background: var(--nba-surface);
   border: 1px solid var(--nba-line);
@@ -3860,6 +3974,714 @@ summary:focus-visible,
 
 @media (prefers-reduced-motion: reduce) {
   .writing-shell .block-tools {
+    transition: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* PR6 settings workspace                                                     */
+/* -------------------------------------------------------------------------- */
+
+/* The current settings view keeps its navigation and sections as direct children of #workspace.
+   The component aliases below also cover the shell/card names used by the next settings pass. */
+#workspace:has(.settings-navigation) {
+  align-items: start;
+  column-gap: clamp(0.9rem, 2.4vw, 1.75rem);
+  display: grid;
+  grid-template-areas:
+    "status status"
+    "header header"
+    "navigation content";
+  grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  row-gap: 1rem;
+}
+
+#workspace:has(.settings-navigation) > .settings-page-header {
+  grid-area: header;
+  margin: 0;
+  min-width: 0;
+}
+
+#workspace:has(.settings-navigation) > #workspace-status {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-inline-start: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-md);
+  box-shadow: var(--nba-shadow);
+  grid-area: status;
+  line-height: 1.5;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.75rem 0.9rem;
+}
+
+#workspace:has(.settings-navigation) > .settings-navigation {
+  align-content: start;
+  align-self: start;
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-lg);
+  box-shadow: var(--nba-shadow);
+  display: grid;
+  gap: 0.45rem;
+  grid-area: navigation;
+  margin: 0;
+  padding: 0.55rem;
+  position: sticky;
+  top: 1rem;
+}
+
+#workspace:has(.settings-navigation) .settings-navigation-item {
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: var(--nba-radius-md);
+  flex: none;
+  justify-content: flex-start;
+  line-height: 1.4;
+  min-height: 2.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.7rem 0.75rem;
+  text-align: start;
+  white-space: normal;
+  width: 100%;
+}
+
+#workspace:has(.settings-navigation) .settings-navigation-item:hover:not(:disabled) {
+  background: var(--nba-subtle);
+  border-color: var(--nba-line);
+}
+
+#workspace:has(.settings-navigation) .settings-navigation-item[aria-pressed="true"] {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: var(--nba-surface);
+  font-weight: 750;
+}
+
+#workspace:has(.settings-navigation) > .settings-section:not([hidden]) {
+  display: grid;
+  gap: 0.9rem;
+  grid-area: content;
+  min-width: 0;
+}
+
+#workspace:has(.settings-navigation) > .settings-section[hidden] {
+  display: none;
+}
+
+.settings-card,
+.settings-shell .settings-section:not([hidden]) > :where(section, details),
+#workspace:has(.settings-navigation) > .settings-section:not([hidden]) > :where(section, details) {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-lg);
+  box-shadow: var(--nba-shadow);
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: clamp(1rem, 2.2vw, 1.4rem);
+}
+
+.settings-shell .settings-section > :where(section, details) > :where(h2, h3, h4),
+#workspace:has(.settings-navigation)
+  .settings-section
+  > :where(section, details)
+  > :where(h2, h3, h4) {
+  font-size: 1.05rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.settings-card > :where(p, ul, ol, dl, fieldset, button),
+.settings-shell
+  .settings-section
+  > :where(section, details)
+  > :where(p, ul, ol, dl, fieldset, button, .checkbox-label),
+#workspace:has(.settings-navigation)
+  .settings-section
+  > :where(section, details)
+  > :where(p, ul, ol, dl, fieldset, button, .checkbox-label) {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.settings-card > :where(p, ul, ol),
+.settings-shell .settings-section > :where(section, details) > :where(p, ul, ol),
+#workspace:has(.settings-navigation)
+  .settings-section
+  > :where(section, details)
+  > :where(p, ul, ol) {
+  margin-block: 0;
+}
+
+.settings-card > div,
+.settings-shell .settings-section > :where(section, details) > div,
+#workspace:has(.settings-navigation) .settings-section > :where(section, details) > div {
+  align-content: start;
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+#workspace:has(.settings-navigation) :where(input, select, textarea) {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+#workspace:has(.settings-navigation) :where(label, .ui-field-label) {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.settings-navigation) :where(button, .ui-button, summary) {
+  min-height: 2.75rem;
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    .settings-note,
+    .sync-history,
+    .sync-result,
+    .sync-provider-missing,
+    .digest-smtp-missing
+  ) {
+  color: var(--nba-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+#workspace:has(.settings-navigation) :where(.sync-provider-missing, .digest-smtp-missing) {
+  background: var(--nba-warning-soft);
+  border: 1px solid var(--nba-warning-line);
+  border-inline-start: 0.25rem solid var(--nba-warning);
+  border-radius: var(--nba-radius-sm);
+  color: var(--nba-warning);
+  padding: 0.6rem 0.7rem;
+}
+
+#workspace:has(.settings-navigation) :where(.checkbox-label, .allowed-hours-field label) {
+  align-items: center;
+  min-height: 2.75rem;
+  padding-block: 0.35rem;
+}
+
+#workspace:has(.settings-navigation) :where(input[type="checkbox"], input[type="radio"]) {
+  block-size: 1.15rem;
+  flex: 0 0 auto;
+  inline-size: 1.15rem;
+  margin: 0;
+}
+
+/* Simple two-column field rhythm for the existing flat form markup. */
+.settings-shell
+:where(
+  .comment-settings-panel,
+  .writing-settings-panel,
+  .automation-settings-panel,
+  .runtime-settings-panel,
+  .advanced-automation-panel
+),
+#workspace:has(.settings-navigation)
+  > .settings-section:not([hidden])
+  > :where(
+    .comment-settings-panel,
+    .writing-settings-panel,
+    .automation-settings-panel,
+    .runtime-settings-panel,
+    .advanced-automation-panel
+  ) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-shell
+  :where(
+    .comment-settings-panel,
+    .writing-settings-panel,
+    .automation-settings-panel,
+    .runtime-settings-panel,
+    .advanced-automation-panel
+  )
+  > :where(h2, h3, h4, p, fieldset, details, .checkbox-label, button),
+#workspace:has(.settings-navigation)
+  > .settings-section:not([hidden])
+  > :where(
+    .comment-settings-panel,
+    .writing-settings-panel,
+    .automation-settings-panel,
+    .runtime-settings-panel,
+    .advanced-automation-panel
+  )
+  > :where(h2, h3, h4, p, fieldset, details, .checkbox-label, button) {
+  grid-column: 1 / -1;
+}
+
+#workspace:has(.settings-navigation) .advanced-automation-panel > div {
+  display: grid;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#workspace:has(.settings-navigation) .advanced-automation-panel > div > button {
+  grid-column: 1 / -1;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.runtime-settings-panel, .settings-connection-group, .settings-connection-card) {
+  border-inline-start: 0.3rem solid var(--nba-primary);
+}
+
+#workspace:has(.settings-navigation) .runtime-settings-panel > p {
+  color: var(--nba-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Discovery/search/neighbour panels keep labels aligned without requiring view wrappers. */
+.settings-shell
+:where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel, .sync-panel),
+#workspace:has(.settings-navigation)
+  > .settings-section:not([hidden])
+  > :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel, .sync-panel) {
+  grid-template-columns: minmax(8rem, 0.42fr) minmax(0, 1fr);
+}
+
+.settings-shell
+  :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel, .sync-panel)
+  > :where(h2, h3, h4, p, ul, ol, button, .checkbox-label),
+#workspace:has(.settings-navigation)
+  > .settings-section:not([hidden])
+  > :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel, .sync-panel)
+  > :where(h2, h3, h4, p, ul, ol, button, .checkbox-label) {
+  grid-column: 1 / -1;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel)
+  > label:not(.checkbox-label) {
+  align-self: center;
+  margin: 0;
+}
+
+.settings-shell
+  :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel)
+  > input:not([type="checkbox"]),
+#workspace:has(.settings-navigation)
+  :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel)
+  > input:not([type="checkbox"]) {
+  grid-column: 2;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.discovery-settings-panel, .search-panel, .neighbor-panel, .digest-panel)
+  > .checkbox-label {
+  justify-self: start;
+}
+
+#workspace:has(.settings-navigation) :where(.search-list, .neighbor-list) {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#workspace:has(.settings-navigation) .search-item {
+  align-items: center;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-width: 0;
+  padding: 0.55rem;
+}
+
+#workspace:has(.settings-navigation) .search-query,
+#workspace:has(.settings-navigation) .search-refresh-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.settings-navigation) .search-refresh-result {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+#workspace:has(.settings-navigation) .neighbor-item {
+  align-items: center;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+#workspace:has(.settings-navigation) :where(.neighbor-item strong, .neighbor-detail) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.settings-navigation) .neighbor-detail {
+  color: var(--nba-muted);
+  line-height: 1.45;
+}
+
+/* Details remain compact until opened; summaries retain a full touch target. */
+#workspace:has(.settings-navigation)
+:where(.advanced-automation-panel, .runtime-data-reset, .settings-details, .settings-card details) {
+  overflow: hidden;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.advanced-automation-panel, .runtime-data-reset, .settings-details, .settings-card details)
+  > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-weight: 750;
+  gap: 0.5rem;
+  justify-content: space-between;
+  line-height: 1.4;
+  list-style: none;
+  min-height: 2.75rem;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.advanced-automation-panel, .runtime-data-reset, .settings-details, .settings-card details)
+  > summary::-webkit-details-marker {
+  display: none;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.advanced-automation-panel, .runtime-data-reset, .settings-details, .settings-card details)
+  > summary::after {
+  color: var(--nba-muted);
+  content: "+";
+  flex: 0 0 auto;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    .advanced-automation-panel,
+    .runtime-data-reset,
+    .settings-details,
+    .settings-card details
+  )[open]
+  > summary::after {
+  content: "−";
+}
+
+#workspace:has(.settings-navigation) .runtime-data-reset {
+  background: var(--nba-danger-soft);
+  border-color: color-mix(in srgb, var(--nba-danger) 35%, var(--nba-line));
+  border-inline-start: 0.3rem solid var(--nba-danger);
+  box-shadow: none;
+}
+
+#workspace:has(.settings-navigation)
+  :where(.settings-danger-zone, .danger-zone, [data-settings-danger]) {
+  background: var(--nba-danger-soft);
+  border-color: color-mix(in srgb, var(--nba-danger) 35%, var(--nba-line));
+  border-inline-start: 0.3rem solid var(--nba-danger);
+  color: var(--nba-ink);
+}
+
+#workspace:has(.settings-navigation) .runtime-data-reset :where(p, label) {
+  color: var(--nba-muted);
+  line-height: 1.5;
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    .settings-action-bar,
+    .settings-sticky-actions,
+    .settings-panel-actions,
+    .ui-sticky-action-bar
+  ) {
+  align-items: center;
+  background: color-mix(in srgb, var(--nba-surface) 95%, transparent);
+  border-top: 1px solid var(--nba-line);
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-inline: calc(-1 * clamp(1rem, 2.2vw, 1.4rem));
+  padding: 0.75rem max(1rem, env(safe-area-inset-right)) calc(0.75rem + env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+  position: sticky;
+  z-index: 5;
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    .settings-action-bar,
+    .settings-sticky-actions,
+    .settings-panel-actions,
+    .ui-sticky-action-bar
+  )
+  > :where(button, .ui-button, a) {
+  min-width: min(13rem, 100%);
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    #save-discovery-button,
+    #save-comment-settings-button,
+    #save-writing-settings-button,
+    #save-automation-settings-button,
+    #save-schedule-budget-button,
+    #save-digest-button,
+    #save-runtime-configuration-button,
+    .settings-primary-action
+  ) {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: var(--nba-surface);
+  font-weight: 750;
+}
+
+#workspace:has(.settings-navigation)
+  :where(
+    #save-discovery-button,
+    #save-comment-settings-button,
+    #save-writing-settings-button,
+    #save-automation-settings-button,
+    #save-schedule-budget-button,
+    #save-digest-button,
+    #save-runtime-configuration-button,
+    .settings-primary-action
+  ):hover:not(:disabled) {
+  background: var(--nba-primary-hover);
+  border-color: var(--nba-primary-hover);
+}
+
+#workspace:has(.settings-navigation)
+  :where(#reset-runtime-data-button, .settings-danger-action, .danger-zone button) {
+  background: var(--nba-danger-soft);
+  border-color: color-mix(in srgb, var(--nba-danger) 35%, var(--nba-line));
+  color: var(--nba-danger);
+  font-weight: 750;
+}
+
+#workspace:has(.settings-navigation)
+  :where(#reset-runtime-data-button, .settings-danger-action, .danger-zone button):hover:not(
+    :disabled
+  ) {
+  background: color-mix(in srgb, var(--nba-danger-soft) 75%, var(--nba-danger) 25%);
+  border-color: color-mix(in srgb, var(--nba-danger) 55%, var(--nba-line));
+}
+
+@media (max-width: 60rem) {
+  #workspace:has(.settings-navigation) {
+    grid-template-areas:
+      "status"
+      "header"
+      "navigation"
+      "content";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) > .settings-navigation {
+    position: static;
+  }
+
+  #workspace:has(.settings-navigation) .settings-navigation {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #workspace:has(.settings-navigation) .settings-navigation-item {
+    min-height: 3.75rem;
+  }
+}
+
+@media (max-width: 48rem) {
+  .settings-shell .settings-section:not([hidden]) > :where(section, details) {
+    padding: 1rem;
+  }
+
+  #workspace:has(.settings-navigation) .settings-section:not([hidden]) > :where(section, details) {
+    padding: 1rem;
+  }
+
+  .settings-shell
+    :where(
+      .comment-settings-panel,
+      .writing-settings-panel,
+      .automation-settings-panel,
+      .runtime-settings-panel,
+      .advanced-automation-panel,
+      .discovery-settings-panel,
+      .search-panel,
+      .neighbor-panel,
+      .digest-panel,
+      .sync-panel
+    ) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation)
+    > .settings-section:not([hidden])
+    > :where(
+      .comment-settings-panel,
+      .writing-settings-panel,
+      .automation-settings-panel,
+      .runtime-settings-panel,
+      .advanced-automation-panel,
+      .discovery-settings-panel,
+      .search-panel,
+      .neighbor-panel,
+      .digest-panel,
+      .sync-panel
+    ) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) .advanced-automation-panel > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) .settings-navigation-item {
+    padding-inline: 0.6rem;
+  }
+
+  #workspace:has(.settings-navigation)
+    :where(
+      .settings-action-bar,
+      .settings-sticky-actions,
+      .settings-panel-actions,
+      .ui-sticky-action-bar
+    ) {
+    margin-inline: -1rem;
+  }
+
+  #workspace:has(.settings-navigation)
+    :where(
+      .settings-action-bar,
+      .settings-sticky-actions,
+      .settings-panel-actions,
+      .ui-sticky-action-bar
+    )
+    > :where(button, .ui-button, a) {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 30rem) {
+  #workspace:has(.settings-navigation) {
+    row-gap: 0.75rem;
+  }
+
+  #workspace:has(.settings-navigation) > .settings-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) .settings-navigation-item {
+    min-height: 2.75rem;
+  }
+
+  #workspace:has(.settings-navigation) .search-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) .search-item > :where(button, .ui-button) {
+    width: 100%;
+  }
+
+  #workspace:has(.settings-navigation) .neighbor-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.settings-navigation) .neighbor-item > .neighbor-toggle {
+    justify-self: start;
+    width: 100%;
+  }
+
+  #workspace:has(.settings-navigation)
+    :where(
+      .settings-action-bar,
+      .settings-sticky-actions,
+      .settings-panel-actions,
+      .ui-sticky-action-bar
+    ) {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin-inline: -1rem;
+  }
+
+  #workspace:has(.settings-navigation)
+    :where(
+      .settings-action-bar,
+      .settings-sticky-actions,
+      .settings-panel-actions,
+      .ui-sticky-action-bar
+    )
+    > :where(button, .ui-button, a) {
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  #workspace:has(.settings-navigation)
+    :where(
+      #workspace-status,
+      .settings-navigation,
+      .settings-section > section,
+      .settings-section > details,
+      .settings-card,
+      .search-item,
+      .neighbor-item,
+      .runtime-data-reset,
+      .settings-danger-zone,
+      .danger-zone,
+      [data-settings-danger]
+    ) {
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+
+  #workspace:has(.settings-navigation) .settings-navigation-item[aria-pressed="true"],
+  #workspace:has(.settings-navigation)
+    :where(
+      .settings-primary-action,
+      #save-discovery-button,
+      #save-comment-settings-button,
+      #save-writing-settings-button,
+      #save-automation-settings-button,
+      #save-schedule-budget-button,
+      #save-digest-button,
+      #save-runtime-configuration-button
+    ) {
+    background: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
+  }
+
+  #workspace:has(.settings-navigation)
+    :where(#reset-runtime-data-button, .settings-danger-action, .danger-zone button) {
+    background: Canvas;
+    border-color: LinkText;
+    color: LinkText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #workspace:has(.settings-navigation) * {
+    animation: none;
+    scroll-behavior: auto;
     transition: none;
   }
 }
