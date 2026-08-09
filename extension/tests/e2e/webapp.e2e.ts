@@ -42,6 +42,24 @@ for (const viewport of VIEWPORTS) {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
 
+      await page.route("**/api/v1/app/readiness*", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            access_mode: "local",
+            web_app_assets_ready: true,
+            lan_addresses: [],
+            browser_state: "ready",
+            browser_login: "authenticated",
+            own_blog_configured: true,
+            generation_available: false,
+            automation_consent: true,
+            safety_policy_configured: true,
+            blockers: ["llm_provider_missing"],
+          }),
+        });
+      });
       await page.goto(`${apiOrigin}/app/`);
       await expect(page.locator("#workspace-status")).toContainText("오늘의 블로그 작업");
       await expect(page.locator("#skip-link")).toHaveAttribute("href", "#workspace");
@@ -62,7 +80,20 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator(".home-hero")).toBeVisible();
       await expect(page.locator('[data-metric="total"]')).toHaveCount(1);
       await expect(page.locator(".home-primary-action")).toBeVisible();
+      await expect(page.locator("#home-open-onboarding")).toHaveText("초기 설정 계속");
       await expect(page.locator("#home-start-writing")).toBeVisible();
+
+      await page.locator("#home-open-onboarding").click();
+      await expect(page).toHaveURL(/#setup$/);
+      await expect(page.locator(".onboarding-shell")).toBeVisible();
+      await expect(page.locator('.onboarding-step[data-state="current"]')).toHaveAttribute(
+        "data-step",
+        "ai",
+      );
+      await expect(page.locator(".onboarding-primary-action")).toHaveCount(1);
+      await expect(page.locator('[data-section="home"]')).toHaveAttribute("aria-current", "page");
+      await page.locator('[data-section="home"]').click();
+      await page.unroute("**/api/v1/app/readiness*");
 
       await page.locator("#home-start-writing").click();
       await expect(page).toHaveURL(/#writing$/);
