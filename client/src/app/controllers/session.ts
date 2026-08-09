@@ -101,6 +101,11 @@ export class SessionController {
   #state: SessionState = initialSessionState();
   #source: { close(): void } | null = null;
   #reconnects = 0;
+  #lifecycle = 0;
+  #streamGeneration = 0;
+  #loadInFlight = false;
+  #pendingLoadOptions: { sessionId?: string | null } | null = null;
+  #closed = false;
 
   constructor(root: Element, options: SessionControllerOptions = {}) {
     this.#root = root;
@@ -145,23 +150,49 @@ export class SessionController {
   }
 
   /** Load the recent batches and the unattended schedule status. */
-  async load(options: { sessionId?: string } = {}): Promise<void> {
-    if (isSessionBusy(this.#state)) return;
-    this.#patch({ phase: "loading", error: null });
+  async load(options: { sessionId?: string | null } = {}): Promise<void> {
+    const explicitSession = Object.hasOwn(options, "sessionId");
+    const requestedId = options.sessionId;
+    const currentId = this.#state.current?.id ?? null;
+    const routeOverride = explicitSession && (this.#closed || requestedId !== currentId);
+    if (this.#loadInFlight) {
+      if (explicitSession) {
+        this.#pendingLoadOptions = requestedId === undefined ? {} : { sessionId: requestedId };
+        this.#lifecycle += 1;
+        this.#invalidateStream();
+      }
+      return;
+    }
+    if (isSessionBusy(this.#state) && !routeOverride) return;
+    const lifecycle = ++this.#lifecycle;
+    this.#closed = false;
+    this.#loadInFlight = true;
+    this.#invalidateStream();
+    this.#patch({
+      phase: "loading",
+      error: null,
+      ...(routeOverride ? { current: null, cancelRequested: false } : {}),
+    });
     try {
       const [recent, schedule, queue, safety, selected] = await Promise.all([
         this.#api.sessions(10),
         this.#api.schedule(),
         this.#api.discoveryQueue?.() ?? Promise.resolve([]),
         this.#api.safetyStatus?.() ?? Promise.resolve(null),
-        options.sessionId === undefined
+        requestedId === undefined || requestedId === null
           ? Promise.resolve(null)
-          : this.#api.session(options.sessionId),
+          : this.#api.session(requestedId),
       ]);
+      if (lifecycle !== this.#lifecycle) return;
       const running = recent.find(
         (entry) => entry.state === "running" || entry.state === "pending",
       );
-      const current = selected ?? running ?? null;
+      const current =
+        requestedId === undefined || requestedId === null
+          ? (selected ?? running ?? null)
+          : selected?.id === requestedId
+            ? selected
+            : null;
       this.#patch({
         phase: current !== null && !isTerminal(current) ? "running" : "ready",
         recent,
@@ -174,9 +205,15 @@ export class SessionController {
         ),
         current,
       });
-      if (current !== null && !isTerminal(current)) this.#subscribe(current.id);
+      if (current !== null && !isTerminal(current)) this.#subscribe(current.id, lifecycle);
     } catch (error) {
+      if (lifecycle !== this.#lifecycle) return;
       this.#fail(error);
+    } finally {
+      this.#loadInFlight = false;
+      const pending = this.#pendingLoadOptions;
+      this.#pendingLoadOptions = null;
+      if (pending !== null) void this.load(pending);
     }
   }
 
@@ -234,6 +271,9 @@ export class SessionController {
   /** Approve one batch and follow its progress. */
   async start(): Promise<void> {
     if (isSessionBusy(this.#state)) return;
+    const lifecycle = ++this.#lifecycle;
+    this.#closed = false;
+    this.#invalidateStream();
     this.#patch({
       phase: "starting",
       error: null,
@@ -242,6 +282,7 @@ export class SessionController {
     });
     try {
       const safety = this.#api.safetyStatus === undefined ? null : await this.#api.safetyStatus();
+      if (lifecycle !== this.#lifecycle) return;
       if (safety !== null && !canStartScope(this.#state, safety)) {
         this.#patch({
           phase: "ready",
@@ -257,9 +298,11 @@ export class SessionController {
         sources: selectedSources(this.#state),
         ...(postIds === undefined ? {} : { postIds }),
       });
+      if (lifecycle !== this.#lifecycle) return;
       this.#patch({ phase: "running", current: session, safety });
-      this.#subscribe(session.id);
+      this.#subscribe(session.id, lifecycle);
     } catch (error) {
+      if (lifecycle !== this.#lifecycle) return;
       this.#fail(error);
     }
   }
@@ -268,11 +311,16 @@ export class SessionController {
   async cancel(): Promise<void> {
     const current = this.#state.current;
     if (current === null || this.#state.cancelRequested) return;
+    const lifecycle = this.#lifecycle;
+    const sessionId = current.id;
     this.#patch({ cancelRequested: true });
     try {
-      const session = await this.#api.cancelSession(current.id);
+      const session = await this.#api.cancelSession(sessionId);
+      if (lifecycle !== this.#lifecycle || this.#state.current?.id !== sessionId) return;
+      if (session.id !== sessionId) return;
       this.#patch({ current: session });
     } catch (error) {
+      if (lifecycle !== this.#lifecycle || this.#state.current?.id !== sessionId) return;
       this.#patch({ cancelRequested: false });
       this.#fail(error);
     }
@@ -280,44 +328,106 @@ export class SessionController {
 
   /** Stop following the current batch without changing its state on the service. */
   close(): void {
+    this.#lifecycle += 1;
+    this.#streamGeneration += 1;
+    this.#closed = true;
+    this.#pendingLoadOptions = null;
     this.#closeSource();
   }
 
-  #subscribe(id: string): void {
-    this.#closeSource();
-    this.#source = this.#stream(this.#api.sessionEventsUrl(id), {
+  #subscribe(id: string, lifecycle: number): void {
+    this.#invalidateStream();
+    const streamGeneration = this.#streamGeneration;
+    let source: { close(): void } | null = null;
+    source = this.#stream(this.#api.sessionEventsUrl(id), {
       onEvent: (event) => {
+        if (
+          source === null ||
+          this.#source !== source ||
+          lifecycle !== this.#lifecycle ||
+          streamGeneration !== this.#streamGeneration ||
+          this.#state.current?.id !== id
+        ) {
+          return;
+        }
         this.#reconnects = 0;
-        if (event.event === "post_completed") this.#recordPost(event.payload);
-        else this.#recordSession(event.payload);
+        if (event.event === "post_completed") {
+          const payloadSessionId = event.payload.session_id;
+          if (typeof payloadSessionId === "string" && payloadSessionId !== id) return;
+          this.#recordPost(event.payload);
+        } else {
+          if (event.payload.id !== id) return;
+          this.#recordSession(id, event.payload);
+        }
         if (TERMINAL_SESSION_EVENTS.has(event.event)) {
           this.#closeSource();
           this.#patch({ phase: "finished" });
-          void this.#refresh();
+          void this.#refresh(id, lifecycle, streamGeneration);
         }
       },
       onError: () => {
+        if (
+          source === null ||
+          this.#source !== source ||
+          lifecycle !== this.#lifecycle ||
+          streamGeneration !== this.#streamGeneration ||
+          this.#state.current?.id !== id
+        ) {
+          return;
+        }
         this.#reconnects += 1;
         if (this.#reconnects <= MAX_SESSION_RECONNECTS) return;
-        this.#closeSource();
-        void this.#readOnce(id);
+        this.#invalidateStream();
+        void this.#readOnce(id, lifecycle, this.#streamGeneration);
       },
     });
+    this.#source = source;
   }
 
   /** Fall back to one direct read so the screen never waits on a dead stream. */
-  async #readOnce(id: string): Promise<void> {
+  async #readOnce(id: string, lifecycle: number, streamGeneration: number): Promise<void> {
+    if (
+      lifecycle !== this.#lifecycle ||
+      streamGeneration !== this.#streamGeneration ||
+      this.#state.current?.id !== id
+    ) {
+      return;
+    }
     try {
       const session = await this.#api.session(id);
+      if (
+        lifecycle !== this.#lifecycle ||
+        streamGeneration !== this.#streamGeneration ||
+        this.#state.current?.id !== id ||
+        session.id !== id
+      ) {
+        return;
+      }
       this.#patch({ current: session, phase: isTerminal(session) ? "finished" : "running" });
     } catch (error) {
+      if (lifecycle !== this.#lifecycle || streamGeneration !== this.#streamGeneration) return;
       this.#fail(error);
     }
   }
 
-  async #refresh(): Promise<void> {
+  async #refresh(id: string, lifecycle: number, streamGeneration: number): Promise<void> {
+    if (
+      lifecycle !== this.#lifecycle ||
+      streamGeneration !== this.#streamGeneration ||
+      this.#state.current?.id !== id
+    ) {
+      return;
+    }
     try {
-      this.#patch({ recent: await this.#api.sessions(10) });
+      const recent = await this.#api.sessions(10);
+      if (
+        lifecycle !== this.#lifecycle ||
+        streamGeneration !== this.#streamGeneration ||
+        this.#state.current?.id !== id
+      ) {
+        return;
+      }
+      this.#patch({ recent });
     } catch {
       // The batch state already arrived over the stream; a stale list is not worth an error.
     }
@@ -341,10 +451,10 @@ export class SessionController {
     });
   }
 
-  #recordSession(payload: Record<string, unknown>): void {
+  #recordSession(id: string, payload: Record<string, unknown>): void {
     if (typeof payload.id !== "string") return;
     const current = this.#state.current;
-    if (current === null) return;
+    if (current === null || current.id !== id || payload.id !== id) return;
     this.#patch({
       current: {
         ...current,
@@ -363,6 +473,11 @@ export class SessionController {
     this.#source?.close();
     this.#source = null;
     this.#reconnects = 0;
+  }
+
+  #invalidateStream(): void {
+    this.#streamGeneration += 1;
+    this.#closeSource();
   }
 
   #fail(error: unknown): void {
