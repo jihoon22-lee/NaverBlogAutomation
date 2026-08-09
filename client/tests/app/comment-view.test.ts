@@ -389,6 +389,39 @@ describe("generation", () => {
     expect(client.generateComment).toHaveBeenCalledTimes(1);
   });
 
+  it("does not let a late generation response replace a newly opened post", async () => {
+    let resolveGeneration!: (value: CommentGeneration) => void;
+    const pending = new Promise<CommentGeneration>((resolve) => {
+      resolveGeneration = resolve;
+    });
+    const onRecommendationReady = vi.fn();
+    const client = api({ generateComment: vi.fn(() => pending) });
+    const controller = new CommentController(root(), {
+      api: client as never,
+      onRecommendationReady,
+    });
+    controller.open(EXTRACTION, "post-a", "neighbor");
+    const first = controller.generate();
+
+    const secondExtraction = {
+      ...EXTRACTION,
+      sourceUrl: "https://blog.naver.com/example/2",
+      title: "새로 연 글",
+    };
+    controller.open(secondExtraction, "post-b", "search");
+    resolveGeneration(
+      generation({
+        extraction: EXTRACTION,
+        recommendation: recommendation({ sourceUrl: EXTRACTION.sourceUrl }),
+      }),
+    );
+
+    expect(await first).toBeNull();
+    expect(controller.state.extraction?.sourceUrl).toBe(secondExtraction.sourceUrl);
+    expect(controller.state.extraction?.title).toBe(secondExtraction.title);
+    expect(onRecommendationReady).not.toHaveBeenCalled();
+  });
+
   it("does nothing without an open post", async () => {
     const client = api();
     const controller = new CommentController(root(), { api: client as never });
