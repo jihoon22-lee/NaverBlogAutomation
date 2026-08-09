@@ -211,6 +211,26 @@ describe("RunController", () => {
     ).toHaveLength(1);
   });
 
+  it("ignores a start response after the user resets for another post", async () => {
+    let resolveStart!: (value: EngagementRun) => void;
+    const pendingStart = new Promise<EngagementRun>((resolve) => {
+      resolveStart = resolve;
+    });
+    const controller = new RunController({
+      api: api({ startEngagementRun: vi.fn(() => pendingStart) }),
+      stream: stream.factory,
+    });
+
+    const started = controller.start(POST_ID, RECOMMENDATION_ID);
+    controller.reset();
+    resolveStart(run());
+
+    expect(await started).toBeNull();
+    expect(controller.state.phase).toBe("idle");
+    expect(controller.state.run).toBeNull();
+    expect(stream.urls).toEqual([]);
+  });
+
   it("records streamed step results", async () => {
     const controller = new RunController({ api: api(), stream: stream.factory });
     await controller.start(POST_ID, RECOMMENDATION_ID);
@@ -340,6 +360,73 @@ describe("RunController", () => {
       (client as unknown as { completeEngagementManually: { mock: { calls: unknown[][] } } })
         .completeEngagementManually.mock.calls[0],
     ).toEqual([RUN_ID, ["comment"]]);
+  });
+
+  it("does not submit manual completion twice while the first request is pending", async () => {
+    let resolveCompletion!: (value: EngagementRun) => void;
+    const completion = new Promise<EngagementRun>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const client = api({
+      completeEngagementManually: vi.fn(() => completion),
+    });
+    const controller = new RunController({ api: client, stream: stream.factory });
+    await controller.start(POST_ID, RECOMMENDATION_ID);
+    controller.toggleManualStep("comment");
+
+    const first = controller.completeManually();
+    const second = controller.completeManually();
+
+    expect(await second).toBeNull();
+    expect(
+      (client as unknown as { completeEngagementManually: { mock: { calls: unknown[] } } })
+        .completeEngagementManually.mock.calls,
+    ).toHaveLength(1);
+    resolveCompletion(run({ state: "succeeded" }));
+    expect((await first)?.state).toBe("succeeded");
+  });
+
+  it("ignores a manual completion response after the user resets", async () => {
+    let resolveCompletion!: (value: EngagementRun) => void;
+    const completion = new Promise<EngagementRun>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const controller = new RunController({
+      api: api({ completeEngagementManually: vi.fn(() => completion) }),
+      stream: stream.factory,
+    });
+    await controller.start(POST_ID, RECOMMENDATION_ID);
+    controller.toggleManualStep("comment");
+
+    const pendingCompletion = controller.completeManually();
+    controller.reset();
+    resolveCompletion(run({ state: "succeeded" }));
+
+    expect(await pendingCompletion).toBeNull();
+    expect(controller.state.phase).toBe("idle");
+    expect(controller.state.run).toBeNull();
+  });
+
+  it("ignores a terminal refresh that belongs to a run the user reset", async () => {
+    let resolveRefresh!: (value: EngagementRun) => void;
+    const refresh = new Promise<EngagementRun>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const client = api({ engagementRun: vi.fn(() => refresh) });
+    const controller = new RunController({ api: client, stream: stream.factory });
+    await controller.start(POST_ID, RECOMMENDATION_ID);
+
+    stream.emit("run_finished", { state: "succeeded" });
+    expect(
+      (client as unknown as { engagementRun: { mock: { calls: unknown[] } } }).engagementRun.mock
+        .calls,
+    ).toHaveLength(1);
+    controller.reset();
+    resolveRefresh(run({ state: "succeeded" }));
+    await Promise.resolve();
+
+    expect(controller.state.phase).toBe("idle");
+    expect(controller.state.run).toBeNull();
   });
 
   it("does not record a manual completion without a selection", async () => {
