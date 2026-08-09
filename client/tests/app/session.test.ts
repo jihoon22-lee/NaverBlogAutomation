@@ -30,6 +30,11 @@ const SESSION: AutomationSession = {
   finishedAt: null,
 };
 
+const OTHER_SESSION: AutomationSession = {
+  ...SESSION,
+  id: "99999999-9999-4999-8999-999999999999",
+};
+
 const SCHEDULE: ScheduleStatus = {
   mode: "manual",
   hour: 9,
@@ -81,6 +86,7 @@ interface Harness {
     safetyStatus?: ReturnType<typeof vi.fn>;
   };
   emit(event: string, payload: Record<string, unknown>): void;
+  emitFrom(index: number, event: string, payload: Record<string, unknown>): void;
   fail(): void;
   closed(): number;
   onBack: () => void;
@@ -100,9 +106,11 @@ function harness(overrides: Partial<Harness["api"]> = {}, onBack: () => void = v
     ...overrides,
   };
   let handlers: RunStreamHandlers | null = null;
+  const streamHandlers: RunStreamHandlers[] = [];
   let closes = 0;
-  const stream: RunStreamFactory = (_url, streamHandlers) => {
-    handlers = streamHandlers;
+  const stream: RunStreamFactory = (_url, nextHandlers) => {
+    handlers = nextHandlers;
+    streamHandlers.push(nextHandlers);
     return {
       close: () => {
         closes += 1;
@@ -120,6 +128,7 @@ function harness(overrides: Partial<Harness["api"]> = {}, onBack: () => void = v
     controller,
     api,
     emit: (event, payload) => handlers?.onEvent({ event, payload }),
+    emitFrom: (index, event, payload) => streamHandlers[index]?.onEvent({ event, payload }),
     fail: () => handlers?.onError(),
     closed: () => closes,
     onBack,
@@ -329,6 +338,21 @@ describe("session scope", () => {
 });
 
 describe("starting a batch", () => {
+  it("does not apply a start response after the session route was closed", async () => {
+    let resolveApproval!: (value: AutomationSession) => void;
+    const pending = new Promise<AutomationSession>((resolve) => {
+      resolveApproval = resolve;
+    });
+    const { controller } = harness({ approveSession: vi.fn(() => pending) });
+
+    const start = controller.start();
+    controller.close();
+    resolveApproval(OTHER_SESSION);
+    await start;
+
+    expect(controller.state.current).toBeNull();
+  });
+
   it("approves the chosen scope", async () => {
     const { controller, api } = harness();
     controller.setMaxPosts(5);
@@ -453,6 +477,24 @@ describe("progress", () => {
     expect(api.session).toHaveBeenCalledWith(SESSION.id);
   });
 
+  it("does not apply a late fallback read after the route was closed", async () => {
+    let resolveRead!: (value: AutomationSession) => void;
+    const pending = new Promise<AutomationSession>((resolve) => {
+      resolveRead = resolve;
+    });
+    const { controller, fail } = harness({ session: vi.fn(() => pending) });
+    await controller.start();
+
+    for (let attempt = 0; attempt < 4; attempt += 1) fail();
+    await Promise.resolve();
+    controller.close();
+    resolveRead(OTHER_SESSION);
+    await Promise.resolve();
+
+    expect(controller.state.current?.id).toBe(SESSION.id);
+    expect(controller.state.current?.state).toBe("running");
+  });
+
   it("keeps the current snapshot for an incomplete session stream event", async () => {
     const { controller, emit } = harness();
     await controller.start();
@@ -471,9 +513,86 @@ describe("progress", () => {
 
     expect(controller.state.current?.id).toBe(SESSION.id);
   });
+
+  it("ignores a progress event whose session id does not match the stream", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("session_progress", {
+      id: OTHER_SESSION.id,
+      state: "aborted",
+      processed_count: 99,
+    });
+
+    expect(controller.state.current?.id).toBe(SESSION.id);
+    expect(controller.state.current?.state).toBe("running");
+    expect(controller.state.current?.processedCount).toBe(0);
+  });
+
+  it("does not finish the current session from another session's terminal event", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("session_completed", {
+      ...snapshot(),
+      id: OTHER_SESSION.id,
+      state: "completed",
+    });
+
+    expect(controller.state.phase).toBe("running");
+    expect(controller.state.current?.id).toBe(SESSION.id);
+    expect(controller.state.current?.state).toBe("running");
+  });
+
+  it("ignores a completed post explicitly attributed to another session", async () => {
+    const { controller, emit } = harness();
+    await controller.start();
+
+    emit("post_completed", {
+      session_id: OTHER_SESSION.id,
+      post_id: "other-post",
+      state: "succeeded",
+      result_codes: ["liked"],
+    });
+
+    expect(controller.state.completedPosts).toEqual([]);
+  });
+
+  it("ignores events that arrive from a stream closed during route replacement", async () => {
+    const { controller, emitFrom } = harness();
+    await controller.start();
+
+    controller.close();
+    emitFrom(0, "session_progress", {
+      id: SESSION.id,
+      state: "aborted",
+      processed_count: 99,
+    });
+
+    expect(controller.state.current?.id).toBe(SESSION.id);
+    expect(controller.state.current?.state).toBe("running");
+    expect(controller.state.current?.processedCount).toBe(0);
+  });
 });
 
 describe("cancelling", () => {
+  it("does not apply a cancel response after the session route was closed", async () => {
+    let resolveCancel!: (value: AutomationSession) => void;
+    const pending = new Promise<AutomationSession>((resolve) => {
+      resolveCancel = resolve;
+    });
+    const { controller } = harness({ cancelSession: vi.fn(() => pending) });
+    await controller.start();
+
+    const cancel = controller.cancel();
+    controller.close();
+    resolveCancel({ ...SESSION, state: "cancelled" });
+    await cancel;
+
+    expect(controller.state.current?.id).toBe(SESSION.id);
+    expect(controller.state.current?.state).toBe("running");
+  });
+
   it("reports the request instead of pretending the batch stopped", async () => {
     const { root, controller } = harness();
     await controller.start();
@@ -517,6 +636,33 @@ describe("cancelling", () => {
 });
 
 describe("loading", () => {
+  it("keeps only the latest explicit session route while one load is in flight", async () => {
+    let releaseFirst!: (value: AutomationSession[]) => void;
+    const firstRecent = new Promise<AutomationSession[]>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const sessions = vi
+      .fn()
+      .mockImplementationOnce(() => firstRecent)
+      .mockImplementationOnce(async () => [OTHER_SESSION]);
+    const session = vi.fn(async (id: string) => (id === SESSION.id ? SESSION : OTHER_SESSION));
+    const { controller, api } = harness({ sessions, session });
+
+    const firstLoad = controller.load({ sessionId: SESSION.id });
+    await Promise.resolve();
+    await controller.load({ sessionId: OTHER_SESSION.id });
+
+    expect(api.sessions).toHaveBeenCalledOnce();
+    releaseFirst([SESSION]);
+    await firstLoad;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.sessions).toHaveBeenCalledTimes(2);
+    expect(api.session).toHaveBeenLastCalledWith(OTHER_SESSION.id);
+    expect(controller.state.current?.id).toBe(OTHER_SESSION.id);
+  });
+
   it("shows why unattended mode is off", async () => {
     const { root, controller } = harness();
 
