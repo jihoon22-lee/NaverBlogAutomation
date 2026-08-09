@@ -239,7 +239,7 @@ Python 3.14, `uv`, FastAPI, SQLAlchemy, Alembic, SQLite가 서비스를 구성�
 `client/`는 Node.js 24 LTS, TypeScript, esbuild, Biome, Vitest로 빌드합니다.
 자동화 브라우저는 Playwright입니다.
 
-PR CI는 Ruff, ty, pytest(85% branch coverage 이상), TypeScript 검사, Biome, Vitest
+PR CI는 Ruff, ty, pytest(87% branch coverage 이상), TypeScript 검사, Biome, Vitest
 coverage, extension production build, 설치된 wheel smoke test, 별도 System E2E
 workflow를 실행합니다. Fixture는 합성 HTML만 포함하며, 실제 Naver 페이지나 live LLM
 호출은 opt-in입니다.

@@ -18,7 +18,7 @@ Use `uv` for dependency management and run commands from the repository root:
 
 - `uv sync` — create `.venv` and install locked dependencies.
 - `uv run --env-file .env.local naver-blog-api` — start the loopback FastAPI service.
-- `uv run pytest` — run tests with branch coverage and enforce the 85% minimum.
+- `uv run pytest` — run tests with branch coverage and enforce the 87% minimum.
 - `uv run ruff check .` and `uv run ruff format --check .` — lint and verify formatting.
 - `uv run ty check` — run static type analysis.
 - `npm ci --prefix extension` — install the locked extension toolchain.
@@ -36,7 +36,7 @@ submitting changes.
 
 ## Testing Guidelines
 
-Add tests with every behavior change. Python requires at least 85% branch coverage and mirrors
+Add tests with every behavior change. Python requires at least 87% branch coverage and mirrors
 source paths under `tests/`; name tests after observable behavior, for example,
 `test_timeout_reuses_original_idempotency_key`. TypeScript requires 80% coverage and uses Vitest
 with synthetic HTML for Side Panel and extraction behavior. Unit-test parsing and content
