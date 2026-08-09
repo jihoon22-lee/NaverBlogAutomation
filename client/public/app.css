@@ -2927,3 +2927,939 @@ summary:focus-visible,
     --nba-motion-skeleton: 0.01ms;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* PR5 writing workspace                                                      */
+/* -------------------------------------------------------------------------- */
+
+.writing-shell {
+  display: grid;
+  gap: clamp(0.85rem, 2vw, 1.35rem);
+  margin-inline: auto;
+  max-width: 88rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.writing-shell[data-mode="start"],
+.writing-shell[data-mode="editor"] {
+  overflow-wrap: anywhere;
+}
+
+.writing-page-header {
+  align-items: flex-end;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  gap: clamp(0.75rem, 2vw, 1.5rem);
+  justify-content: space-between;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.writing-page-heading {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.writing-page-heading :is(h1, h2, h3, p, .writing-page-subtitle) {
+  margin: 0;
+}
+
+.writing-page-heading :is(h1, h2) {
+  font-size: clamp(1.4rem, 1.05rem + 1vw, 2rem);
+  line-height: 1.2;
+}
+
+.writing-page-heading :is(p, .writing-page-subtitle) {
+  color: var(--nba-muted);
+  line-height: 1.5;
+  margin-top: 0.35rem;
+  max-width: 65ch;
+  overflow-wrap: anywhere;
+}
+
+.writing-page-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.writing-page-actions :is(button, .ui-button, a) {
+  min-height: 2.75rem;
+}
+
+.writing-status,
+.writing-page-actions > #writing-status,
+.writing-shell > #writing-status {
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-inline-start: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-md);
+  color: var(--nba-muted);
+  line-height: 1.45;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.6rem 0.8rem;
+}
+
+.writing-page-actions > #writing-status {
+  flex: 1 1 14rem;
+  max-width: 34rem;
+}
+
+.writing-status[data-state="error"] {
+  background: var(--nba-danger-soft);
+  border-color: #efb9bf;
+  border-inline-start-color: var(--nba-danger);
+  color: var(--nba-danger);
+}
+
+.writing-status[data-state="busy"] {
+  background: var(--nba-running-soft);
+  border-inline-start-color: var(--nba-focus);
+}
+
+.writing-page-actions > .writing-start-new-action {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.writing-page-actions > .writing-start-new-action:hover:not(:disabled) {
+  background: var(--nba-primary-hover);
+  border-color: var(--nba-primary-hover);
+}
+
+.writing-start-layout,
+.writing-editor-layout {
+  display: grid;
+  gap: clamp(0.85rem, 2vw, 1.35rem);
+  min-width: 0;
+}
+
+.writing-start-layout {
+  grid-template-columns: minmax(0, 1.25fr) minmax(19rem, 0.75fr);
+}
+
+.writing-start-layout > section,
+.writing-editor-main > .body-panel,
+.writing-tool-panel > section,
+.writing-shell .revision-diff {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-lg);
+  box-shadow: var(--nba-shadow);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: clamp(1rem, 2.2vw, 1.5rem);
+}
+
+.writing-start-layout > section,
+.writing-editor-main > .body-panel,
+.writing-tool-panel > section,
+.writing-shell .revision-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.writing-shell section > :is(h2, h3, p) {
+  margin: 0;
+}
+
+.writing-shell :is(.seed-panel-intro, .provider-missing-hint, .draft-list-empty) {
+  color: var(--nba-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.writing-shell :is(.body-validation-hint, .staging-validation-hint, .checkpoint-required-hint) {
+  background: var(--nba-warning-soft);
+  border: 1px solid var(--nba-warning-line);
+  border-inline-start: 0.25rem solid var(--nba-warning);
+  border-radius: var(--nba-radius-sm);
+  color: var(--nba-warning);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 0.55rem 0.7rem;
+}
+
+.writing-shell .seed-panel :is(label, .field > label) {
+  color: var(--nba-ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.writing-shell .seed-panel :is(input, textarea, select) {
+  min-width: 0;
+  width: 100%;
+}
+
+.writing-shell .seed-panel > textarea {
+  line-height: 1.7;
+  min-height: 12rem;
+  resize: vertical;
+}
+
+.writing-shell .seed-panel .field {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.writing-shell .seed-panel .category-panel {
+  align-items: end;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
+.writing-shell .seed-panel .category-panel > label {
+  grid-column: 1 / -1;
+}
+
+.writing-shell .draft-list {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.writing-shell :is(.draft-item, .draft-list-empty) {
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  min-height: 2.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.7rem 0.8rem;
+  width: 100%;
+}
+
+.writing-shell .draft-item {
+  display: block;
+  text-align: left;
+}
+
+.writing-shell .draft-list-empty {
+  border-style: dashed;
+  color: var(--nba-muted);
+  text-align: center;
+}
+
+.writing-shell .draft-item[aria-pressed="true"] {
+  background: var(--nba-ready-soft);
+  border-color: var(--nba-primary);
+  color: var(--nba-ink);
+  font-weight: 700;
+}
+
+.writing-shell
+  :is(
+    .writing-start-new-action,
+    #complete-draft-button,
+    #compose-button,
+    #empty-editor-compose-button,
+    #stage-button
+  ) {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.writing-shell
+  :is(
+    .writing-start-new-action,
+    #complete-draft-button,
+    #compose-button,
+    #empty-editor-compose-button,
+    #stage-button
+  ):hover:not(:disabled) {
+  background: var(--nba-primary-hover);
+  border-color: var(--nba-primary-hover);
+}
+
+.writing-shell
+  :is(
+    #create-draft-button,
+    #sync-categories-button,
+    #refine-button,
+    #save-body-button,
+    #checkpoint-body-button,
+    #generate-tags-button,
+    #add-tags-button
+  ) {
+  background: var(--nba-surface);
+  border-color: #cbd8ce;
+  color: var(--nba-ink);
+  font-weight: 650;
+}
+
+.writing-shell
+  :is(
+    #create-draft-button,
+    #sync-categories-button,
+    #refine-button,
+    #save-body-button,
+    #checkpoint-body-button,
+    #generate-tags-button,
+    #add-tags-button
+  ):hover:not(:disabled) {
+  background: var(--nba-subtle);
+}
+
+.writing-editor-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem);
+}
+
+.writing-editor-main,
+.writing-editor-sidebar {
+  min-width: 0;
+}
+
+.writing-editor-main {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+}
+
+.writing-editor-main > .body-panel {
+  margin-inline: auto;
+  max-width: 46rem;
+  width: 100%;
+}
+
+.writing-editor-sidebar {
+  align-self: start;
+  display: grid;
+  gap: 0.65rem;
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  position: sticky;
+  top: 1rem;
+}
+
+.writing-tool-panel {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  min-width: 0;
+  padding: 0.2rem 0.75rem;
+}
+
+.writing-tool-panel > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-weight: 700;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.writing-tool-panel[open] {
+  padding: 0.65rem 0.75rem 0.75rem;
+}
+
+.writing-tool-panel[open] > summary {
+  margin-bottom: 0.6rem;
+}
+
+.writing-tool-panel > section {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.writing-tool-panel :is(h2, h3, p, label) {
+  margin: 0;
+}
+
+.writing-tool-panel label {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.writing-tool-panel :is(input, select, textarea) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.writing-tool-panel .image-list :is(.image-remove, .image-insert) {
+  min-height: 2.75rem;
+}
+
+.writing-tool-panel .image-list .image-remove {
+  background: var(--nba-danger-soft);
+  border-color: #efb9bf;
+  color: var(--nba-danger);
+}
+
+.editor-meta-bar {
+  align-items: center;
+  border-bottom: 1px solid var(--nba-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0.75rem;
+  min-width: 0;
+  padding-bottom: 0.7rem;
+}
+
+.editor-meta-bar :is(p, span) {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.writing-shell :is(.writing-document-meta, .editor-empty-state) {
+  color: var(--nba-muted);
+  line-height: 1.55;
+  margin: 0 0 0.75rem;
+}
+
+.writing-shell .editor-empty-state {
+  background: var(--nba-subtle);
+  border: 1px dashed var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  padding: 0.85rem;
+}
+
+.writing-shell .body-panel > :is(label[for="draft-title"], .editor-title-label) {
+  color: var(--nba-muted);
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  margin: 0 0 0.2rem;
+}
+
+.writing-shell .body-panel > #draft-title {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--nba-line);
+  border-radius: 0;
+  font-size: clamp(1.55rem, 1.2rem + 1.25vw, 2.25rem);
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin: 0 0 1.25rem;
+  min-height: 3.25rem;
+  padding: 0.25rem 0 0.6rem;
+  width: 100%;
+}
+
+.writing-shell .body-panel > #draft-title:focus-visible {
+  border-bottom-color: var(--nba-focus);
+}
+
+.writing-shell .body-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.writing-shell .body-actions :is(button, .ui-button) {
+  min-height: 2.75rem;
+}
+
+.writing-shell .body-validation-hint {
+  flex: 1 1 100%;
+}
+
+.writing-shell .block-canvas {
+  background: transparent;
+  border: 0;
+  min-height: 24rem;
+  padding: 0;
+}
+
+.writing-shell .editor-block {
+  border-bottom: 1px solid var(--nba-line);
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.85rem 0;
+  position: relative;
+}
+
+.writing-shell .editor-block :is(textarea, input) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--nba-ink);
+  font: inherit;
+  line-height: 1.75;
+  min-height: 7rem;
+  min-width: 0;
+  padding: 0.45rem 0;
+  resize: vertical;
+  width: 100%;
+}
+
+.writing-shell .editor-block :is(textarea, input):focus-visible {
+  background: var(--nba-subtle);
+  border-radius: var(--nba-radius-sm);
+  outline: 3px solid var(--nba-focus);
+  outline-offset: 2px;
+  padding-inline: 0.55rem;
+}
+
+.writing-shell .editor-block-heading textarea {
+  font-size: clamp(1.2rem, 1.05rem + 0.45vw, 1.55rem);
+  font-weight: 750;
+  line-height: 1.35;
+  min-height: 3.5rem;
+}
+
+.writing-shell .editor-block-quote textarea {
+  background: var(--nba-subtle);
+  border-inline-start: 0.25rem solid var(--nba-primary);
+  min-height: 6rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.writing-shell :is(.editor-block-ordered_list, .editor-block-unordered_list) textarea {
+  min-height: 6rem;
+}
+
+.writing-shell .editor-block-image :is(input, p) {
+  min-height: auto;
+}
+
+.writing-shell .editor-block-image p {
+  color: var(--nba-muted);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.writing-shell .editor-block-divider hr {
+  border: 0;
+  border-top: 1px solid var(--nba-line);
+  margin: 0.75rem 0;
+  width: 100%;
+}
+
+.writing-shell .block-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    max-height var(--nba-motion-fast) ease,
+    opacity var(--nba-motion-fast) ease;
+}
+
+.writing-shell .editor-block:hover .block-tools,
+.writing-shell .editor-block:focus-within .block-tools {
+  max-height: 5rem;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.writing-shell .block-tools :is(select, button, .block-button) {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+.writing-shell .block-button {
+  border-radius: var(--nba-radius-pill);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+}
+
+.writing-shell .block-insert {
+  align-items: center;
+  border-top: 1px dashed var(--nba-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.8rem 0 0;
+  padding: 0.8rem 0 0;
+}
+
+.writing-shell .block-insert :is(button, .block-button),
+.writing-shell .image-insertion-point {
+  min-height: 2.75rem;
+}
+
+.writing-shell .image-insertion-point {
+  border-style: dashed;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  width: 100%;
+}
+
+.writing-shell .editor-assist-panel {
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  margin: 0 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.writing-shell .editor-outline {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.writing-shell .editor-outline :is(button, .outline-item) {
+  max-width: 100%;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  overflow-wrap: anywhere;
+}
+
+.writing-shell .editor-preview > summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  padding-block: 0.65rem;
+}
+
+.writing-shell .block-preview-content {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-sm);
+  margin-top: 0.5rem;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.85rem;
+}
+
+.writing-shell :is(.editor-shortcut-hint, .image-insertion-note) {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.writing-shell :is(.image-list, .revision-list, .tag-list, .staging-steps) {
+  display: grid;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.writing-shell .image-list li {
+  align-items: center;
+  border-bottom: 1px solid var(--nba-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0.45rem 0;
+}
+
+.writing-shell .image-list li > span {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.writing-shell :is(.image-list li button, .revision-item, .tag-choice) {
+  min-height: 2.75rem;
+}
+
+.writing-shell :is(.provider-group, .option-group) {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.writing-shell :is(.provider-group, .option-group) legend {
+  color: var(--nba-muted);
+  flex: 1 1 100%;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0;
+}
+
+.writing-shell :is(.provider-choice, .option-choice, .revision-item, .tag-choice) {
+  min-height: 2.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.writing-shell
+  :is(.provider-choice, .option-choice, .revision-item, .tag-choice)[aria-pressed="true"] {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.writing-shell .tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.writing-shell .tag-choice {
+  border-radius: var(--nba-radius-pill);
+  padding-inline: 0.75rem;
+}
+
+.writing-shell .revision-diff {
+  background: var(--nba-subtle);
+  box-shadow: none;
+}
+
+.writing-shell .revision-diff > p {
+  color: var(--nba-muted);
+  line-height: 1.65;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.writing-shell .revision-panel {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.writing-shell .revision-panel > :is(h3, h4) {
+  line-height: 1.35;
+}
+
+.writing-shell .staging-panel {
+  background: var(--nba-subtle);
+  box-shadow: none;
+}
+
+.writing-shell .staging-panel :is(.staging-hint, .staging-summary) {
+  color: var(--nba-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.writing-shell .staging-panel > button {
+  width: 100%;
+}
+
+.writing-shell #stage-button {
+  background: var(--nba-primary);
+  border-color: var(--nba-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.writing-shell #stage-button:hover:not(:disabled) {
+  background: var(--nba-primary-hover);
+  border-color: var(--nba-primary-hover);
+}
+
+.writing-shell #delete-draft-button {
+  background: var(--nba-danger-soft);
+  border-color: #efb9bf;
+  color: var(--nba-danger);
+  font-weight: 700;
+}
+
+.writing-shell #delete-draft-button:hover:not(:disabled) {
+  background: #ffe2e5;
+  border-color: #e7979f;
+}
+
+.writing-shell .staging-steps li {
+  border-bottom: 1px solid var(--nba-line);
+  line-height: 1.45;
+  padding: 0.35rem 0;
+}
+
+@media (max-width: 64rem) {
+  .writing-start-layout,
+  .writing-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-editor-sidebar {
+    max-height: none;
+    overflow: visible;
+    position: static;
+  }
+}
+
+@media (max-width: 48rem) {
+  .writing-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .writing-page-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .writing-page-heading {
+    flex-basis: auto;
+  }
+
+  .writing-page-actions :is(button, .ui-button, a) {
+    flex: 1 1 10rem;
+  }
+
+  .writing-shell .block-tools {
+    max-height: 5rem;
+    opacity: 1;
+    overflow: visible;
+    pointer-events: auto;
+  }
+
+  .writing-shell .block-insert :is(button, .block-button) {
+    flex: 1 1 9rem;
+  }
+}
+
+@media (max-width: 30rem) {
+  .writing-shell {
+    gap: 0.75rem;
+  }
+
+  .writing-page-actions,
+  .writing-shell .body-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-page-actions :is(button, .ui-button, a),
+  .writing-shell :is(.body-actions, .seed-panel, .staging-panel) > button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .writing-shell
+    :is(
+      .writing-start-layout > section,
+      .writing-editor-main > .body-panel,
+      .writing-tool-panel > section,
+      .revision-diff
+    ) {
+    padding: 1rem;
+  }
+
+  .writing-shell .category-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-shell .category-panel > label {
+    grid-column: auto;
+  }
+
+  .writing-shell .editor-block {
+    padding-block: 0.7rem;
+  }
+
+  .writing-shell .editor-block :is(textarea, input) {
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+
+  .writing-shell .editor-block-heading textarea {
+    font-size: 1.25rem;
+  }
+
+  .writing-shell
+    :is(.image-insertion-point, .editor-outline button, .editor-outline .outline-item) {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .writing-shell .block-tools {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .writing-shell .block-tools select {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .writing-shell .block-tools button {
+    min-width: 0;
+    padding-inline: 0.25rem;
+    width: 100%;
+  }
+
+  .writing-shell .block-insert {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .writing-shell .block-insert button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .writing-shell .image-list li {
+    align-items: stretch;
+  }
+
+  .writing-shell .image-list li button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  .writing-shell
+    :is(
+      .writing-tool-panel,
+      .staging-panel,
+      .editor-block-quote textarea,
+      .provider-choice[aria-pressed="true"],
+      .option-choice[aria-pressed="true"],
+      .tag-choice[aria-pressed="true"],
+      .revision-item[aria-pressed="true"],
+      .body-validation-hint,
+      .staging-validation-hint,
+      .checkpoint-required-hint
+    ) {
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .writing-shell .block-tools {
+    transition: none;
+  }
+}

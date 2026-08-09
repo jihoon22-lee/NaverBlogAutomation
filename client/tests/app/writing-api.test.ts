@@ -4,6 +4,12 @@ import { ApiError, LocalApiClient } from "../../src/app/api/client";
 import type { RunStreamFactory, RunStreamHandlers } from "../../src/app/api/run-stream";
 import type { PostDraft, PublishRun } from "../../src/app/api/types";
 import { WritingController } from "../../src/app/controllers/writing";
+import {
+  canStage,
+  initialWritingState,
+  withDraft,
+  withoutActiveDraft,
+} from "../../src/app/state/writing";
 
 const DRAFT_BODY = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -60,10 +66,12 @@ class FakeStream {
   handlers: RunStreamHandlers | null = null;
   closes = 0;
   urls: string[] = [];
+  subscriptions: RunStreamHandlers[] = [];
 
   readonly factory: RunStreamFactory = (url, handlers) => {
     this.urls.push(url);
     this.handlers = handlers;
+    this.subscriptions.push(handlers);
     return {
       close: () => {
         this.closes += 1;
@@ -73,6 +81,14 @@ class FakeStream {
 
   emit(event: string, payload: Record<string, unknown> = {}): void {
     this.handlers?.onEvent({ event, payload });
+  }
+
+  emitFrom(index: number, event: string, payload: Record<string, unknown> = {}): void {
+    this.subscriptions[index]?.onEvent({ event, payload });
+  }
+
+  emitError(): void {
+    this.handlers?.onError();
   }
 }
 
@@ -105,9 +121,21 @@ function readDraft(): PostDraft {
   };
 }
 
+function readCollectingDraft(id = DRAFT_BODY.id): PostDraft {
+  return {
+    ...readDraft(),
+    id,
+    title: "수집 초안",
+    status: "collecting",
+    revisions: [],
+    workingCopy: null,
+  };
+}
+
 function api(overrides: Record<string, unknown> = {}) {
   return {
     blogCategories: vi.fn(async () => []),
+    checkpointDraft: vi.fn(async () => readDraft()),
     composeDraft: vi.fn(async () => readDraft()),
     createDraft: vi.fn(async () => readDraft()),
     deleteDraftImage: vi.fn(async () => readDraft()),
@@ -147,6 +175,17 @@ const RUN_AS_DOMAIN: PublishRun = {
   createdAt: null,
   updatedAt: null,
 };
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((finish) => {
+    resolve = finish;
+  });
+  return { promise, resolve };
+}
 
 describe("draft transport", () => {
   it("creates a draft with snake_case fields", async () => {
@@ -251,6 +290,38 @@ describe("WritingController", () => {
     return new WritingController(root, { api: api(overrides), stream: stream.factory });
   }
 
+  it("closes only the active draft while preserving writing defaults and context", () => {
+    const draft = readDraft();
+    const state = {
+      ...initialWritingState(),
+      autoSave: "saved" as const,
+      blocks: [{ type: "paragraph" as const, text: "편집 중" }],
+      bodyText: "편집 중",
+      categories: [{ categoryNo: 7, name: "전시 후기", postCount: 3, syncedAt: null }],
+      draft,
+      drafts: [draft],
+      providers: [{ provider: "openai" as const, configured: true, model: "gpt-test" }],
+      seedTitle: "다음 글 제목",
+      seedText: "다음 글 메모",
+      selectedCategoryNo: 7,
+      notice: null,
+    };
+
+    const next = withoutActiveDraft(state);
+
+    expect(next.draft).toBeNull();
+    expect(next.blocks).toEqual([]);
+    expect(next.bodyText).toBe("");
+    expect(next.drafts).toEqual([draft]);
+    expect(next.providers).toBe(state.providers);
+    expect(next.categories).toBe(state.categories);
+    expect(next.seedTitle).toBe("");
+    expect(next.seedText).toBe("");
+    expect(next.selectedCategoryNo).toBe(7);
+    expect(next.notice).toBe("새 글 작성을 시작합니다.");
+    expect(state.draft).toBe(draft);
+  });
+
   it("loads providers, categories, and drafts", async () => {
     const writing = controller();
 
@@ -261,9 +332,71 @@ describe("WritingController", () => {
     expect(writing.state.options.provider).toBe("openai");
   });
 
+  it("applies only the newest concurrent load response", async () => {
+    const draftA = readDraft();
+    const draftB = {
+      ...draftA,
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      title: "B 초안",
+      workingCopy: {
+        title: "B 초안",
+        blocks: [{ type: "paragraph" as const, text: "B 본문" }],
+        summary: "",
+        contentVersion: 1,
+      },
+    };
+    const loadA = deferred<PostDraft>();
+    const loadB = deferred<PostDraft>();
+    const client = api({
+      draft: vi.fn((id: string) => (id === draftA.id ? loadA.promise : loadB.promise)),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+
+    const first = writing.load({ draftId: draftA.id });
+    const second = writing.load({ draftId: draftB.id });
+    loadB.resolve(draftB);
+    await second;
+
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    loadA.resolve(draftA);
+    await first;
+
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    expect(writing.state.draft?.title).toBe(draftB.title);
+  });
+
+  it("keeps state updates while inactive without rendering another view", async () => {
+    let active = false;
+    const writing = new WritingController(root, {
+      api: api(),
+      isActive: () => active,
+      stream: stream.factory,
+    });
+
+    await writing.openDraft(DRAFT_BODY.id);
+
+    expect(writing.state.draft?.id).toBe(DRAFT_BODY.id);
+    expect(root.textContent).toBe("");
+    active = true;
+    writing.render();
+    expect(root.querySelector(".writing-shell")).not.toBeNull();
+  });
+
   it("refuses to create a draft without a title", async () => {
     const client = api();
     const writing = new WritingController(root, { api: client, stream: stream.factory });
+
+    expect(await writing.createDraft()).toBeNull();
+    expect(
+      (client as unknown as { createDraft: { mock: { calls: unknown[] } } }).createDraft.mock.calls,
+    ).toHaveLength(0);
+  });
+
+  it("refuses to create a draft with whitespace-only seed text", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    writing.setSeed("title", "제목");
+    writing.setSeed("text", "   ");
 
     expect(await writing.createDraft()).toBeNull();
     expect(
@@ -292,6 +425,7 @@ describe("WritingController", () => {
     const client = api();
     const writing = new WritingController(root, { api: client, stream: stream.factory });
     writing.setSeed("title", "합성 초안");
+    writing.setSeed("text", "메모입니다.");
 
     await writing.completeWithAi();
 
@@ -329,11 +463,397 @@ describe("WritingController", () => {
     ).toMatchObject({ provider: "openai", length: "long", tone: "calm" });
   });
 
+  it("blocks AI compose while the working copy has uncheckpointed edits", async () => {
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "편집 중 제목",
+        blocks: [{ type: "paragraph" as const, text: "편집 중 본문" }],
+        summary: "요약",
+        contentVersion: 3,
+      },
+    };
+    const composeDraft = vi.fn(async () => readDraft());
+    const client = api({ draft: vi.fn(async () => current), composeDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    expect(await writing.compose()).toBeNull();
+    expect(composeDraft).not.toHaveBeenCalled();
+    expect(writing.state.notice).toBe("먼저 현재 편집 내용을 버전으로 남겨 주세요.");
+  });
+
   it("does not compose without a draft", async () => {
     const client = api();
     const writing = new WritingController(root, { api: client, stream: stream.factory });
 
     expect(await writing.compose()).toBeNull();
+  });
+
+  it("starts a new seed without deleting the previous draft", async () => {
+    const client = api({ deleteDraft: vi.fn(async () => undefined) });
+    const onDraftClosed = vi.fn();
+    const writing = new WritingController(root, {
+      api: client,
+      onDraftClosed,
+      stream: stream.factory,
+    });
+    await writing.load();
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.setSeed("title", "새 글 제목");
+    writing.setSeed("text", "새 글 메모");
+    writing.setSeed("category", "7");
+
+    await expect(writing.startNew()).resolves.toBe(true);
+
+    expect(writing.state.draft).toBeNull();
+    expect(writing.state.drafts).toHaveLength(1);
+    expect(writing.state.seedTitle).toBe("");
+    expect(writing.state.seedText).toBe("");
+    expect(writing.state.selectedCategoryNo).toBe(7);
+    expect(root.querySelector(".seed-panel")).not.toBeNull();
+    expect(onDraftClosed).toHaveBeenCalledOnce();
+    expect(
+      (client as unknown as { deleteDraft: { mock: { calls: unknown[][] } } }).deleteDraft.mock
+        .calls,
+    ).toHaveLength(0);
+  });
+
+  it("refuses a new draft while an autosave is scheduled", async () => {
+    vi.useFakeTimers();
+    const writing = controller();
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "아직 저장하지 않은 편집" }]);
+
+    await expect(writing.startNew()).resolves.toBe(false);
+
+    expect(writing.state.draft?.id).toBe(DRAFT_BODY.id);
+    expect(writing.state.notice).toBe("자동 저장이 끝난 뒤 새 글을 시작할 수 있습니다.");
+    await vi.advanceTimersByTimeAsync(700);
+    vi.useRealTimers();
+  });
+
+  it("refuses a new draft while an autosave request is in flight", async () => {
+    vi.useFakeTimers();
+    let finishSave: (draft: PostDraft) => void = () => {
+      throw new Error("autosave did not start");
+    };
+    const client = api({
+      saveDraftBody: vi.fn(
+        () =>
+          new Promise<PostDraft>((resolve) => {
+            finishSave = resolve;
+          }),
+      ),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "저장 중 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+
+    await expect(writing.startNew()).resolves.toBe(false);
+    expect(writing.state.draft?.id).toBe(DRAFT_BODY.id);
+    expect(writing.state.notice).toBe("자동 저장이 끝난 뒤 새 글을 시작할 수 있습니다.");
+
+    finishSave(readDraft());
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(writing.startNew()).resolves.toBe(true);
+    expect(writing.state.draft).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("refuses a new draft after an autosave failure until the edit is saved", async () => {
+    vi.useFakeTimers();
+    const client = api({
+      saveDraftBody: vi.fn(async () => {
+        throw new Error("save failed");
+      }),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "저장 실패 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(writing.state.autoSave).toBe("failed");
+    await expect(writing.startNew()).resolves.toBe(false);
+    expect(writing.state.draft?.id).toBe(DRAFT_BODY.id);
+    expect(writing.state.notice).toBe("자동 저장에 실패한 변경 내용을 먼저 저장하세요.");
+    vi.useRealTimers();
+  });
+
+  it("does not send invalid transient edits until a valid body and title return", async () => {
+    vi.useFakeTimers();
+    const saveDraftBody = vi.fn(async () => readDraft());
+    const client = api({ saveDraftBody });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    writing.onBlocksChange([{ type: "paragraph", text: "   " }]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saveDraftBody).not.toHaveBeenCalled();
+
+    writing.onBlocksChange([{ type: "paragraph", text: "유효한 본문" }]);
+    writing.onTitleChange("   ");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saveDraftBody).not.toHaveBeenCalled();
+
+    writing.onTitleChange("유효한 제목");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("flushes draft A before switching to draft B", async () => {
+    vi.useFakeTimers();
+    const draftA = readDraft();
+    const draftB = { ...draftA, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "B 초안" };
+    const draft = vi.fn(async (id: string) => (id === draftA.id ? draftA : draftB));
+    const saveDraftBody = vi.fn(
+      async (
+        id: string,
+        payload: {
+          title: string;
+          blocks: PostDraft["revisions"][number]["blocks"];
+          summary?: string;
+        },
+      ) => ({
+        ...(id === draftA.id ? draftA : draftB),
+        title: payload.title,
+        workingCopy: {
+          title: payload.title,
+          blocks: payload.blocks,
+          summary: payload.summary ?? "",
+          contentVersion: 2,
+        },
+      }),
+    );
+    const client = api({ draft, saveDraftBody });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "A 최신 본문" }]);
+
+    await expect(writing.openDraft(draftB.id)).resolves.toMatchObject({ id: draftB.id });
+
+    expect(saveDraftBody).toHaveBeenCalledWith(
+      draftA.id,
+      expect.objectContaining({ blocks: [{ type: "paragraph", text: "A 최신 본문" }] }),
+    );
+    expect(draft.mock.calls.map((call) => call[0])).toEqual([draftA.id, draftB.id]);
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    vi.useRealTimers();
+  });
+
+  it("requires an active revision when deciding whether a working copy can be staged", () => {
+    const workingCopyOnly = {
+      ...readDraft(),
+      revisions: [],
+      workingCopy: {
+        title: "작업 중 제목",
+        blocks: [{ type: "paragraph" as const, text: "작업 중 본문" }],
+        summary: "",
+        contentVersion: 1,
+      },
+    };
+    const state = withDraft(initialWritingState(), workingCopyOnly);
+
+    expect(state.blocks).toHaveLength(1);
+    expect(canStage(state)).toBe(false);
+  });
+
+  it("flushes a scheduled title edit before checkpointing and cancels its timer", async () => {
+    vi.useFakeTimers();
+    const saveDraftBody = vi.fn(async () => readDraft());
+    const checkpointDraft = vi.fn(async () => readDraft());
+    const client = api({ saveDraftBody, checkpointDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onTitleChange("최신 제목");
+
+    await expect(writing.checkpoint()).resolves.not.toBeNull();
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    expect((saveDraftBody.mock.calls as unknown[][])[0]?.[1]).toMatchObject({
+      title: "최신 제목",
+      summary: "요약",
+    });
+    expect(checkpointDraft).toHaveBeenCalledOnce();
+    expect(saveDraftBody.mock.invocationCallOrder[0]).toBeLessThan(
+      checkpointDraft.mock.invocationCallOrder[0] as number,
+    );
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("flushes scheduled body edits before staging and preserves call order", async () => {
+    vi.useFakeTimers();
+    const saveDraftBody = vi.fn(async () => readDraft());
+    const stageDraft = vi.fn(async () => RUN_AS_DOMAIN);
+    const client = api({ saveDraftBody, stageDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "최신 본문" }]);
+
+    await expect(writing.stage()).resolves.toMatchObject({ id: RUN_BODY.id });
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    expect((saveDraftBody.mock.calls as unknown[][])[0]?.[1]).toMatchObject({
+      blocks: [{ type: "paragraph", text: "최신 본문" }],
+      summary: "요약",
+    });
+    expect(stageDraft).toHaveBeenCalledOnce();
+    expect(saveDraftBody.mock.invocationCallOrder[0]).toBeLessThan(
+      stageDraft.mock.invocationCallOrder[0] as number,
+    );
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    expect((saveDraftBody.mock.calls as unknown[][])[0]?.[1]).toMatchObject({ summary: "요약" });
+    vi.useRealTimers();
+  });
+
+  it("does not skip the freshness PUT when a saved draft has no working copy", async () => {
+    const saveDraftBody = vi.fn(async () => readDraft());
+    const checkpointDraft = vi.fn(async () => readDraft());
+    const client = api({ saveDraftBody, checkpointDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    await writing.checkpoint();
+
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    expect((saveDraftBody.mock.calls as unknown[][])[0]?.[1]).toMatchObject({
+      baseContentVersion: 0,
+      summary: "요약",
+    });
+    expect(checkpointDraft).toHaveBeenCalledOnce();
+  });
+
+  it("skips an unnecessary body PUT when a saved working copy is current", async () => {
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "합성 초안",
+        blocks: [{ type: "paragraph" as const, text: "문단입니다." }],
+        summary: "",
+        contentVersion: 3,
+      },
+    };
+    const saveDraftBody = vi.fn(async () => current);
+    const checkpointDraft = vi.fn(async () => current);
+    const client = api({
+      draft: vi.fn(async () => current),
+      saveDraftBody,
+      checkpointDraft,
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    await writing.checkpoint();
+
+    expect(saveDraftBody).not.toHaveBeenCalled();
+    expect(checkpointDraft).toHaveBeenCalledOnce();
+  });
+
+  it("does not call checkpoint or stage when the freshness save fails", async () => {
+    const saveDraftBody = vi.fn(async () => {
+      throw new Error("save failed");
+    });
+    const checkpointDraft = vi.fn(async () => readDraft());
+    const stageDraft = vi.fn(async () => RUN_AS_DOMAIN);
+    const client = api({ saveDraftBody, checkpointDraft, stageDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "저장 실패 본문" }]);
+
+    await expect(writing.checkpoint()).resolves.toBeNull();
+    await expect(writing.stage()).resolves.toBeNull();
+
+    expect(saveDraftBody).toHaveBeenCalledTimes(2);
+    expect(checkpointDraft).not.toHaveBeenCalled();
+    expect(stageDraft).not.toHaveBeenCalled();
+  });
+
+  it("blocks checkpoint, stage, and manual save while autosave is in flight", async () => {
+    vi.useFakeTimers();
+    let finishSave: (draft: PostDraft) => void = () => {
+      throw new Error("autosave did not start");
+    };
+    const saveDraftBody = vi.fn(
+      () =>
+        new Promise<PostDraft>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    const checkpointDraft = vi.fn(async () => readDraft());
+    const stageDraft = vi.fn(async () => RUN_AS_DOMAIN);
+    const client = api({ saveDraftBody, checkpointDraft, stageDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "자동 저장 중 본문" }]);
+    await vi.advanceTimersByTimeAsync(700);
+
+    await expect(writing.checkpoint()).resolves.toBeNull();
+    await expect(writing.stage()).resolves.toBeNull();
+    await expect(writing.saveBlocks(writing.state.blocks)).resolves.toBeNull();
+
+    expect(saveDraftBody).toHaveBeenCalledOnce();
+    expect(checkpointDraft).not.toHaveBeenCalled();
+    expect(stageDraft).not.toHaveBeenCalled();
+    expect(writing.state.notice).toBe("자동 저장이 끝난 뒤 본문을 저장할 수 있습니다.");
+
+    finishSave(readDraft());
+    await vi.advanceTimersByTimeAsync(0);
+    vi.useRealTimers();
+  });
+
+  it("ignores local edits while generation is busy", async () => {
+    let finishCompose: (draft: PostDraft) => void = () => {
+      throw new Error("compose did not start");
+    };
+    const client = api({
+      composeDraft: vi.fn(
+        () =>
+          new Promise<PostDraft>((resolve) => {
+            finishCompose = resolve;
+          }),
+      ),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    const originalBlocks = writing.state.blocks;
+    const composing = writing.compose();
+
+    writing.onBlocksChange([{ type: "paragraph", text: "덮어쓰면 안 되는 편집" }]);
+    writing.onTitleChange("덮어쓰면 안 되는 제목");
+    writing.onBlocksStructureChange([{ type: "heading", text: "구조 편집" }]);
+    writing.insertImage("image-id");
+
+    expect(writing.state.busy).toBe(true);
+    expect(writing.state.blocks).toEqual(originalBlocks);
+    expect(writing.state.draft?.title).toBe("생성된 제목");
+    expect(writing.state.notice).toBe("현재 작업이 끝난 뒤 본문을 편집할 수 있습니다.");
+
+    finishCompose(readDraft());
+    await composing;
+  });
+
+  it("restores focus after block and option renders", async () => {
+    const writing = controller();
+    await writing.openDraft(DRAFT_BODY.id);
+
+    const body = root.querySelector<HTMLTextAreaElement>('[data-block-index="0"] textarea');
+    expect(body).not.toBeNull();
+    body?.focus();
+    writing.onBlocksStructureChange(writing.state.blocks);
+    expect(document.activeElement).toBe(root.querySelector('[data-block-index="0"] textarea'));
+
+    const option = root.querySelector<HTMLButtonElement>(
+      '[data-option="length"][data-value="medium"]',
+    );
+    expect(option).not.toBeNull();
+    option?.focus();
+    writing.setOption("length", "long");
+    expect(document.activeElement).toBe(
+      root.querySelector('[data-option="length"][data-value="medium"]'),
+    );
   });
 
   it("keeps image blocks when saving edited text", async () => {
@@ -346,7 +866,7 @@ describe("WritingController", () => {
     const call = (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } })
       .saveDraftBody.mock.calls[0];
     expect(call?.[1]).toMatchObject({
-      title: "합성 초안",
+      title: "생성된 제목",
       blocks: [{ type: "paragraph", text: "고친 문단" }],
     });
   });
@@ -364,6 +884,102 @@ describe("WritingController", () => {
       (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } }).saveDraftBody.mock
         .calls[0]?.[1],
     ).toMatchObject({ blocks: [{ type: "paragraph", text: "자동 저장할 문단" }] });
+    vi.useRealTimers();
+  });
+
+  it("autosaves a title-only edit for an empty collecting draft", async () => {
+    vi.useFakeTimers();
+    const collecting = readCollectingDraft();
+    const patchDraft = vi.fn(async (_id: string, patch: { title?: string }) => ({
+      ...collecting,
+      title: patch.title ?? collecting.title,
+    }));
+    const client = api({
+      draft: vi.fn(async () => collecting),
+      patchDraft,
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(collecting.id);
+
+    writing.onTitleChange("새 제목");
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(patchDraft).toHaveBeenCalledWith(collecting.id, { title: "새 제목" });
+    expect(writing.state.draft?.title).toBe("새 제목");
+    expect(writing.state.blocks).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("does not patch a title-only draft while the title is blank", async () => {
+    vi.useFakeTimers();
+    const collecting = readCollectingDraft();
+    const patchDraft = vi.fn(async () => collecting);
+    const client = api({
+      draft: vi.fn(async () => collecting),
+      patchDraft,
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(collecting.id);
+
+    writing.onTitleChange("   ");
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(patchDraft).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("flushes a title-only timer before switching drafts", async () => {
+    vi.useFakeTimers();
+    const draftA = readCollectingDraft();
+    const draftB = readCollectingDraft("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    const draft = vi.fn(async (id: string) => (id === draftA.id ? draftA : draftB));
+    const patchDraft = vi.fn(async (id: string, patch: { title?: string }) => ({
+      ...(id === draftA.id ? draftA : draftB),
+      title: patch.title ?? (id === draftA.id ? draftA.title : draftB.title),
+    }));
+    const client = api({ draft, patchDraft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    writing.onTitleChange("A 새 제목");
+
+    await expect(writing.openDraft(draftB.id)).resolves.toMatchObject({ id: draftB.id });
+
+    expect(patchDraft).toHaveBeenCalledWith(draftA.id, { title: "A 새 제목" });
+    expect(patchDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      draft.mock.invocationCallOrder[1] as number,
+    );
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    vi.useRealTimers();
+  });
+
+  it("ignores a late title response from draft A after draft B is loaded", async () => {
+    vi.useFakeTimers();
+    const draftA = readCollectingDraft();
+    const draftB = readCollectingDraft("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    let finishPatch: (draft: PostDraft) => void = () => {
+      throw new Error("title patch did not start");
+    };
+    const patchDraft = vi.fn(
+      () =>
+        new Promise<PostDraft>((resolve) => {
+          finishPatch = resolve;
+        }),
+    );
+    const client = api({
+      draft: vi.fn(async (id: string) => (id === draftA.id ? draftA : draftB)),
+      patchDraft,
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    writing.onTitleChange("A 새 제목");
+    await vi.advanceTimersByTimeAsync(700);
+
+    await writing.load({ draftId: draftB.id });
+    finishPatch({ ...draftA, title: "A 늦은 응답" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    expect(writing.state.draft?.title).toBe(draftB.title);
     vi.useRealTimers();
   });
 
@@ -388,7 +1004,7 @@ describe("WritingController", () => {
     expect(
       (client as unknown as { saveDraftBody: { mock: { calls: unknown[][] } } }).saveDraftBody.mock
         .calls[0]?.[1],
-    ).toMatchObject({ title: "고친 제목", baseContentVersion: 4 });
+    ).toMatchObject({ title: "고친 제목", baseContentVersion: 4, summary: "" });
     vi.useRealTimers();
   });
 
@@ -400,7 +1016,7 @@ describe("WritingController", () => {
     const current = {
       ...readDraft(),
       workingCopy: {
-        title: "합성 초안",
+        title: "생성된 제목",
         blocks: [{ type: "paragraph" as const, text: "문단입니다." }],
         summary: "",
         contentVersion: 4,
@@ -443,7 +1059,7 @@ describe("WritingController", () => {
     vi.useRealTimers();
   });
 
-  it("drops a queued autosave on a content conflict instead of overwriting the latest copy", async () => {
+  it("keeps the local canvas after a content conflict and retries from the fresh base", async () => {
     vi.useFakeTimers();
     let rejectFirstSave: (error: Error) => void = () => {
       throw new Error("autosave did not start");
@@ -466,14 +1082,39 @@ describe("WritingController", () => {
       },
       status: 409,
     });
-    const client = api({
-      draft: vi.fn(async () => current),
-      saveDraftBody: vi.fn(
+    const saveDraftBody = vi
+      .fn(
+        async (
+          _id: string,
+          _payload: { title: string; blocks: PostDraft["revisions"][number]["blocks"] },
+        ) =>
+          new Promise<PostDraft>((_resolve, reject) => {
+            rejectFirstSave = reject;
+          }),
+      )
+      .mockImplementationOnce(
         () =>
           new Promise<PostDraft>((_resolve, reject) => {
             rejectFirstSave = reject;
           }),
-      ),
+      )
+      .mockImplementation(
+        async (
+          _id: string,
+          payload: { title: string; blocks: PostDraft["revisions"][number]["blocks"] },
+        ) => ({
+          ...current,
+          workingCopy: {
+            ...current.workingCopy,
+            title: payload.title,
+            blocks: payload.blocks,
+            contentVersion: 9,
+          },
+        }),
+      );
+    const client = api({
+      draft: vi.fn(async () => current),
+      saveDraftBody,
     });
     const writing = new WritingController(root, { api: client, stream: stream.factory });
     await writing.openDraft(DRAFT_BODY.id);
@@ -491,10 +1132,22 @@ describe("WritingController", () => {
     };
     expect(typed.saveDraftBody.mock.calls).toHaveLength(1);
     expect(typed.draft.mock.calls).toHaveLength(2);
-    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "다른 기기의 최신 본문" }]);
+    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "충돌 뒤 대기 중인 편집" }]);
+    expect(writing.state.autoSave).toBe("failed");
     expect(writing.state.error).toBe(
       "다른 기기의 최신 본문을 불러왔습니다. 변경 내용은 덮어쓰지 않았습니다.",
     );
+    expect(writing.state.notice).toBe(
+      "다른 기기 저장과 충돌했습니다. 현재 편집 내용을 유지했습니다. 다시 저장하세요.",
+    );
+
+    writing.onBlocksChange([{ type: "paragraph", text: "명시적으로 다시 저장할 편집" }]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(typed.saveDraftBody.mock.calls).toHaveLength(2);
+    expect(typed.saveDraftBody.mock.calls[1]?.[1]).toMatchObject({
+      baseContentVersion: 8,
+      blocks: [{ type: "paragraph", text: "명시적으로 다시 저장할 편집" }],
+    });
     vi.useRealTimers();
   });
 
@@ -552,6 +1205,71 @@ describe("WritingController", () => {
     ).toEqual({ added: ["기록", "메모"] });
   });
 
+  it("blocks draft-replacing actions while local content is waiting for autosave and a checkpoint", async () => {
+    vi.useFakeTimers();
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onTitleChange("로컬 제목");
+    writing.onBlocksChange([{ type: "paragraph", text: "로컬 본문" }]);
+
+    await expect(writing.selectRevision(DRAFT_BODY.revisions[0]?.id as string)).resolves.toBeNull();
+    await expect(writing.toggleTag("전시")).resolves.toBeNull();
+    await expect(writing.addTags(["기록"])).resolves.toBeNull();
+    await expect(
+      writing.uploadImage(new File(["image"], "photo.png", { type: "image/png" })),
+    ).resolves.toBeNull();
+    await expect(writing.deleteImage("image-id")).resolves.toBeNull();
+
+    const typed = client as unknown as {
+      patchDraft: { mock: { calls: unknown[] } };
+      patchDraftTags: { mock: { calls: unknown[] } };
+      uploadDraftImage: { mock: { calls: unknown[] } };
+      deleteDraftImage: { mock: { calls: unknown[] } };
+    };
+    expect(typed.patchDraft.mock.calls).toHaveLength(0);
+    expect(typed.patchDraftTags.mock.calls).toHaveLength(0);
+    expect(typed.uploadDraftImage.mock.calls).toHaveLength(0);
+    expect(typed.deleteDraftImage.mock.calls).toHaveLength(0);
+    expect(writing.state.draft?.title).toBe("로컬 제목");
+    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "로컬 본문" }]);
+    expect(writing.state.notice).toBe("자동 저장이 끝난 뒤 현재 편집 내용을 버전으로 남겨 주세요.");
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("keeps draft-replacing actions blocked after autosave until the local copy is checkpointed", async () => {
+    vi.useFakeTimers();
+    const localBlocks = [{ type: "paragraph" as const, text: "저장된 로컬 본문" }];
+    const saveDraftBody = vi.fn(async () => ({
+      ...readDraft(),
+      title: "저장된 로컬 제목",
+      workingCopy: {
+        title: "저장된 로컬 제목",
+        blocks: localBlocks,
+        summary: "요약",
+        contentVersion: 2,
+      },
+    }));
+    const client = api({ saveDraftBody });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onTitleChange("저장된 로컬 제목");
+    writing.onBlocksChange(localBlocks);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(writing.state.autoSave).toBe("saved");
+    expect(await writing.toggleTag("전시")).toBeNull();
+    expect(
+      (client as unknown as { patchDraftTags: { mock: { calls: unknown[] } } }).patchDraftTags.mock
+        .calls,
+    ).toHaveLength(0);
+    expect(writing.state.notice).toBe("현재 편집 내용을 먼저 버전으로 남겨 주세요.");
+
+    vi.useRealTimers();
+  });
+
   it("stages the draft and subscribes to its stream", async () => {
     const writing = controller();
     await writing.openDraft(DRAFT_BODY.id);
@@ -561,6 +1279,19 @@ describe("WritingController", () => {
     expect(run?.id).toBe(RUN_BODY.id);
     expect(writing.state.phase).toBe("staging");
     expect(stream.urls).toEqual([`/api/v1/drafts/${DRAFT_BODY.id}/stage/events`]);
+  });
+
+  it("does not start a second staging run while the current run is active", async () => {
+    const client = api();
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    await writing.stage();
+
+    expect(await writing.stage()).toBeNull();
+    expect(
+      (client as unknown as { stageDraft: { mock: { calls: unknown[] } } }).stageDraft.mock.calls,
+    ).toHaveLength(1);
+    expect(writing.state.notice).toBe("현재 임시저장이 진행 중입니다.");
   });
 
   it("closes the stream and refreshes on a terminal event", async () => {
@@ -574,9 +1305,176 @@ describe("WritingController", () => {
     await Promise.resolve();
 
     expect(stream.closes).toBe(1);
+    expect(writing.state.run?.state).toBe("succeeded");
     expect(
       (client as unknown as { draft: { mock: { calls: unknown[] } } }).draft.mock.calls.length,
     ).toBeGreaterThan(1);
+  });
+
+  it("preserves a local canvas edit made while terminal refresh is in flight", async () => {
+    let finishRefresh: (draft: PostDraft) => void = () => {
+      throw new Error("terminal refresh did not start");
+    };
+    const draft = vi.fn((_id: string) => {
+      if (draft.mock.calls.length === 1) return Promise.resolve(readDraft());
+      return new Promise<PostDraft>((resolve) => {
+        finishRefresh = resolve;
+      });
+    });
+    const client = api({ draft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    await writing.stage();
+
+    stream.emit("run_finished");
+    await Promise.resolve();
+    writing.onBlocksChange([{ type: "paragraph", text: "새로 입력한 임시 본문" }]);
+    finishRefresh({
+      ...readDraft(),
+      workingCopy: {
+        title: "생성된 제목",
+        blocks: [{ type: "paragraph", text: "서버에서 갱신된 본문" }],
+        summary: "",
+        contentVersion: 9,
+      },
+    });
+    await Promise.resolve();
+
+    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "새로 입력한 임시 본문" }]);
+    expect(writing.state.draft?.workingCopy?.blocks).toEqual([
+      { type: "paragraph", text: "서버에서 갱신된 본문" },
+    ]);
+  });
+
+  it("preserves the canvas when resume refresh starts with a scheduled autosave", async () => {
+    vi.useFakeTimers();
+    let finishRefresh: (draft: PostDraft) => void = () => {
+      throw new Error("resume refresh did not start");
+    };
+    const draft = vi.fn((_id: string) => {
+      if (draft.mock.calls.length === 1) return Promise.resolve(readDraft());
+      return new Promise<PostDraft>((resolve) => {
+        finishRefresh = resolve;
+      });
+    });
+    const client = api({ draft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onBlocksChange([{ type: "paragraph", text: "저장 대기 중인 본문" }]);
+
+    const refresh = writing.refreshActive();
+    await Promise.resolve();
+    finishRefresh(readDraft());
+    await refresh;
+
+    expect(writing.state.blocks).toEqual([{ type: "paragraph", text: "저장 대기 중인 본문" }]);
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("preserves an invalid transient title during a resume refresh", async () => {
+    let finishRefresh: (draft: PostDraft) => void = () => {
+      throw new Error("resume refresh did not start");
+    };
+    const draft = vi.fn((_id: string) => {
+      if (draft.mock.calls.length === 1) return Promise.resolve(readDraft());
+      return new Promise<PostDraft>((resolve) => {
+        finishRefresh = resolve;
+      });
+    });
+    const client = api({ draft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+    writing.onTitleChange("");
+
+    const refresh = writing.refreshActive();
+    await Promise.resolve();
+    finishRefresh(readDraft());
+    await refresh;
+
+    expect(writing.state.draft?.title).toBe("");
+    expect(writing.state.autoSave).toBe("idle");
+  });
+
+  it("marks a staging run unconfirmed when its stream errors", async () => {
+    const writing = controller();
+    await writing.openDraft(DRAFT_BODY.id);
+    await writing.stage();
+
+    stream.emitError();
+
+    expect(writing.state.run?.state).toBe("unconfirmed");
+    expect(stream.closes).toBe(1);
+  });
+
+  it("closes the active staging stream before opening another draft", async () => {
+    const draftA = readDraft();
+    const draftB = { ...draftA, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "B 초안" };
+    const client = api({
+      draft: vi.fn(async (id: string) => (id === draftB.id ? draftB : draftA)),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    await writing.stage();
+
+    expect(stream.closes).toBe(0);
+    await writing.openDraft(draftB.id);
+
+    expect(stream.closes).toBe(1);
+    expect(writing.state.draft?.id).toBe(draftB.id);
+  });
+
+  it("ignores a late event from an old stream without closing the current stream", async () => {
+    const draftA = readDraft();
+    const draftB = { ...draftA, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "B 초안" };
+    const client = api({
+      draft: vi.fn(async (id: string) => (id === draftB.id ? draftB : draftA)),
+      saveDraftBody: vi.fn(async (id: string) => (id === draftB.id ? draftB : draftA)),
+      stageDraft: vi.fn(async (id: string) => ({
+        ...RUN_AS_DOMAIN,
+        id: `run-${id}`,
+        draftId: id,
+      })),
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    await writing.stage();
+    await writing.openDraft(draftB.id);
+    await writing.stage();
+
+    stream.emitFrom(0, "run_finished");
+
+    expect(stream.closes).toBe(1);
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    expect(writing.state.run?.state).toBe("running");
+  });
+
+  it("ignores a terminal refresh from draft A after switching to draft B", async () => {
+    let finishRefresh: (draft: PostDraft) => void = () => {
+      throw new Error("refresh did not start");
+    };
+    const draftA = readDraft();
+    const draftB = { ...draftA, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "B 초안" };
+    const draft = vi.fn(async (id: string) => {
+      if (id === draftA.id && draft.mock.calls.length === 1) return draftA;
+      if (id === draftB.id) return draftB;
+      return new Promise<PostDraft>((resolve) => {
+        finishRefresh = resolve;
+      });
+    });
+    const client = api({ draft });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(draftA.id);
+    await writing.stage();
+
+    stream.emit("run_finished");
+    await Promise.resolve();
+    await writing.openDraft(draftB.id);
+    finishRefresh({ ...draftA, title: "A 늦은 응답" });
+    await Promise.resolve();
+
+    expect(writing.state.draft?.id).toBe(draftB.id);
+    expect(writing.state.draft?.title).toBe("생성된 제목");
   });
 
   it("reports a refusal with a mapped message", async () => {
@@ -598,7 +1496,7 @@ describe("WritingController", () => {
     await writing.compose();
 
     expect(writing.state.phase).toBe("failed");
-    expect(writing.state.error).toBe("선택한 provider가 구성되지 않았습니다.");
+    expect(writing.state.error).toBe("선택한 AI 연결이 구성되지 않았습니다.");
   });
 
   it("keeps the service message for an unmapped refusal", async () => {
@@ -655,6 +1553,33 @@ describe("WritingController", () => {
     expect(typed.patchDraft.mock.calls).toHaveLength(1);
     expect(typed.uploadDraftImage.mock.calls).toHaveLength(1);
     expect(typed.deleteDraftImage.mock.calls).toHaveLength(1);
+  });
+
+  it("blocks refine and tags until the edited working copy becomes a version", async () => {
+    const current = {
+      ...readDraft(),
+      workingCopy: {
+        title: "편집 중 제목",
+        blocks: [{ type: "paragraph" as const, text: "편집 중 본문" }],
+        summary: "요약",
+        contentVersion: 3,
+      },
+    };
+    const refineDraft = vi.fn(async () => readDraft());
+    const generateDraftTags = vi.fn(async () => readDraft());
+    const client = api({
+      draft: vi.fn(async () => current),
+      refineDraft,
+      generateDraftTags,
+    });
+    const writing = new WritingController(root, { api: client, stream: stream.factory });
+    await writing.openDraft(DRAFT_BODY.id);
+
+    expect(await writing.refine()).toBeNull();
+    expect(await writing.generateTags()).toBeNull();
+    expect(refineDraft).not.toHaveBeenCalled();
+    expect(generateDraftTags).not.toHaveBeenCalled();
+    expect(writing.state.notice).toBe("먼저 현재 편집 내용을 버전으로 남겨 주세요.");
   });
 
   it("rejects an empty added-tag list without asking the service", async () => {

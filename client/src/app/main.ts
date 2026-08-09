@@ -118,7 +118,9 @@ export function createWorkspace(root: Element): Workspace {
   });
   const writing = new WritingController(root, {
     api,
+    isActive: () => activeView === "writing",
     onDraftOpened: (draftId) => setRoute(document, `#writing/${draftId}`),
+    onDraftClosed: () => setRoute(document, "#writing"),
   });
   const activity = new ActivityController(root, api, {
     onOpenDraft: (draftId) => workspace.showWriting?.(draftId),
