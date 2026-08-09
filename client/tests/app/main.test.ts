@@ -219,6 +219,7 @@ describe("mount", () => {
     await flush();
 
     expect(document.querySelector(".more-menu-panel")).not.toBeNull();
+    expect(document.querySelector(".more-menu-panel h2")?.textContent).toBe("관리");
     expect(document.querySelector('[data-section="more"]')?.getAttribute("aria-current")).toBe(
       "page",
     );

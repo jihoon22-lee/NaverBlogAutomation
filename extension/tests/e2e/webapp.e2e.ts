@@ -44,11 +44,21 @@ for (const viewport of VIEWPORTS) {
 
       await page.goto(`${apiOrigin}/app/`);
       await expect(page.locator("#workspace-status")).toContainText("오늘의 블로그 작업");
+      await expect(page.locator("#skip-link")).toHaveAttribute("href", "#workspace");
+      await expect(page.locator("#workspace")).not.toHaveAttribute("aria-live");
       await expect(page.locator("#workspace-nav button[data-section]")).toHaveCount(4);
-      await expect(page.locator('[data-section="home"]')).toHaveText("홈");
-      await expect(page.locator('[data-section="workbench"]')).toHaveText("작업함");
-      await expect(page.locator('[data-section="writing"]')).toHaveText("글쓰기");
-      await expect(page.locator('[data-section="more"]')).toHaveText("더보기");
+      for (const [section, label] of [
+        ["home", "홈"],
+        ["workbench", "작업함"],
+        ["writing", "글쓰기"],
+        ["more", "관리"],
+      ] as const) {
+        const button = page.locator(`[data-section="${section}"]`);
+        await expect(button).toHaveAccessibleName(label);
+        await expect(button.locator("svg.nav-icon")).toHaveCount(1);
+        await expect(button.locator("svg.nav-icon")).toHaveAttribute("aria-hidden", "true");
+        await expect(button.locator("span.nav-label")).toHaveText(label);
+      }
       await page.goto(`${apiOrigin}/app/#today`);
       await expect(page.locator('[data-section="home"]')).toHaveAttribute("aria-current", "page");
 

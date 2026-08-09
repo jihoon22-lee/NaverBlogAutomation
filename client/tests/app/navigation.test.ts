@@ -8,10 +8,22 @@ function shell(): Document {
   document.body.innerHTML = `
     <header>
       <nav id="${NAV_ID}" aria-label="작업 화면">
-        <button type="button" data-section="home" aria-current="page">홈</button>
-        <button type="button" data-section="workbench">작업함</button>
-        <button type="button" data-section="writing">글 작성</button>
-        <button type="button" data-section="settings">설정</button>
+        <button type="button" data-section="home" aria-current="page">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Z" /></svg>
+          <span class="nav-label">홈</span>
+        </button>
+        <button type="button" data-section="workbench">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Z" /></svg>
+          <span class="nav-label">작업함</span>
+        </button>
+        <button type="button" data-section="writing">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Z" /></svg>
+          <span class="nav-label">글쓰기</span>
+        </button>
+        <button type="button" data-section="more">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Z" /></svg>
+          <span class="nav-label">관리</span>
+        </button>
       </nav>
     </header>
     <main id="workspace"><p id="workspace-status">준비됐습니다.</p></main>
@@ -38,6 +50,25 @@ describe("createNavigation", () => {
     tab("home").click();
 
     expect(onSelect.mock.calls).toEqual([["writing"], ["home"]]);
+  });
+
+  it("keeps navigation labels as accessible button names beside decorative icons", () => {
+    const navigation = createNavigation(document, { onSelect: vi.fn() });
+
+    expect(navigation).not.toBeNull();
+    const labels = new Map([
+      ["home", "홈"],
+      ["workbench", "작업함"],
+      ["writing", "글쓰기"],
+      ["more", "관리"],
+    ]);
+    for (const [section, label] of labels) {
+      const button = tab(section);
+      expect(button.hasAttribute("aria-label")).toBe(false);
+      expect(button.querySelector("svg.nav-icon")?.getAttribute("aria-hidden")).toBe("true");
+      expect(button.querySelector("span.nav-label")?.textContent).toBe(label);
+      expect(button.textContent?.trim()).toContain(label);
+    }
   });
 
   it("marks only the current section", () => {
