@@ -62,7 +62,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 # `--timeout` turns any deadlock into a failure with a stack instead of an infinite hang.
-addopts = "-ra --strict-markers --timeout=60 --timeout-method=thread --cov=naver_blog_assistant --cov-branch --cov-report=term-missing --cov-fail-under=85"
+addopts = "-ra --strict-markers --timeout=60 --timeout-method=thread --cov=naver_blog_assistant --cov-branch --cov-report=term-missing --cov-fail-under=87"
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
@@ -76,6 +76,6 @@ source = ["naver_blog_assistant"]
 omit = ["src/naver_blog_assistant/infrastructure/database/migrations/*"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 87
 show_missing = true
 skip_covered = true
