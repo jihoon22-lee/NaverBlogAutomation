@@ -85,6 +85,7 @@ export class TodayController {
   #focusRestoreId: string | null = null;
   #state: TodayState = initialTodayState();
   #busy = false;
+  #pendingLoadOptions: { selectedPostId?: string | null } | null = null;
   #view: "home" | "workbench" | "onboarding" = "workbench";
 
   constructor(root: Element, options: TodayControllerOptions = {}) {
@@ -107,8 +108,14 @@ export class TodayController {
   }
 
   /** Load the service status, queue, and session, then render once. */
-  async load(options: { selectedPostId?: string } = {}): Promise<void> {
-    if (this.#busy) return;
+  async load(options: { selectedPostId?: string | null } = {}): Promise<void> {
+    if (this.#busy) {
+      if (Object.hasOwn(options, "selectedPostId")) {
+        this.#pendingLoadOptions =
+          options.selectedPostId === undefined ? {} : { selectedPostId: options.selectedPostId };
+      }
+      return;
+    }
     this.#busy = true;
     this.#update(startLoading(this.#state));
     try {
@@ -140,11 +147,7 @@ export class TodayController {
               session,
             },
       );
-      this.#update(
-        options.selectedPostId === undefined
-          ? loaded
-          : withSelection(loaded, options.selectedPostId),
-      );
+      this.#update(this.#applyLoadSelection(loaded, options.selectedPostId));
     } catch (error) {
       if (error instanceof ApiError && error.code === "remote_pairing_required") {
         this.#onRemotePairingRequired();
@@ -156,6 +159,9 @@ export class TodayController {
       // The request result was rendered while the guard was still set. Render once more after
       // releasing it so a newly visible action cannot be silently ignored by a fast next click.
       this.render();
+      const pending = this.#pendingLoadOptions;
+      this.#pendingLoadOptions = null;
+      if (pending !== null) this.#applyPendingLoadSelection(pending);
     }
   }
 
@@ -414,6 +420,17 @@ export class TodayController {
   #update(state: TodayState): void {
     this.#state = state;
     this.render();
+  }
+
+  #applyLoadSelection(state: TodayState, selectedPostId: string | null | undefined): TodayState {
+    if (selectedPostId === undefined) return state;
+    if (selectedPostId === null) return { ...state, detailOpen: false };
+    return withSelection(state, selectedPostId);
+  }
+
+  #applyPendingLoadSelection(options: { selectedPostId?: string | null }): void {
+    if (!Object.hasOwn(options, "selectedPostId")) return;
+    this.#update(this.#applyLoadSelection(this.#state, options.selectedPostId));
   }
 
   async #readinessOrNull(): Promise<TodayState["readiness"]> {

@@ -178,8 +178,12 @@ export function createWorkspace(root: Element): Workspace {
     today.setView("workbench");
     today.render();
     focusWorkspace(root);
-    if (today.state.phase === "idle" || selectedPostId !== undefined) {
-      void today.load(selectedPostId === undefined ? {} : { selectedPostId });
+    if (
+      today.state.phase === "idle" ||
+      today.state.phase === "loading" ||
+      selectedPostId !== undefined
+    ) {
+      void today.load(selectedPostId === undefined ? { selectedPostId: null } : { selectedPostId });
     }
   };
   workspace.showMore = () => {
@@ -215,7 +219,7 @@ export function createWorkspace(root: Element): Workspace {
     navigation?.mark("workbench");
     session.render();
     focusWorkspace(root);
-    void session.load(sessionId === undefined ? {} : { sessionId });
+    void session.load(sessionId === undefined ? { sessionId: null } : { sessionId });
   };
   workspace.showWriting = (draftId) => {
     setNavigationVisible(document, true);
