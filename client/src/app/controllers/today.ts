@@ -33,6 +33,7 @@ import {
   withSort,
 } from "../state/today";
 import type { SettingsSection } from "./settings";
+import { type OnboardingHandlers, renderOnboarding } from "../views/onboarding";
 import { type TodayHandlers, renderHome, renderToday } from "../views/today";
 
 type TodayApi = Pick<
@@ -62,6 +63,8 @@ export interface TodayControllerOptions {
   onSettingsRequested?: (section?: SettingsSection) => void;
   onWorkbenchRequested?: () => void;
   onWritingRequested?: () => void;
+  onOnboardingRequested?: () => void;
+  onOnboardingCompleted?: () => void;
   onBatchRequested?: (request: BatchPreflightRequest) => void;
 }
 
@@ -75,10 +78,12 @@ export class TodayController {
   readonly #onSettingsRequested: (section?: SettingsSection) => void;
   readonly #onWorkbenchRequested: () => void;
   readonly #onWritingRequested: () => void;
+  readonly #onOnboardingRequested: () => void;
+  readonly #onOnboardingCompleted: () => void;
   readonly #onBatchRequested: (request: BatchPreflightRequest) => void;
   #state: TodayState = initialTodayState();
   #busy = false;
-  #view: "home" | "workbench" = "workbench";
+  #view: "home" | "workbench" | "onboarding" = "workbench";
 
   constructor(root: Element, options: TodayControllerOptions = {}) {
     this.#root = root;
@@ -90,6 +95,8 @@ export class TodayController {
     this.#onSettingsRequested = options.onSettingsRequested ?? (() => undefined);
     this.#onWorkbenchRequested = options.onWorkbenchRequested ?? (() => undefined);
     this.#onWritingRequested = options.onWritingRequested ?? (() => undefined);
+    this.#onOnboardingRequested = options.onOnboardingRequested ?? (() => undefined);
+    this.#onOnboardingCompleted = options.onOnboardingCompleted ?? (() => undefined);
     this.#onBatchRequested = options.onBatchRequested ?? (() => undefined);
   }
 
@@ -152,12 +159,19 @@ export class TodayController {
 
   /** Render the current state without contacting the service. */
   render(): void {
-    const render = this.#view === "home" ? renderHome : renderToday;
-    render(this.#root, this.#state, this.#handlers());
+    if (this.#view === "home") {
+      renderHome(this.#root, this.#state, this.#handlers());
+      return;
+    }
+    if (this.#view === "onboarding") {
+      renderOnboarding(this.#root, this.#state, this.#onboardingHandlers());
+      return;
+    }
+    renderToday(this.#root, this.#state, this.#handlers());
   }
 
   /** Switch between the summary-only home and the queue-owning workbench without discarding state. */
-  setView(view: "home" | "workbench"): void {
+  setView(view: "home" | "workbench" | "onboarding"): void {
     this.#view = view;
   }
 
@@ -171,6 +185,7 @@ export class TodayController {
       onOpenDirectUrl: (url: string) => void this.openDirectUrl(url),
       onOpenWorkbench: this.#onWorkbenchRequested,
       onOpenWriting: this.#onWritingRequested,
+      onOpenOnboarding: this.#onOnboardingRequested,
       onOpenBatch: () =>
         this.#onBatchRequested({
           approvedSteps: this.#state.approvedSteps,
@@ -187,6 +202,16 @@ export class TodayController {
       onSortChange: (value) => this.setSort(value),
       onTogglePostSelection: (postId) => this.#update(withPostSelection(this.#state, postId)),
       onToggleBatchStep: (step) => this.#update(withApprovedStep(this.#state, step)),
+    };
+  }
+
+  #onboardingHandlers(): OnboardingHandlers {
+    return {
+      onLaunchSession: () => void this.#session(() => this.#api.launchBrowserSession()),
+      onFocusSession: () => void this.#session(() => this.#api.focusBrowserSession()),
+      onOpenSettings: this.#onSettingsRequested,
+      onRefresh: () => void this.load(),
+      onComplete: this.#onOnboardingCompleted,
     };
   }
 

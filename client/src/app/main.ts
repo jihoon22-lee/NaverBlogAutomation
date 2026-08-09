@@ -35,6 +35,7 @@ export interface Workspace {
   session: SessionController;
   settings: SettingsController;
   showHome(): void;
+  showOnboarding(): void;
   showMore(): void;
   showWorkbench(selectedPostId?: string): void;
   showSession(sessionId?: string): void;
@@ -63,8 +64,15 @@ export function createWorkspace(root: Element): Workspace {
   // that root, so stale listeners must not repaint a detached prior workspace on a later hashchange.
   const isCurrentRoot = () => document.getElementById(APP_ROOT_ID) === root;
   const pairingButton = document.getElementById(REMOTE_PAIRING_BUTTON_ID);
-  let activeView: "home" | "workbench" | "writing" | "more" | "activity" | "settings" | "session" =
-    "home";
+  let activeView:
+    | "home"
+    | "workbench"
+    | "onboarding"
+    | "writing"
+    | "more"
+    | "activity"
+    | "settings"
+    | "session" = "home";
   const navigation = createNavigation(root.ownerDocument, {
     onSelect: (section: NavSection) => {
       if (section === "writing") workspace.showWriting?.();
@@ -100,6 +108,8 @@ export function createWorkspace(root: Element): Workspace {
     onSettingsRequested: (section) => workspace.showSettings?.(section),
     onWorkbenchRequested: () => workspace.showWorkbench?.(),
     onWritingRequested: () => workspace.showWriting?.(),
+    onOnboardingRequested: () => workspace.showOnboarding?.(),
+    onOnboardingCompleted: () => workspace.showHome?.(),
     onBatchRequested: ({ postIds, approvedSteps }) => {
       session.setSelectedPosts(postIds);
       session.setApprovedSteps(approvedSteps);
@@ -143,6 +153,19 @@ export function createWorkspace(root: Element): Workspace {
     today.render();
     focusWorkspace(root);
     void today.load();
+  };
+  workspace.showOnboarding = () => {
+    setNavigationVisible(document, true);
+    activeView = "onboarding";
+    setRoute(document, "#setup");
+    session.close();
+    navigation?.mark("home");
+    today.setView("onboarding");
+    today.render();
+    void today.load().then(() => {
+      if (activeView === "onboarding") focusWorkspace(root);
+    });
+    focusWorkspace(root);
   };
   workspace.showWorkbench = (selectedPostId) => {
     setNavigationVisible(document, true);
@@ -275,8 +298,9 @@ export function createWorkspace(root: Element): Workspace {
       void comment.refresh();
       return;
     }
-    if (activeView === "home" || activeView === "workbench") void today.load();
-    else if (activeView === "session") void session.load();
+    if (activeView === "home" || activeView === "workbench" || activeView === "onboarding") {
+      void today.load();
+    } else if (activeView === "session") void session.load();
     else if (activeView === "writing") void writing.refreshActive();
     else if (activeView === "activity") void activity.load();
     else if (activeView === "settings") void appSettings.load();
@@ -295,6 +319,8 @@ export function createWorkspace(root: Element): Workspace {
       workspace.showWriting?.(draftRouteFromHash(hash));
     } else if (route === "session" && activeView !== "session") {
       workspace.showSession?.(sessionRouteFromHash(hash));
+    } else if (route === "onboarding" && activeView !== "onboarding") {
+      workspace.showOnboarding?.();
     } else if (route === "activity" && activeView !== "activity") workspace.showActivity?.();
     else if (route === "settings") {
       const section = settingsSectionFromHash(hash);
@@ -336,6 +362,7 @@ export function mount(documentRef: Document = document): Workspace | null {
   const route = routeFromHash(documentRef.defaultView?.location.hash ?? "");
   if (route === "writing")
     workspace.showWriting(draftRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
+  else if (route === "onboarding") workspace.showOnboarding();
   else if (route === "session")
     workspace.showSession(sessionRouteFromHash(documentRef.defaultView?.location.hash ?? ""));
   else if (route === "activity") workspace.showActivity();
@@ -381,10 +408,11 @@ function setNavigationVisible(document: Document, visible: boolean): void {
 /** Map public hash routes back to their owning workspace section. */
 export function routeFromHash(
   hash: string,
-): NavSection | "session" | "activity" | "settings" | "post" | "comment" | null {
+): NavSection | "onboarding" | "session" | "activity" | "settings" | "post" | "comment" | null {
   const path = hash.replace(/^#/u, "").split("?")[0] ?? "";
   if (path === "home" || path === "today") return "home";
   if (path === "workbench" || path === "queue" || path === "batch") return "workbench";
+  if (path === "setup" || path === "onboarding") return "onboarding";
   if (path === "session" || path.startsWith("session/")) return "session";
   if (path === "writing" || path.startsWith("writing/")) return "writing";
   if (path === "activity" || path === "history" || path === "logs") return "activity";

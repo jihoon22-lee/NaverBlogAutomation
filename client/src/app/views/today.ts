@@ -36,6 +36,7 @@ export interface TodayHandlers {
   onOpenDirectUrl(url: string): void;
   onOpenWorkbench(): void;
   onOpenWriting(): void;
+  onOpenOnboarding(): void;
   onOpenBatch(): void;
   onOpenSettings(section?: SettingsSection): void;
   onCloseDetail(): void;
@@ -217,7 +218,7 @@ export function renderHome(root: Element, state: TodayState, handlers: TodayHand
   readinessDescription.className = "home-readiness-description";
   readinessDescription.textContent = readinessState.description;
   readiness.append(readinessChip, readinessDescription);
-  appendReadinessDetails(document, readiness, state, handlers, next.blocker);
+  appendReadinessDetails(document, readiness, state, handlers);
   root.append(readiness);
 
   const quick = document.createElement("section");
@@ -256,7 +257,6 @@ interface HomeNextAction {
   status: "ready" | "needs-action" | "running" | "error" | "neutral";
   statusLabel: string;
   disabled: boolean;
-  blocker?: AppReadiness["blockers"][number];
   onClick: () => void;
 }
 
@@ -301,53 +301,15 @@ function homeNextAction(state: TodayState, handlers: TodayHandlers): HomeNextAct
     };
   }
 
-  const blocker = priorityBlocker(state.readiness.blockers);
-  if (blocker !== null) {
-    if (blocker === "browser_not_running") {
-      return {
-        id: "home-launch-browser",
-        label: "브라우저 시작",
-        description: "댓글 생성과 수집을 시작하려면 PC 자동화 브라우저를 먼저 열어야 합니다.",
-        status: "needs-action",
-        statusLabel: "필요 조치",
-        blocker,
-        disabled: false,
-        onClick: handlers.onLaunchSession,
-      };
-    }
-    if (blocker === "naver_login_required") {
-      return {
-        id: "home-focus-browser",
-        label: "PC 브라우저 열기",
-        description: "PC 자동화 브라우저에서 네이버 로그인 상태를 확인하세요.",
-        status: "needs-action",
-        statusLabel: "필요 조치",
-        blocker,
-        disabled: false,
-        onClick: handlers.onFocusSession,
-      };
-    }
-    if (settingsSectionForBlocker(blocker) !== undefined) {
-      return {
-        id: `home-${blocker}`,
-        label: "설정 열기",
-        description: blockerLabel(blocker),
-        status: "needs-action",
-        statusLabel: "필요 조치",
-        blocker,
-        disabled: false,
-        onClick: () => handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
-      };
-    }
+  if (state.readiness.blockers.length > 0) {
     return {
-      id: `home-${blocker}`,
-      label: "다시 확인",
-      description: blockerLabel(blocker),
+      id: "home-open-onboarding",
+      label: "초기 설정 계속",
+      description: "필수 설정을 완료하면 댓글 생성과 수집을 시작할 수 있습니다.",
       status: "needs-action",
       statusLabel: "필요 조치",
-      blocker,
       disabled: false,
-      onClick: handlers.onRefresh,
+      onClick: handlers.onOpenOnboarding,
     };
   }
 
@@ -372,19 +334,6 @@ function homeNextAction(state: TodayState, handlers: TodayHandlers): HomeNextAct
     disabled: false,
     onClick: handlers.onRefresh,
   };
-}
-
-function priorityBlocker(
-  blockers: readonly AppReadiness["blockers"][number][],
-): AppReadiness["blockers"][number] | null {
-  for (const code of ["browser_not_running", "naver_login_required"] as const) {
-    if (blockers.includes(code)) return code;
-  }
-  const settingsBlocker = blockers.find(
-    (blocker) =>
-      blocker === "llm_provider_missing" || settingsSectionForBlocker(blocker) !== undefined,
-  );
-  return settingsBlocker ?? blockers[0] ?? null;
 }
 
 function homeReadinessState(state: TodayState): HomeReadinessState {
@@ -428,7 +377,6 @@ function appendReadinessDetails(
   parent: Element,
   state: TodayState,
   handlers: TodayHandlers,
-  primaryBlocker: AppReadiness["blockers"][number] | undefined,
 ): void {
   if (state.phase === "failed") {
     const list = document.createElement("ul");
@@ -482,10 +430,6 @@ function appendReadinessDetails(
     message.textContent = blockerLabel(blocker);
     item.append(chip, message);
 
-    if (blocker === primaryBlocker) {
-      list.append(item);
-      continue;
-    }
     const action = blockerAction(document, blocker, handlers);
     if (action !== null) item.append(action);
     list.append(item);
