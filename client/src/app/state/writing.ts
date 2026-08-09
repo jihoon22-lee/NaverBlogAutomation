@@ -9,6 +9,7 @@ import type {
   BlogCategory,
   BodyBlock,
   DraftRevision,
+  EngagementRunState,
   LlmProviderName,
   LlmProviderStatus,
   PostDraft,
@@ -106,7 +107,7 @@ export function withLoaded(
     ...state,
     busy: false,
     categories: loaded.categories,
-    drafts: loaded.drafts,
+    drafts: loaded.drafts.map(normalizeDraft),
     error: null,
     phase: state.draft === null ? "seed" : state.phase,
     providers: loaded.providers,
@@ -118,21 +119,25 @@ export function withLoaded(
 }
 
 export function withDraft(state: WritingState, draft: PostDraft): WritingState {
-  const blocks = copyBlocks(draft.workingCopy?.blocks ?? activeRevisionFor(draft)?.blocks ?? []);
-  const sameDraft = state.draft?.id === draft.id;
+  const visibleDraft = normalizeDraft(draft);
+  const blocks = copyBlocks(
+    visibleDraft.workingCopy?.blocks ?? activeRevisionFor(visibleDraft)?.blocks ?? [],
+  );
+  const sameDraft = state.draft?.id === visibleDraft.id;
   return {
     ...state,
     autoSave: "saved",
     blocks,
-    bodyText: revisionText(activeRevisionFor(draft)),
+    bodyText: blockText(blocks),
     busy: false,
     deleteConfirmation: false,
-    draft,
+    draft: visibleDraft,
+    drafts: upsertDraft(state.drafts, visibleDraft),
     error: null,
     imageInsertAt: blocks.length,
-    phase: phaseFor(draft),
+    phase: phaseFor(visibleDraft),
     run: sameDraft ? state.run : null,
-    selectedCategoryNo: draft.categoryNo,
+    selectedCategoryNo: visibleDraft.categoryNo,
     stagingBodyVerification: sameDraft ? state.stagingBodyVerification : null,
   };
 }
@@ -160,7 +165,7 @@ export function withAutoSaveAcknowledged(state: WritingState, draft: PostDraft):
     ...state,
     autoSave: "saved",
     draft: acknowledged,
-    drafts: state.drafts.map((item) => (item.id === acknowledged.id ? acknowledged : item)),
+    drafts: upsertDraft(state.drafts, acknowledged),
     error: null,
   };
 }
@@ -208,11 +213,37 @@ export function withStagingEvent(
   };
 }
 
+/** Resolve a terminal staging stream event without leaving the run in a perpetual running state. */
+export function withStagingTerminal(
+  state: WritingState,
+  event: string,
+  payload: Record<string, unknown> = {},
+): WritingState {
+  if (state.run === null) return state;
+  const runState = terminalRunState(event, payload);
+  if (runState === null) return state;
+  const resultCode = typeof payload.result_code === "string" ? payload.result_code : null;
+  return {
+    ...state,
+    busy: false,
+    run: {
+      ...state.run,
+      state: runState,
+      ...(resultCode === null ? {} : { resultCode }),
+    },
+  };
+}
+
 export function startWorking(state: WritingState, phase: WritingPhase): WritingState {
   return { ...state, busy: true, error: null, notice: null, phase };
 }
 
 export function withFailure(state: WritingState, message: string): WritingState {
+  return { ...state, busy: false, error: message, phase: "failed" };
+}
+
+/** Record a failed body autosave without conflating it with ordinary API/AI failures. */
+export function withAutoSaveFailure(state: WritingState, message: string): WritingState {
   return { ...state, autoSave: "failed", busy: false, error: message, phase: "failed" };
 }
 
@@ -276,14 +307,16 @@ export function withImageInsertionPoint(state: WritingState, imageInsertAt: numb
 
 export function withDraftTitle(state: WritingState, title: string): WritingState {
   if (state.draft === null) return state;
+  const draft = {
+    ...state.draft,
+    title,
+    workingCopy: state.draft.workingCopy == null ? null : { ...state.draft.workingCopy, title },
+  };
   return {
     ...state,
     autoSave: "idle",
-    draft: {
-      ...state.draft,
-      title,
-      workingCopy: state.draft.workingCopy == null ? null : { ...state.draft.workingCopy, title },
-    },
+    draft,
+    drafts: upsertDraft(state.drafts, draft),
   };
 }
 
@@ -311,6 +344,32 @@ export function withoutDraft(state: WritingState, draftId: string): WritingState
     notice: "초안을 삭제했습니다.",
     phase: "seed",
     run: null,
+    stagingBodyVerification: null,
+  };
+}
+
+/**
+ * Close the currently open draft while keeping the writing workspace's loaded context intact.
+ *
+ * Starting a new draft is deliberately different from deleting one: the old draft remains in the
+ * recent-drafts list and the provider/category/profile defaults stay available to the seed form.
+ */
+export function withoutActiveDraft(state: WritingState): WritingState {
+  return {
+    ...state,
+    autoSave: "idle",
+    blocks: [],
+    bodyText: "",
+    busy: false,
+    deleteConfirmation: false,
+    draft: null,
+    error: null,
+    imageInsertAt: 0,
+    notice: "새 글 작성을 시작합니다.",
+    phase: "seed",
+    run: null,
+    seedText: "",
+    seedTitle: "",
     stagingBodyVerification: null,
   };
 }
@@ -388,7 +447,26 @@ export function blocksFromText(text: string, previous: DraftRevision | null): Bo
 
 /** Report whether the draft can be staged. */
 export function canStage(state: WritingState): boolean {
-  return !state.busy && state.blocks.length > 0;
+  return (
+    !state.busy &&
+    state.run?.state !== "running" &&
+    activeRevision(state) !== null &&
+    state.blocks.length > 0
+  );
+}
+
+/** Return whether the working copy differs from the revision that AI tools would read. */
+export function needsCheckpoint(state: WritingState): boolean {
+  return hasUncheckpointedChanges(state);
+}
+
+/** Compare the current canvas/title with the active revision, ignoring equal working-copy metadata. */
+export function hasUncheckpointedChanges(state: WritingState): boolean {
+  const draft = state.draft;
+  if (draft === null) return false;
+  const revision = activeRevision(state);
+  if (revision === null) return state.blocks.length > 0;
+  return draft.title !== revision.title || !blocksEqual(state.blocks, revision.blocks);
 }
 
 function copyBlocks(blocks: readonly BodyBlock[]): BodyBlock[] {
@@ -399,6 +477,51 @@ function copyBlocks(blocks: readonly BodyBlock[]): BodyBlock[] {
     }
     return { ...block };
   });
+}
+
+function upsertDraft(drafts: readonly PostDraft[], draft: PostDraft): PostDraft[] {
+  return [draft, ...drafts.filter((item) => item.id !== draft.id)];
+}
+
+function normalizeDraft(draft: PostDraft): PostDraft {
+  const title = draft.workingCopy?.title ?? activeRevisionFor(draft)?.title ?? draft.title;
+  return title === draft.title ? draft : { ...draft, title };
+}
+
+function blocksEqual(left: readonly BodyBlock[], right: readonly BodyBlock[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((block, index) => bodyBlocksEqual(block, right[index]));
+}
+
+function bodyBlocksEqual(left: BodyBlock, right: BodyBlock | undefined): boolean {
+  if (right === undefined || left.type !== right.type) return false;
+  if (left.type === "image" && right.type === "image") {
+    return left.image_id === right.image_id && left.caption === right.caption;
+  }
+  if (
+    (left.type === "ordered_list" || left.type === "unordered_list") &&
+    (right.type === "ordered_list" || right.type === "unordered_list")
+  ) {
+    return (
+      left.items.length === right.items.length &&
+      left.items.every((item, index) => item === right.items[index])
+    );
+  }
+  if (left.type === "divider" && right.type === "divider") return true;
+  return "text" in left && "text" in right && left.text === right.text;
+}
+
+function terminalRunState(
+  event: string,
+  payload: Record<string, unknown>,
+): EngagementRunState | null {
+  if (event === "stream_error" || event === "stream_deadline") return "unconfirmed";
+  if (event === "run_failed") return "failed";
+  if (event === "run_skipped") return "unconfirmed";
+  if (event !== "run_finished" && event !== "run_snapshot") return null;
+  const state = payload.state;
+  if (state === "succeeded" || state === "failed" || state === "unconfirmed") return state;
+  return event === "run_finished" ? "succeeded" : "unconfirmed";
 }
 
 function blockText(blocks: readonly BodyBlock[]): string {

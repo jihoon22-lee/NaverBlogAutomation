@@ -6,18 +6,23 @@ import {
   blocksFromText,
   canGenerate,
   canStage,
+  hasUncheckpointedChanges,
   initialWritingState,
+  needsCheckpoint,
   revisionText,
   selectedTags,
   withDraft,
+  withAutoSaveAcknowledged,
+  withAutoSaveFailure,
   withFailure,
   withLoaded,
   withOptions,
   withRun,
   withSeed,
   withStagingEvent,
+  withStagingTerminal,
 } from "../../src/app/state/writing";
-import { renderWriting, wordDiff } from "../../src/app/views/writing";
+import { draftLabel, renderWriting, wordDiff } from "../../src/app/views/writing";
 
 const IMAGE_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -70,7 +75,7 @@ function draft(overrides: Partial<PostDraft> = {}): PostDraft {
   };
 }
 
-function run(): PublishRun {
+function run(overrides: Partial<PublishRun> = {}): PublishRun {
   return {
     id: "run1",
     draftId: "d1",
@@ -86,6 +91,7 @@ function run(): PublishRun {
     })),
     createdAt: null,
     updatedAt: null,
+    ...overrides,
   };
 }
 
@@ -140,6 +146,120 @@ describe("writing state", () => {
     expect(withDraft(base, draft({ status: "tagged" })).phase).toBe("tagging");
     expect(withDraft(base, draft({ status: "staged" })).phase).toBe("staging");
     expect(withDraft(base, draft({ status: "refining" })).phase).toBe("review");
+  });
+
+  it("upserts the latest draft at the front without duplicating recent drafts", () => {
+    const older = draft({ id: "older" });
+    const current = draft({
+      id: "current",
+      workingCopy: {
+        title: "기존 제목",
+        blocks: revision().blocks,
+        summary: revision().summary,
+        contentVersion: 1,
+      },
+    });
+    const state = { ...initialWritingState(), drafts: [current, older] };
+
+    const next = withDraft(state, {
+      ...current,
+      workingCopy: {
+        ...(current.workingCopy as NonNullable<PostDraft["workingCopy"]>),
+        title: "최신 제목",
+      },
+    });
+
+    expect(next.drafts.map((item) => item.id)).toEqual(["current", "older"]);
+    expect(next.drafts[0]?.title).toBe("최신 제목");
+  });
+
+  it("normalizes visible title and body text to the working canvas", () => {
+    const active = revision({
+      title: "활성 제목",
+      blocks: [{ type: "paragraph", text: "활성 본문" }],
+    });
+    const working = draft({
+      title: "씨앗 제목",
+      revisions: [active],
+      workingCopy: {
+        title: "편집 제목",
+        blocks: [{ type: "paragraph", text: "편집 본문" }],
+        summary: "편집 요약",
+        contentVersion: 2,
+      },
+    });
+    const state = withDraft(initialWritingState(), working);
+
+    expect(state.draft?.title).toBe("편집 제목");
+    expect(state.drafts[0]?.title).toBe("편집 제목");
+    expect(state.bodyText).toBe("편집 본문");
+
+    const revisionOnly = withDraft(initialWritingState(), {
+      ...working,
+      workingCopy: null,
+    });
+    expect(revisionOnly.draft?.title).toBe("활성 제목");
+    expect(revisionOnly.bodyText).toBe("활성 본문");
+  });
+
+  it("keeps an autosave acknowledgement in the recent drafts list", () => {
+    const current = withDraft(initialWritingState(), draft({ id: "current" }));
+    const acknowledged = { ...(current.draft as PostDraft), updatedAt: "2026-08-01T00:00:00Z" };
+
+    const next = withAutoSaveAcknowledged(current, acknowledged);
+
+    expect(next.drafts[0]?.id).toBe("current");
+    expect(next.drafts.filter((item) => item.id === "current")).toHaveLength(1);
+  });
+
+  it("acknowledges a title-only save without replacing transient canvas blocks", () => {
+    const current = withDraft(initialWritingState(), draft({ revisions: [] }));
+    const edited = {
+      ...current,
+      blocks: [{ type: "paragraph" as const, text: "임시 본문" }],
+      bodyText: "임시 본문",
+      draft: { ...(current.draft as PostDraft), title: "새 제목" },
+    };
+    const acknowledged = withAutoSaveAcknowledged(edited, {
+      ...(current.draft as PostDraft),
+      title: "새 제목",
+      revisions: [],
+    });
+
+    expect(acknowledged.draft?.title).toBe("새 제목");
+    expect(acknowledged.blocks).toEqual([{ type: "paragraph", text: "임시 본문" }]);
+    expect(acknowledged.bodyText).toBe("임시 본문");
+  });
+
+  it("requires an explicit checkpoint when working copy and active revision differ", () => {
+    const base = revision();
+    const current = draft({
+      revisions: [base],
+      workingCopy: {
+        title: "고친 제목",
+        blocks: base.blocks,
+        summary: base.summary,
+        contentVersion: 2,
+      },
+    });
+    const equal = draft({
+      revisions: [base],
+      workingCopy: {
+        title: base.title,
+        blocks: base.blocks,
+        summary: base.summary,
+        contentVersion: 2,
+      },
+    });
+
+    expect(needsCheckpoint(withDraft(initialWritingState(), current))).toBe(true);
+    expect(hasUncheckpointedChanges(withDraft(initialWritingState(), equal))).toBe(false);
+    expect(needsCheckpoint(withDraft(initialWritingState(), draft()))).toBe(false);
+
+    const local = withDraft(initialWritingState(), draft());
+    expect(needsCheckpoint({ ...local, blocks: [{ type: "paragraph", text: "로컬 편집" }] })).toBe(
+      true,
+    );
   });
 
   it("prefers the active revision over the newest", () => {
@@ -198,13 +318,33 @@ describe("writing state", () => {
     expect(canStage(ready)).toBe(true);
     expect(canStage({ ...ready, busy: true })).toBe(false);
     expect(canStage(withDraft(initialWritingState(), draft({ revisions: [] })))).toBe(false);
+    expect(canStage(withRun(ready, run()))).toBe(false);
+    expect(canStage(withRun(ready, run({ state: "succeeded" })))).toBe(true);
+  });
+
+  it("resolves terminal staging events to a bounded run state", () => {
+    const base = withRun(withDraft(initialWritingState(), draft()), run());
+
+    expect(withStagingTerminal(base, "run_finished", { state: "succeeded" }).run?.state).toBe(
+      "succeeded",
+    );
+    expect(withStagingTerminal(base, "run_failed").run?.state).toBe("failed");
+    expect(withStagingTerminal(base, "stream_deadline").run?.state).toBe("unconfirmed");
+    expect(withStagingTerminal(base, "run_snapshot", { state: "failed" }).run?.state).toBe(
+      "failed",
+    );
+    expect(withStagingTerminal(base, "stream_error").run?.state).toBe("unconfirmed");
+    expect(withStagingTerminal(base, "run_finished").busy).toBe(false);
   });
 
   it("records a failure message", () => {
-    const failed = withFailure(initialWritingState(), "실패했습니다.");
+    const source = { ...initialWritingState(), autoSave: "saved" as const };
+    const failed = withFailure(source, "실패했습니다.");
 
     expect(failed.phase).toBe("failed");
     expect(failed.error).toBe("실패했습니다.");
+    expect(failed.autoSave).toBe("saved");
+    expect(withAutoSaveFailure(source, "자동 저장 실패").autoSave).toBe("failed");
   });
 
   it("keeps seed and option edits", () => {
@@ -224,6 +364,10 @@ describe("writing state", () => {
         { kind: "added", text: "고친" },
       ]),
     );
+  });
+
+  it("presents draft status as a readable Korean label", () => {
+    expect(draftLabel(draft({ status: "staged" }))).toBe("생성된 제목 · 임시저장 완료");
   });
 });
 
@@ -249,6 +393,201 @@ describe("writing view", () => {
     expect(root.querySelector("#seed-text")).not.toBeNull();
     expect(root.querySelector("#body-text")).toBeNull();
     expect(root.querySelector("#stage-button")).toBeNull();
+  });
+
+  it("uses a writing-first start layout with a clear AI primary action", () => {
+    const root = render(
+      withLoaded(withSeed(initialWritingState(), { title: "", text: "" }), {
+        categories: [],
+        drafts: [],
+        providers: [{ provider: "openai", configured: false, model: "gpt-test" }],
+      }),
+    );
+
+    expect(root.querySelector('.writing-shell[data-mode="start"]')).not.toBeNull();
+    expect(root.querySelector(".writing-page-header h2")?.textContent).toBe("글쓰기");
+    expect(root.querySelector(".writing-start-layout")).not.toBeNull();
+    expect(root.querySelector(".writing-start-layout > .seed-panel")).not.toBeNull();
+    expect(
+      root.querySelector(".writing-start-layout > aside.writing-recent-drafts-sidebar"),
+    ).not.toBeNull();
+    expect(root.querySelector(".writing-start-layout > aside .draft-list-panel")).not.toBeNull();
+    expect(root.querySelector(".writing-editor-layout")).toBeNull();
+    expect(root.querySelector("#complete-draft-button")?.textContent).toBe("AI로 초안 완성");
+    expect(root.querySelector("#create-draft-button")?.textContent).toBe("초안만 저장");
+    const seedPanel = root.querySelector(".seed-panel") as Element;
+    const complete = seedPanel.querySelector("#complete-draft-button") as Node;
+    const create = seedPanel.querySelector("#create-draft-button") as Node;
+    expect(
+      complete.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(root.querySelector(".provider-missing-hint")?.textContent).toContain(
+      "AI 연결이 설정되지 않아",
+    );
+    expect(root.querySelector(".writing-page-header #writing-status")).not.toBeNull();
+    expect(root.querySelector(".writing-page-heading > #writing-title")).not.toBeNull();
+  });
+
+  it("switches to an editor layout, keeps core actions in the main column, and exposes new draft", () => {
+    const onStartNew = vi.fn();
+    const root = render(withDraft(initialWritingState(), draft()));
+    renderWriting(root, withDraft(initialWritingState(), draft()), {
+      ...HANDLERS,
+      onStartNew,
+    });
+
+    const shell = root.querySelector('.writing-shell[data-mode="editor"]');
+    expect(shell).not.toBeNull();
+    expect(shell?.querySelector(".seed-panel")).toBeNull();
+    expect(shell?.querySelector(".writing-editor-layout > .writing-editor-main")).not.toBeNull();
+    expect(shell?.querySelector(".writing-editor-layout > .writing-editor-sidebar")).not.toBeNull();
+    expect(shell?.querySelector(".writing-editor-main")?.tagName).toBe("SECTION");
+    expect(shell?.querySelector(".writing-editor-main #draft-title")).not.toBeNull();
+    expect(shell?.querySelector(".writing-editor-main .block-canvas")).not.toBeNull();
+    expect(shell?.querySelector(".writing-editor-sidebar #refine-button")).not.toBeNull();
+    expect(shell?.querySelector("#start-new-draft-button")).not.toBeNull();
+
+    (shell?.querySelector("#start-new-draft-button") as HTMLButtonElement | null)?.click();
+    expect(onStartNew).toHaveBeenCalledOnce();
+  });
+
+  it("keeps important phase panels open and preserves manual disclosure state", () => {
+    const root = render(withDraft(initialWritingState(), draft()));
+
+    expect((root.querySelector('[data-writing-panel="ai"]') as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    expect(
+      (root.querySelector('[data-writing-panel="revisions"]') as HTMLDetailsElement).open,
+    ).toBe(false);
+
+    const images = root.querySelector('[data-writing-panel="images"]') as HTMLDetailsElement;
+    images.open = true;
+    renderWriting(
+      root,
+      { ...withDraft(initialWritingState(), draft()), notice: "저장됨" },
+      HANDLERS,
+    );
+    expect((root.querySelector('[data-writing-panel="images"]') as HTMLDetailsElement).open).toBe(
+      true,
+    );
+    expect(root.querySelectorAll("details[data-writing-panel]")).not.toHaveLength(0);
+    expect(
+      root.querySelector('[data-writing-panel="images"] summary')?.getAttribute("aria-controls"),
+    ).toBe("writing-panel-images-content");
+
+    const taggingRoot = render(withDraft(initialWritingState(), draft({ status: "tagged" })));
+    expect(
+      (taggingRoot.querySelector('[data-writing-panel="tags"]') as HTMLDetailsElement).open,
+    ).toBe(true);
+    expect(
+      (taggingRoot.querySelector('[data-writing-panel="ai"]') as HTMLDetailsElement).open,
+    ).toBe(false);
+
+    const stagingRoot = render(withRun(withDraft(initialWritingState(), draft()), run()));
+    expect(
+      (stagingRoot.querySelector('[data-writing-panel="staging"]') as HTMLDetailsElement).open,
+    ).toBe(true);
+  });
+
+  it("opens AI tools when an empty draft needs its first body", () => {
+    const collecting = draft({ status: "collecting", revisions: [] });
+    const root = render(withDraft(initialWritingState(), collecting));
+
+    expect((root.querySelector('[data-writing-panel="ai"]') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it("guards an empty collecting editor from actions that need body content", () => {
+    const collecting = draft({ status: "collecting", revisions: [] });
+    const state = withLoaded(withDraft(initialWritingState(), collecting), {
+      categories: [],
+      drafts: [collecting],
+      providers: [{ provider: "openai", configured: true, model: "gpt-test" }],
+    });
+    const root = render(state);
+
+    expect(root.querySelector(".editor-empty-state")).not.toBeNull();
+    expect((root.querySelector("#empty-editor-compose-button") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect((root.querySelector("#compose-button") as HTMLButtonElement).disabled).toBe(false);
+    expect((root.querySelector("#save-body-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((root.querySelector("#checkpoint-body-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((root.querySelector("#refine-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((root.querySelector("#generate-tags-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((root.querySelector("#stage-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("locks mutable editor controls while a server action is running", () => {
+    const root = render({ ...withDraft(initialWritingState(), draft()), busy: true });
+
+    for (const selector of [
+      "#draft-title",
+      ".block-canvas textarea",
+      ".block-tools select",
+      ".block-tools button",
+      ".image-insertion-point",
+      ".block-insert button",
+      "#image-input",
+      ".image-insert",
+      ".image-remove",
+      ".tag-choice",
+      "#tag-input",
+      "#start-new-draft-button",
+    ]) {
+      expect((root.querySelector(selector) as HTMLButtonElement | HTMLInputElement).disabled).toBe(
+        true,
+      );
+    }
+    expect(root.querySelector(".block-canvas")?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("explains an unavailable AI provider in the editor and keeps generation controls disabled", () => {
+    const state = withLoaded(withDraft(initialWritingState(), draft()), {
+      categories: [],
+      drafts: [draft()],
+      providers: [{ provider: "openai", configured: false, model: "gpt-test" }],
+    });
+    const root = render(state);
+
+    expect(root.querySelectorAll(".provider-missing-hint")).toHaveLength(1);
+    expect(root.querySelector(".provider-missing-hint")?.textContent).toContain(
+      "연결 설정을 완료하면",
+    );
+    expect((root.querySelector("#compose-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((root.querySelector("#refine-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the editor accessible and preserves body-first mobile DOM order", () => {
+    const root = render(withDraft(initialWritingState(), draft()));
+    const shell = root.querySelector(".writing-shell") as HTMLElement;
+    const heading = shell.querySelector("#writing-title");
+    expect(heading?.tagName).toBe("H2");
+    expect(shell.querySelectorAll("#writing-title")).toHaveLength(1);
+    expect(shell.querySelector(".writing-page-actions > #writing-status")).not.toBeNull();
+    expect(shell.querySelector(".writing-editor-layout")?.firstElementChild?.className).toBe(
+      "writing-editor-main",
+    );
+    expect(shell.querySelector(".writing-editor-layout")?.lastElementChild?.className).toBe(
+      "writing-editor-sidebar",
+    );
+    for (const button of Array.from(shell.querySelectorAll("button"))) {
+      expect(button.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+    }
+    for (const tool of Array.from(shell.querySelectorAll(".block-tools button"))) {
+      const button = tool as HTMLButtonElement;
+      expect(button.getAttribute("aria-label")).toBeTruthy();
+      expect(button.title).toBeTruthy();
+    }
+    for (const summary of Array.from(
+      shell.querySelectorAll("details[data-writing-panel] > summary"),
+    )) {
+      expect(summary.tagName).toBe("SUMMARY");
+      expect(summary.getAttribute("role")).toBeNull();
+      expect(summary.getAttribute("aria-controls")).toBeTruthy();
+    }
   });
 
   it("disables draft creation without a title", () => {
@@ -324,7 +663,7 @@ describe("writing view", () => {
     expect(root.querySelector('[data-step="body"]')?.textContent).toContain("blocks_staged_3");
     expect(
       root.querySelector('[data-testid="staging-verification-checklist"]')?.textContent,
-    ).toContain("요청한 1~3번 block 중 앞 3개를 순서대로 검증했습니다.");
+    ).toContain("요청한 1~3번 블록 중 앞 3개를 순서대로 검증했습니다.");
     expect(
       root.querySelector('[data-testid="staging-verification-checklist"]')?.textContent,
     ).toContain("이미지와 캡션");
@@ -341,6 +680,7 @@ describe("writing view", () => {
     const root = render(withFailure(withDraft(initialWritingState(), draft()), "실패했습니다."));
 
     expect(root.querySelector("#writing-status")?.textContent).toBe("실패했습니다.");
+    expect(root.querySelector("#writing-status")?.getAttribute("data-state")).toBe("error");
   });
 
   it("wires every available editing action to an explicit handler", () => {
@@ -379,7 +719,6 @@ describe("writing view", () => {
     renderWriting(root, state, handlers);
 
     for (const selector of [
-      "#sync-categories-button",
       ".draft-item",
       ".image-remove",
       ".provider-choice",
@@ -404,7 +743,19 @@ describe("writing view", () => {
     const title = root.querySelector<HTMLInputElement>("#draft-title") as HTMLInputElement;
     title.value = "고친 제목";
     title.dispatchEvent(new Event("input"));
-    const seed = root.querySelector<HTMLTextAreaElement>("#seed-text") as HTMLTextAreaElement;
+    const startRoot = document.createElement("main");
+    document.body.append(startRoot);
+    renderWriting(
+      startRoot,
+      withLoaded(withSeed(initialWritingState(), { title: "새 글", text: "메모" }), {
+        categories: [],
+        drafts: [],
+        providers: [{ provider: "openai", configured: true, model: "gpt-test" }],
+      }),
+      handlers,
+    );
+    startRoot.querySelector("#sync-categories-button")?.dispatchEvent(new Event("click"));
+    const seed = startRoot.querySelector<HTMLTextAreaElement>("#seed-text") as HTMLTextAreaElement;
     seed.value = "바꾼 메모";
     seed.dispatchEvent(new Event("input"));
 
@@ -443,7 +794,7 @@ describe("writing view", () => {
       expect.arrayContaining([{ type: "paragraph", text: "문단입니다." }]),
     );
     expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith(
-      expect.arrayContaining([{ type: "quote", text: "첫 구역" }]),
+      expect.arrayContaining([{ type: "quote", text: "문단입니다." }]),
     );
   });
 
@@ -475,6 +826,7 @@ describe("writing view", () => {
       { type: "image", image_id: IMAGE_ID, caption: "사진" },
     ]);
     expect(handlers.onBlocksStructureChange).toHaveBeenCalledWith([
+      { type: "heading", text: "첫 구역" },
       { type: "paragraph", text: "문단입니다." },
       { type: "image", image_id: IMAGE_ID, caption: "사진" },
     ]);
@@ -485,6 +837,7 @@ describe("writing view", () => {
       { type: "image", image_id: IMAGE_ID, caption: "사진" },
       { type: "heading", text: "첫 구역" },
       { type: "paragraph", text: "문단입니다." },
+      { type: "divider" },
     ]);
   });
 });

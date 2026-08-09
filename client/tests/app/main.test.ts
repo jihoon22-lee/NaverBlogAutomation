@@ -18,6 +18,34 @@ const EXTRACTION = {
   preview: "합성 본문",
 };
 
+const WRITING_DRAFT_ID = "99999999-9999-4999-8999-999999999999";
+const WRITING_DRAFT_BODY = {
+  id: WRITING_DRAFT_ID,
+  title: "라우트 초안",
+  category_no: null,
+  status: "composed",
+  use_image_vision: false,
+  seed_text: "라우트 테스트 메모",
+  revisions: [
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      round_no: 1,
+      kind: "composed",
+      provider: "openai",
+      model: "gpt-test",
+      title: "라우트 초안",
+      summary: "",
+      is_active: true,
+      blocks: [{ type: "paragraph", text: "본문" }],
+      created_at: null,
+    },
+  ],
+  images: [],
+  tags: [],
+  created_at: null,
+  updated_at: null,
+};
+
 beforeEach(() => {
   document.body.innerHTML = "";
 });
@@ -165,6 +193,30 @@ function installWorkspaceApi(
   });
   vi.stubGlobal("fetch", handler);
   return handler;
+}
+
+function installWritingApi(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), "http://127.0.0.1:8765").pathname;
+      if (path === "/api/v1/llm/providers") {
+        return response({ items: [{ provider: "openai", configured: true, model: "gpt-test" }] });
+      }
+      if (path === "/api/v1/blog/categories") return response({ items: [] });
+      if (path === "/api/v1/drafts") return response({ items: [WRITING_DRAFT_BODY] });
+      if (path === `/api/v1/drafts/${WRITING_DRAFT_ID}`) return response(WRITING_DRAFT_BODY);
+      if (path === "/api/v1/settings/writing_profile") {
+        return response({
+          kind: "writing_profile",
+          schema_version: 1,
+          payload: {},
+          updated_at: null,
+        });
+      }
+      return response({ items: [] });
+    }),
+  );
 }
 
 describe("mount", () => {
@@ -575,6 +627,24 @@ describe("navigation", () => {
     expect(tab("home").hasAttribute("aria-current")).toBe(false);
     expect(root.querySelector(".seed-panel")).not.toBeNull();
     expect(workspace.writing.state.phase).toBe("seed");
+  });
+
+  it("returns to the base writing route after starting a new draft", async () => {
+    installWritingApi();
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showWriting(WRITING_DRAFT_ID);
+    await flush();
+    await flush();
+    expect(workspace.writing.state.draft?.id).toBe(WRITING_DRAFT_ID);
+
+    await expect(workspace.writing.startNew()).resolves.toBe(true);
+
+    expect(document.defaultView?.location.hash).toBe("#writing");
+    expect(tab("writing").getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector("#seed-title")).toBe(document.activeElement);
+    expect(root.querySelector(`[data-draft-id="${WRITING_DRAFT_ID}"]`)).not.toBeNull();
   });
 
   it("opens setup from the home blocker action and keeps the home tab current", async () => {
