@@ -56,6 +56,9 @@ export class RunController {
   readonly #listeners: (() => void)[] = [];
   #state: RunState = initialRunState();
   #source: { close(): void } | null = null;
+  #lifecycle = 0;
+  #manualCompletionInFlight = false;
+  #manualCompletionToken = 0;
 
   constructor(options: RunControllerOptions = {}) {
     this.#api = options.api ?? new LocalApiClient();
@@ -74,6 +77,9 @@ export class RunController {
 
   /** Forget the previous run so a new post starts from an idle panel. */
   reset(): void {
+    this.#lifecycle += 1;
+    this.#manualCompletionToken += 1;
+    this.#manualCompletionInFlight = false;
     this.#closeSource();
     this.#state = initialRunState();
   }
@@ -81,14 +87,17 @@ export class RunController {
   /** Approve and execute one post. Duplicate clicks while busy are ignored. */
   async start(discoveryPostId: string, recommendationId: string): Promise<EngagementRun | null> {
     if (isBusy(this.#state) || this.#state.phase === "finished") return null;
+    const lifecycle = ++this.#lifecycle;
     this.#update(startingRun(this.#state));
     let run: EngagementRun;
     try {
       run = await this.#api.startEngagementRun(discoveryPostId, recommendationId);
     } catch (error) {
+      if (lifecycle !== this.#lifecycle) return null;
       this.#update(withRefusal(this.#state, describe(error)));
       return null;
     }
+    if (lifecycle !== this.#lifecycle) return null;
     this.#update(withRun(this.#state, run));
     this.#subscribe(run.id);
     return run;
@@ -102,13 +111,26 @@ export class RunController {
   async completeManually(): Promise<EngagementRun | null> {
     const run = this.#state.run;
     if (run === null || this.#state.manualSteps.length === 0) return null;
+    if (this.#manualCompletionInFlight) return null;
+    const runId = run.id;
+    const manualSteps = [...this.#state.manualSteps];
+    const completionToken = ++this.#manualCompletionToken;
+    this.#manualCompletionInFlight = true;
     try {
-      const updated = await this.#api.completeEngagementManually(run.id, this.#state.manualSteps);
+      const updated = await this.#api.completeEngagementManually(runId, manualSteps);
+      if (completionToken !== this.#manualCompletionToken || this.#state.run?.id !== runId) {
+        return null;
+      }
       this.#update(withRun(this.#state, updated));
       return updated;
     } catch (error) {
+      if (completionToken !== this.#manualCompletionToken || this.#state.run?.id !== runId) {
+        return null;
+      }
       this.#update(withRefusal(this.#state, describe(error)));
       return null;
+    } finally {
+      if (completionToken === this.#manualCompletionToken) this.#manualCompletionInFlight = false;
     }
   }
 
@@ -127,6 +149,7 @@ export class RunController {
   }
 
   #onStreamEvent(runId: string, event: RunStreamEvent): void {
+    if (this.#state.run?.id !== runId) return;
     if (event.event === "step_completed") {
       const name = event.payload.step;
       const state = event.payload.state;
@@ -145,6 +168,7 @@ export class RunController {
   }
 
   async #onStreamError(runId: string): Promise<void> {
+    if (this.#state.run?.id !== runId) return;
     if (this.#state.streamClosed) {
       this.#closeSource();
       return;
@@ -159,9 +183,13 @@ export class RunController {
   }
 
   async #refresh(runId: string): Promise<void> {
+    if (this.#state.run?.id !== runId) return;
     try {
-      this.#update(withRun(this.#state, await this.#api.engagementRun(runId)));
+      const refreshed = await this.#api.engagementRun(runId);
+      if (this.#state.run?.id !== runId) return;
+      this.#update(withRun(this.#state, refreshed));
     } catch (error) {
+      if (this.#state.run?.id !== runId) return;
       this.#update(withRefusal(this.#state, describe(error)));
     }
   }

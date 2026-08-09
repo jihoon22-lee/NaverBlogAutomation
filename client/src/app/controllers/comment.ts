@@ -93,6 +93,7 @@ export class CommentController {
   #providers: { provider: LlmProviderName; model: string }[] = [];
   #refinementKeys = new Map<string, string>();
   #busy = false;
+  #contentSequence = 0;
 
   constructor(root: Element, options: CommentControllerOptions = {}) {
     this.#root = root;
@@ -153,6 +154,7 @@ export class CommentController {
     source: DiscoverySource | null = null,
     options: { generate?: boolean } = {},
   ): void {
+    this.#contentSequence += 1;
     this.#discoveryPostId = discoveryPostId;
     this.#run.reset();
     this.#update(withExtraction(this.#state, extraction, source));
@@ -161,6 +163,7 @@ export class CommentController {
 
   /** Generate directly from a discovery or pasted URL so the service extracts only once. */
   openUrl(url: string, discoveryPostId: string | null, source: DiscoverySource | null): void {
+    this.#contentSequence += 1;
     this.#discoveryPostId = discoveryPostId;
     this.#run.reset();
     this.#update(withGenerationRequest(this.#state, url, source));
@@ -191,13 +194,13 @@ export class CommentController {
     discoveryPostId: string | null,
     source: DiscoverySource | null,
   ): Promise<void> {
+    const contentSequence = ++this.#contentSequence;
     try {
-      await this.openStored(
-        await this.#api.recommendation(recommendationId),
-        discoveryPostId,
-        source,
-      );
+      const stored = await this.#api.recommendation(recommendationId);
+      if (contentSequence !== this.#contentSequence) return;
+      await this.openStored(stored, discoveryPostId, source);
     } catch (error) {
+      if (contentSequence !== this.#contentSequence) return;
       this.#update(withGenerationFailure(this.#state, describe(error)));
     }
   }
@@ -258,6 +261,7 @@ export class CommentController {
   async generate(options: { replace?: boolean } = {}): Promise<Recommendation | null> {
     const url = this.#state.url;
     if (url === null || this.#busy) return null;
+    const contentSequence = this.#contentSequence;
     this.#busy = true;
     this.#update(startGenerating(this.#state));
     try {
@@ -265,6 +269,7 @@ export class CommentController {
         ...this.#state.options,
         ...(options.replace === true ? { replace: true } : {}),
       });
+      if (contentSequence !== this.#contentSequence) return null;
       this.#update(withGeneration(this.#state, generation));
       this.#onRecommendationReady(
         generation.recommendation.id,
@@ -273,6 +278,7 @@ export class CommentController {
       );
       return generation.recommendation;
     } catch (error) {
+      if (contentSequence !== this.#contentSequence) return null;
       const code = error instanceof ApiError ? error.code : null;
       this.#update(
         withGenerationFailure(this.#state, describe(error), {
@@ -289,6 +295,7 @@ export class CommentController {
   async compareProviders(): Promise<void> {
     const url = this.#state.url;
     if (url === null || this.#busy || this.#providers.length < 2) return;
+    const contentSequence = this.#contentSequence;
     this.#busy = true;
     this.#update(startGenerating(this.#state));
     try {
@@ -297,12 +304,14 @@ export class CommentController {
         this.#providers,
         this.#state.options,
       );
+      if (contentSequence !== this.#contentSequence) return;
       this.#update(withFanout(this.#state, fanout));
       const selected = this.#state.recommendation;
       if (selected !== null) {
         this.#onRecommendationReady(selected.id, this.#discoveryPostId, this.#state.source);
       }
     } catch (error) {
+      if (contentSequence !== this.#contentSequence) return;
       this.#update(withGenerationFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
@@ -315,6 +324,7 @@ export class CommentController {
     const candidateId = this.#state.selectedCandidateId;
     if (recommendation === null || candidateId === null || !canApprove(this.#state)) return null;
     if (this.#busy) return null;
+    const contentSequence = this.#contentSequence;
     this.#busy = true;
     try {
       const reviewed = await this.#api.reviewRecommendation(recommendation.id, {
@@ -322,9 +332,11 @@ export class CommentController {
         reviewStatus: "approved",
         selectedCandidateId: candidateId,
       });
+      if (contentSequence !== this.#contentSequence) return null;
       this.#update(withReviewed(this.#state, reviewed));
       return reviewed;
     } catch (error) {
+      if (contentSequence !== this.#contentSequence) return null;
       this.#update(withGenerationFailure(this.#state, describe(error)));
       return null;
     } finally {
@@ -350,6 +362,7 @@ export class CommentController {
     });
     const idempotencyKey = this.#refinementKeys.get(requestKey) ?? randomIdempotencyKey();
     this.#refinementKeys.set(requestKey, idempotencyKey);
+    const contentSequence = this.#contentSequence;
     this.#busy = true;
     this.#update(startRefining(this.#state));
     try {
@@ -360,9 +373,11 @@ export class CommentController {
         ...(requestText.length === 0 ? {} : { request: requestText }),
         idempotencyKey,
       });
+      if (contentSequence !== this.#contentSequence) return;
       this.#update(withRefinedDraft(this.#state, refinement));
       this.#refinementKeys.delete(requestKey);
     } catch (error) {
+      if (contentSequence !== this.#contentSequence) return;
       this.#update(withRefinementFailure(this.#state, describe(error)));
     } finally {
       this.#busy = false;
