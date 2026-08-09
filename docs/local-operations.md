@@ -6,14 +6,14 @@
 ## Runtime Contract
 
 기본 local web app은 `127.0.0.1:8765`에서만 실행되며 `/app/`과 API는 같은 origin을 사용합니다.
-따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 PC의 **더보기 > 설정 >
+따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 PC의 **관리 > 설정 >
 연결 및 앱**에서 access mode를 LAN으로 저장하고, **저장한 설정 적용**으로 supervised restart를
 승인합니다. service가 `WEBAPP_ACCESS_MODE=lan`과 일치하는 `API_HOST=0.0.0.0`을 private env file에
 함께 기록하며, port는 `8765`으로 고정합니다. 이 경우에도 service는 발견한 private IPv4 address와
 loopback Host만 받으며, 태블릿은 PC에서 만든 일회용 code로 pair해야 합니다.
 공용 Wi-Fi, port forwarding, public hosting은 지원하지 않습니다.
 
-웹앱의 **홈**, **작업함**, **글쓰기**, **더보기**는 같은 PC-owned automation browser를 사용합니다.
+웹앱의 **홈**, **작업함**, **글쓰기**, **관리**는 같은 PC-owned automation browser를 사용합니다.
 네이버 로그인은 automation browser 창에서 직접 처리하며, 웹앱·태블릿에 계정 비밀번호나 cookie를
 입력하지 않습니다. legacy extension의 별도 실행 조건은 [Extension Legacy](extension-legacy.md)를 따르세요.
 
@@ -99,7 +99,7 @@ table 재작성으로 revision을 잃지 않도록 additive column migration을 
 `20260808_0022_runtime_setting_cleanup`은 더 이상 쓰지 않는 `browser_profile`과 `llm_providers`
 SQLite 설정만 제거합니다.
 
-업데이트 전에는 PC의 **더보기 > 설정 > 연결 및 앱 > 데이터 관리**에서 export를 내려받아 보관하세요.
+업데이트 전에는 PC의 **관리 > 설정 > 연결 및 앱 > 데이터 관리**에서 export를 내려받아 보관하세요.
 export는 browser, batch, 네이버 임시저장 작업이 모두 idle일 때만 가능하며 다음만 ZIP에 넣습니다.
 
 - SQLite DB와 존재하는 `-wal`/`-shm` 파일
@@ -138,13 +138,13 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
 
 - **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
   `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
-- **태블릿 연결 code를 만들 수 없음:** PC의 **더보기 > 설정 > 연결 및 앱**에서 access mode를
+- **태블릿 연결 code를 만들 수 없음:** PC의 **관리 > 설정 > 연결 및 앱**에서 access mode를
   **신뢰 Wi-Fi**로 저장하고 **저장한 설정 적용**을 누르세요. 태블릿과 PC가 같은 private Wi-Fi인지도
   확인하세요. launcher 없이 수동 API로 실행 중이면 그 화면의 재시작 안내에 따라 직접 다시 시작합니다.
 - **태블릿에서 계속 pairing 화면이 보임:** PC 웹앱에서 새 5분 code를 만든 뒤 다시 입력합니다. code는
   한 번 성공하면 즉시 폐기되며, 기기를 해제한 경우에도 새 code가 필요합니다.
 - **연결 표시는 정상이지만 이력이 비어 있음:** 기록은 현재 실행 중인 앱 data root의 SQLite에만
-  저장됩니다. 다른 private env file로 API를 시작했는지 확인하고 **더보기 > 이력 > 새로고침**을 누릅니다.
+  저장됩니다. 다른 private env file로 API를 시작했는지 확인하고 **관리 > 이력 > 새로고침**을 누릅니다.
 - **DrvFs permission error:** XDG fallback path로 새 file을 만드세요. 기존 credential file을
   복사하거나 permission check를 우회하지 마세요.
 
@@ -167,14 +167,14 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
   공개 BuddyList·RSS·공식 검색 API 결과가 비어 있거나 접근할 수 없으면 기존 대기열은 삭제하지 않고
   마지막 동기화 상태에 이유를 표시합니다. 여러 저장 검색어의 신규 후보 수는 합계이므로 50개를 넘을 수
   있으며, 이는 정상 동기화 결과입니다.
-- **저장한 신규 이웃 검색어를 지우고 싶음:** **더보기 > 설정 > 탐색 및 자동화 > 신규 이웃 검색어**의
+- **저장한 신규 이웃 검색어를 지우고 싶음:** **관리 > 설정 > 탐색 및 자동화 > 신규 이웃 검색어**의
   삭제 버튼을 사용합니다.
   삭제해도 기존에 수집된 후보 글은 유지됩니다.
 
 ### 공감·댓글·서로이웃 실행
 
-- **자동 실행 동의가 없어 진행되지 않음:** **더보기 > 설정 > 탐색 및 자동화**로 자동 이동합니다.
-  범위와 약관을 확인해 동의하거나, 댓글 작성으로 돌아가 댓글을 복사해 직접 붙여넣습니다.
+- **자동 실행 동의가 없어 진행되지 않음:** **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**으로 자동 이동합니다.
+  자동 실행 범위를 확인해 동의하거나, 댓글 작성으로 돌아가 댓글을 복사해 직접 붙여넣습니다.
 - **수동 댓글 등록:** 후보를 선택해 다듬은 뒤 승인된 댓글을 복사하고 네이버 입력란에 직접 붙여넣습니다.
   HTTP 태블릿 연결에서는 코드/댓글이 선택되면 길게 눌러 직접 복사할 수 있습니다.
 - **댓글 등록이 `not_found`로 중단됨:** 입력란과 `등록` 버튼이 각각 보이더라도 네이버는 둘을 형제
@@ -210,7 +210,7 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
 
 - **배치가 `daily_cap_reached`로 중단됨:** 이 batch에 포함한 공감·댓글·서로이웃 단계 중 하나가
   safety_policy의 일일 상한에 도달했습니다. 해당 단계의 사용량은 다음 날 자동으로 초기화됩니다.
-  다른 단계만 선택한 새 batch는 가능할 수 있습니다. 상한을 높이려면 **설정 > 자동 실행과 안전**에서
+  다른 단계만 선택한 새 batch는 가능할 수 있습니다. 상한을 높이려면 **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**에서
   값을 변경하고 저장합니다.
 - **배치가 `outside_allowed_hours`로 시작도 안 되거나 중간에 멈춤:** 현재 시각(Asia/Seoul)이
   safety_policy의 `allowed_hours` 목록에 포함되지 않습니다. 허용 시간대를 확인하고, 필요하면
@@ -238,31 +238,43 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
 
 | reason | 원인 | 해결 |
 | --- | --- | --- |
-| `not_scheduled` | schedule_policy의 `mode`가 `schedule`이 아닙니다. | **설정 > schedule_policy**에서 `mode`를 `schedule`로 변경합니다. |
+| `not_scheduled` | 예약 실행의 실행 방식이 `매일 예약 실행`이 아닙니다. | **관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**의 **실행 방식**에서 `매일 예약 실행`을 선택합니다. (기술 key: `schedule_policy.mode=schedule`) |
 | `not_due` | 설정한 시각이 아직 아닙니다(5분 이내 window). | 정상 동작입니다. 설정 시각까지 대기하세요. |
-| `consent_missing` | automation_consent에서 자동 실행에 동의하지 않았습니다. | **설정 > 사용자 승인형 자동 실행**에서 동의합니다. |
-| `safety_policy_missing` | safety_policy를 한 번도 저장하지 않았습니다. | **설정 > safety_policy**에서 일일 상한과 허용 시간대를 설정하고 저장합니다. |
+| `consent_missing` | 자동 실행에 동의하지 않았습니다. | **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**에서 동의합니다. (기술 key: `automation_consent`) |
+| `safety_policy_missing` | 안전 정책을 한 번도 저장하지 않았습니다. | **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**의 **세부 안전 한도와 허용 시간**을 설정하고 **안전 설정 저장**을 누릅니다. (기술 key: `safety_policy`) |
 | `already_ran_today` | 오늘 이미 스케줄 세션을 실행했습니다. | 정상 동작입니다. 하루에 한 번만 실행됩니다. |
 | `session_active` | 다른 세션(수동 배치 포함)이 아직 진행 중입니다. | 진행 중인 세션이 끝나면 다음 분 체크에서 시작합니다. |
 | `browser_unavailable` | automation browser를 시작하지 못했습니다. | Chrome 설치, 프로필 디렉터리, headless 설정을 확인합니다. |
 
-세 조건(automation_consent 동의, safety_policy 저장, schedule_policy `mode: schedule`)을 모두
-충족해야 무인 실행이 활성화됩니다. 하나라도 빠지면 동작하지 않습니다.
+화면에서 자동 실행 동의, 안전 설정 저장, **매일 예약 실행** 선택을 모두 완료해야 무인 실행이
+활성화됩니다. 기술 API 기준으로는 `automation_consent`, `safety_policy`, `schedule_policy.mode`
+조건이 모두 필요하며 하나라도 빠지면 동작하지 않습니다.
 
-### LLM 예산 (llm_budget) 초과
+### AI 호출 예산 초과 (`llm_budget`)
 
-- **`provider_cap_exceeded` 오류:** 한 번의 요청에 포함된 provider 수가 `per_request_provider_cap`
-  설정을 초과했습니다. 동시에 호출할 provider 수를 줄이거나 **설정 > llm_budget**에서
-  `per_request_provider_cap` 값을 높입니다.
-- **`daily_cap_exceeded` 오류:** 오늘 LLM provider 호출 총 횟수가 `daily_call_cap`에
-  도달했습니다. 내일까지 대기하거나, 호출 상한이 너무 낮으면 **설정 > llm_budget**에서
-  `daily_call_cap` 값을 올립니다.
+- **`provider_cap_exceeded` 오류:** 한 번의 요청에 포함된 AI 서비스(provider) 수가
+  `per_request_provider_cap` 설정을 초과했습니다. 동시에 호출할 AI 서비스 수를 줄이거나
+  **관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**에서 요청당 호출 상한을 낮추거나
+  높입니다. (기술 key: `llm_budget.per_request_provider_cap`)
+- **`daily_cap_exceeded` 오류:** 오늘 AI 서비스 호출 총 횟수가 `daily_call_cap`에 도달했습니다.
+  내일까지 대기하거나 **관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**에서 일일
+  호출 상한을 조절합니다. (기술 key: `llm_budget.daily_call_cap`)
 
 ### 글쓰기 워크플로
 
 - **임시저장은 됐는데 발행이 안 됨:** 정상 동작입니다. 글쓰기 워크플로는 네이버 에디터에
   임시저장까지만 수행하며, 발행은 사용자가 에디터에서 직접 확인하고 클릭합니다.
   자동 발행은 의도적으로 지원하지 않습니다.
+- **편집 내용이 AI 도구나 태그에서 잠김:** 제목을 비워 두지 말고 빈 문단·목록 항목을 먼저
+  채운 뒤 자동 저장이 끝났는지 확인합니다. 편집 후에는 **버전으로 남기기**를 눌러야 AI 다듬기와
+  태그 생성을 이어갈 수 있습니다. 자동 저장 실패가 표시되면 **지금 저장**으로 다시 저장한 뒤
+  같은 확인을 반복합니다.
+- **다른 기기에서 최신 초안이 저장됨:** 기존 화면의 편집 내용을 임의로 덮어쓰지 않도록 최신
+  working copy를 다시 불러오라는 안내가 표시됩니다. 최신 내용을 확인한 뒤 필요한 편집을 다시
+  하고, 원하는 시점에 **버전으로 남기기**를 사용합니다.
+- **화면을 이동한 뒤 이전 화면의 늦은 응답이 도착함:** 웹앱은 현재 경로와 현재 초안에 해당하는
+  최신 응답만 화면에 반영하고, 이전 화면·이전 초안의 늦은 응답은 무시합니다. 새 화면에서 최신
+  상태를 확인하고 필요하면 해당 화면의 **새로고침**을 사용하세요.
 
 ### 웹앱·기타
 
