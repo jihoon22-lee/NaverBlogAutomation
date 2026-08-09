@@ -468,7 +468,7 @@ function renderMore(
   const section = document.createElement("section");
   section.className = "more-menu-panel";
   const heading = document.createElement("h2");
-  heading.textContent = "더보기";
+  heading.textContent = "관리";
   const note = document.createElement("p");
   note.textContent = "작업 흐름을 방해하지 않는 보조 기능을 여기에서 관리합니다.";
   section.append(heading, note);
