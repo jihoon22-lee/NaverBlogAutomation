@@ -37,6 +37,7 @@ export interface TodayHandlers {
   onOpenWorkbench(): void;
   onOpenWriting(): void;
   onOpenOnboarding(): void;
+  onClearFilters(): void;
   onOpenBatch(): void;
   onOpenSettings(section?: SettingsSection): void;
   onCloseDetail(): void;
@@ -84,8 +85,9 @@ export function renderToday(root: Element, state: TodayState, handlers: TodayHan
   status.textContent = statusMessage(state);
   root.append(status);
 
-  root.append(renderServicePanel(document, state, handlers));
-  root.append(renderOnboarding(document, state, handlers));
+  root.append(renderWorkbenchHeader(document, state, handlers));
+  const readinessBanner = renderWorkbenchReadinessBanner(document, state, handlers);
+  if (readinessBanner !== null) root.append(readinessBanner);
 
   if (state.phase === "failed") return;
 
@@ -475,10 +477,10 @@ function blockerAction(
 }
 
 function renderDirectUrl(document: Document, handlers: TodayHandlers): Element {
-  const section = document.createElement("section");
+  const section = document.createElement("details");
   section.className = "direct-url-panel";
-  const heading = document.createElement("h2");
-  heading.textContent = "직접 URL로 댓글 만들기";
+  const summary = document.createElement("summary");
+  summary.textContent = "대기열에 없는 글 처리";
   const note = document.createElement("p");
   note.textContent = "대기열 밖 글은 댓글 후보 생성과 복사만 할 수 있으며 자동 실행하지 않습니다.";
   const label = document.createElement("label");
@@ -491,7 +493,7 @@ function renderDirectUrl(document: Document, handlers: TodayHandlers): Element {
   const open = button(document, "open-direct-url-button", "댓글 후보 만들기", () =>
     handlers.onOpenDirectUrl(input.value),
   );
-  section.append(heading, note, label, input, open);
+  section.append(summary, note, label, input, open);
   return section;
 }
 
@@ -500,21 +502,129 @@ function statusMessage(state: TodayState): string {
   if (state.phase === "failed") return state.error ?? "오늘의 작업을 불러오지 못했습니다.";
   if (state.phase === "idle") return "로컬 서비스에 연결하는 중입니다.";
   const counts = state.counts;
-  return counts.total === 0
+  const active = counts.neighbor + counts.search;
+  if (active === 0 && counts.skipped > 0) {
+    return `처리할 글이 없습니다. 보류 ${counts.skipped}건이 있습니다.`;
+  }
+  return active === 0
     ? "대기열이 비어 있습니다. 설정에서 자동 탐색을 확인하세요."
-    : `대기 중인 글 ${counts.total}건 (이웃 ${counts.neighbor}, 검색 ${counts.search})`;
+    : `대기 중인 글 ${active}건 (이웃 ${counts.neighbor}, 검색 ${counts.search})`;
 }
 
-function renderServicePanel(
+function renderWorkbenchHeader(
   document: Document,
   state: TodayState,
   handlers: TodayHandlers,
 ): Element {
   const section = document.createElement("section");
-  section.className = "service-panel";
-  const heading = document.createElement("h2");
-  heading.textContent = "로컬 서비스";
-  section.append(heading);
+  section.className = "workbench-header";
+  section.setAttribute("aria-labelledby", "workbench-header-title");
+  const title = document.createElement("h2");
+  title.id = "workbench-header-title";
+  title.textContent = "댓글 작업함";
+  const description = document.createElement("p");
+  description.className = "workbench-header-description";
+  description.textContent = "처리할 글을 확인하고 댓글 작업을 이어가세요.";
+
+  const counts = state.counts;
+  const summary = document.createElement("div");
+  summary.className = "workbench-header-summary";
+  summary.setAttribute("role", "group");
+  summary.setAttribute("aria-label", "작업함 요약");
+  summary.append(
+    headerMetric(document, "처리 대기", counts.neighbor + counts.search, "active"),
+    headerMetric(document, "보류", counts.skipped, "skipped"),
+  );
+
+  const connection = document.createElement("div");
+  connection.className = "workbench-connection-status";
+  const connectionState = workbenchConnectionState(state);
+  connection.dataset.status = connectionState.status;
+  const chip = StatusChip(document, {
+    status: connectionState.status,
+    label: connectionState.label,
+  });
+  const connectionText = document.createElement("span");
+  connectionText.textContent = connectionState.description;
+  connection.append(chip, connectionText);
+
+  const refresh = Button(document, {
+    id: "refresh-button",
+    label: "새로고침",
+    variant: "secondary",
+    disabled: state.phase === "loading",
+    onClick: handlers.onRefresh,
+  });
+  refresh.classList.add("workbench-refresh-action");
+
+  const details = document.createElement("details");
+  details.className = "workbench-service-details";
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "연결 상태 상세";
+  details.append(detailsSummary, renderServiceDetails(document, state, handlers));
+  section.append(title, description, summary, connection, refresh, details);
+  return section;
+}
+
+function headerMetric(document: Document, label: string, value: number, key: string): Element {
+  const metric = Card(document, { variant: "flat", className: "workbench-header-metric" });
+  metric.dataset.metric = key;
+  const title = document.createElement("span");
+  title.className = "workbench-header-metric-label";
+  title.textContent = label;
+  const count = document.createElement("strong");
+  count.className = "workbench-header-metric-value";
+  count.textContent = String(value);
+  metric.append(title, count);
+  return metric;
+}
+
+function workbenchConnectionState(state: TodayState): {
+  status: "ready" | "needs-action" | "running" | "error" | "neutral";
+  label: string;
+  description: string;
+} {
+  if (state.phase === "failed") {
+    return { status: "error", label: "확인 실패", description: "연결 상태를 확인하지 못했습니다." };
+  }
+  if (state.phase === "idle" || state.phase === "loading") {
+    return {
+      status: "running",
+      label: "확인 중",
+      description: "서비스와 브라우저 상태를 확인하는 중입니다.",
+    };
+  }
+  if (state.service === null) {
+    return {
+      status: "neutral",
+      label: "일부 미확인",
+      description: "서비스 연결 상태를 확인하세요.",
+    };
+  }
+  if (state.session?.state !== "ready") {
+    return {
+      status: "needs-action",
+      label: "브라우저 필요",
+      description: "자동화 브라우저를 시작하세요.",
+    };
+  }
+  if (state.session.login !== "authenticated") {
+    return {
+      status: "needs-action",
+      label: "로그인 필요",
+      description: "네이버 로그인 상태를 확인하세요.",
+    };
+  }
+  return { status: "ready", label: "연결됨", description: "서비스와 브라우저가 준비되었습니다." };
+}
+
+function renderServiceDetails(
+  document: Document,
+  state: TodayState,
+  handlers: TodayHandlers,
+): Element {
+  const content = document.createElement("div");
+  content.className = "workbench-service-details-content";
 
   const list = document.createElement("dl");
   appendTerm(document, list, "서비스", state.service === null ? "연결 확인 중" : "준비됨");
@@ -531,27 +641,36 @@ function renderServicePanel(
     "로그인",
     state.session === null ? "-" : LOGIN_LABELS[state.session.login],
   );
-  section.append(list);
+  content.append(list);
 
   if (state.session?.detail != null) {
     const detail = document.createElement("p");
     detail.className = "session-detail";
     detail.textContent = state.session.detail;
-    section.append(detail);
+    content.append(detail);
   }
 
   const actions = document.createElement("div");
   actions.className = "service-actions";
-  const refresh = button(document, "refresh-button", "새로고침", handlers.onRefresh);
-  refresh.disabled = state.phase === "loading";
-  actions.append(refresh);
+  const transitionInProgress =
+    state.session?.state === "launching" || state.session?.state === "closing";
+  const controlsDisabled = state.phase !== "ready" || transitionInProgress;
   if (state.session?.state === "ready") {
-    actions.append(
-      button(document, "focus-session-button", "브라우저 창 보이기", handlers.onFocusSession),
+    const focus = button(
+      document,
+      "focus-session-button",
+      "브라우저 창 보이기",
+      handlers.onFocusSession,
     );
-    actions.append(
-      button(document, "close-session-button", "브라우저 종료", handlers.onCloseSession),
+    focus.disabled = controlsDisabled;
+    const close = button(
+      document,
+      "close-session-button",
+      "브라우저 종료",
+      handlers.onCloseSession,
     );
+    close.disabled = controlsDisabled;
+    actions.append(focus, close);
   } else {
     const launch = button(
       document,
@@ -559,71 +678,55 @@ function renderServicePanel(
       "브라우저 시작",
       handlers.onLaunchSession,
     );
-    if (state.session?.state === "launching" || state.session?.state === "closing") {
-      launch.disabled = true;
-    }
+    launch.disabled = controlsDisabled;
     actions.append(launch);
   }
-  section.append(actions);
-  return section;
+  content.append(actions);
+  return content;
 }
 
-function renderOnboarding(document: Document, state: TodayState, handlers: TodayHandlers): Element {
-  const section = document.createElement("section");
-  section.className = "onboarding-panel";
-  const heading = document.createElement("h2");
-  heading.textContent = "시작 준비";
-  section.append(heading);
-  const readiness = state.readiness;
-  if (readiness === null) {
-    const loading = document.createElement("p");
-    loading.textContent = "필수 조건을 확인하는 중입니다.";
-    section.append(loading);
-    return section;
+function renderWorkbenchReadinessBanner(
+  document: Document,
+  state: TodayState,
+  handlers: TodayHandlers,
+): Element | null {
+  if (
+    state.phase !== "ready" ||
+    state.readiness === null ||
+    state.readiness.blockers.length === 0
+  ) {
+    return null;
   }
-  if (readiness.blockers.length === 0) {
-    const complete = document.createElement("p");
-    complete.textContent = "댓글 생성과 자동 실행을 시작할 준비가 되었습니다.";
-    section.append(complete);
-    return section;
-  }
-  const list = document.createElement("ul");
-  for (const blocker of readiness.blockers) {
-    const item = document.createElement("li");
-    item.textContent = blockerLabel(blocker);
-    if (blocker === "browser_not_running") {
-      item.append(document.createTextNode(" "));
-      item.append(
-        button(document, "onboarding-launch-browser", "브라우저 시작", handlers.onLaunchSession),
-      );
-    } else if (blocker === "naver_login_required") {
-      item.append(document.createTextNode(" "));
-      item.append(
-        button(document, "onboarding-focus-browser", "PC 브라우저 열기", handlers.onFocusSession),
-      );
-    } else if (blocker !== "web_app_assets_missing") {
-      item.append(document.createTextNode(" "));
-      item.append(
-        button(document, `onboarding-${blocker}`, "설정 열기", () =>
-          handlers.onOpenSettings(settingsSectionForBlocker(blocker)),
-        ),
-      );
-    }
-    list.append(item);
-  }
-  section.append(list);
-  if (state.nextCursor !== null) {
-    section.append(button(document, "load-more-queue-button", "더 불러오기", handlers.onLoadMore));
-  }
-  return section;
+  const banner = document.createElement("section");
+  banner.className = "workbench-readiness-banner";
+  banner.setAttribute("aria-labelledby", "workbench-readiness-title");
+  const title = document.createElement("h3");
+  title.id = "workbench-readiness-title";
+  title.textContent = "작업을 시작하기 전에 설정을 확인하세요";
+  const message = document.createElement("p");
+  message.textContent = `필수 설정 ${state.readiness.blockers.length}건을 확인하면 댓글 작업을 시작할 수 있습니다.`;
+  const open = Button(document, {
+    id: "open-onboarding-button",
+    label: "설정 가이드 열기",
+    variant: "primary",
+    onClick: handlers.onOpenOnboarding,
+  });
+  banner.append(title, message, open);
+  return banner;
 }
 
 function renderQueue(document: Document, state: TodayState, handlers: TodayHandlers): Element {
   const section = document.createElement("section");
   section.className = "queue-panel";
+  section.setAttribute("aria-labelledby", "queue-title");
   const heading = document.createElement("h2");
-  heading.textContent = "작업함";
-  section.append(heading);
+  heading.id = "queue-title";
+  heading.textContent = "작업 목록";
+  const description = document.createElement("p");
+  description.className = "queue-description";
+  const activeCount = state.counts.neighbor + state.counts.search;
+  description.textContent = `처리 대기 ${activeCount}건 · 보류 ${state.counts.skipped}건`;
+  section.append(heading, description);
 
   section.append(renderSegments(document, state, handlers));
   section.append(renderFilters(document, state, handlers));
@@ -632,7 +735,14 @@ function renderQueue(document: Document, state: TodayState, handlers: TodayHandl
   if (posts.length === 0) {
     const empty = document.createElement("p");
     empty.className = "queue-empty";
-    empty.textContent = "대기 중인 글이 없습니다.";
+    if (hasQueueFilters(state)) {
+      empty.textContent = "검색 또는 필터 조건에 맞는 글이 없습니다.";
+      const clear = button(document, "queue-clear-filters", "필터 초기화", handlers.onClearFilters);
+      clear.disabled = state.phase === "loading";
+      empty.append(clear);
+    } else {
+      empty.textContent = "대기 중인 글이 없습니다. 새로 수집하면 여기에 표시됩니다.";
+    }
     section.append(empty);
     return section;
   }
@@ -658,9 +768,31 @@ function renderQueue(document: Document, state: TodayState, handlers: TodayHandl
     select.className = "queue-item";
     select.dataset.postId = post.id;
     select.setAttribute("aria-pressed", String(post.id === state.selectedPostId));
-    const context = post.sourceLabel ?? post.publisherName ?? post.publisherBlogId ?? "확인 필요";
+    const topLine = document.createElement("span");
+    topLine.className = "queue-item-topline";
+    const source = document.createElement("span");
+    source.className = "queue-item-source";
+    source.textContent = SOURCE_LABELS[post.source];
+    const stateBadge = StatusChip(document, {
+      status: queueStateStatus(post.state),
+      label: queueStateLabel(post.state),
+      className: "queue-item-state",
+    });
+    topLine.append(source, stateBadge);
+    const title = document.createElement("span");
+    title.className = "queue-item-title";
+    title.textContent = post.title;
+    const meta = document.createElement("span");
+    meta.className = "queue-item-meta";
+    const author = post.publisherName ?? post.publisherBlogId ?? "작성자 확인 필요";
+    const context = post.sourceLabel ?? "탐색 맥락 없음";
+    meta.textContent = `${author} · ${context}`;
     const when = post.publishedAt ?? post.createdAt;
-    select.textContent = `${SOURCE_LABELS[post.source]} · ${context} · ${post.title} · ${when}`;
+    const time = document.createElement("time");
+    time.className = "queue-item-date";
+    time.dateTime = when;
+    time.textContent = formatQueueDate(when);
+    select.append(topLine, title, meta, time);
     select.addEventListener("click", () => handlers.onSelectPost(post.id));
     item.append(select);
     list.append(item);
@@ -672,15 +804,51 @@ function renderQueue(document: Document, state: TodayState, handlers: TodayHandl
   return section;
 }
 
+function hasQueueFilters(state: TodayState): boolean {
+  return (
+    state.query.trim().length > 0 ||
+    state.sourceFilter !== "neighbor" ||
+    state.stateFilter !== "all" ||
+    state.sort !== "newest"
+  );
+}
+
+const QUEUE_STATE_LABELS: Record<DiscoveryState, string> = {
+  queued: "대기",
+  opened: "열어봄",
+  completed: "완료",
+  skipped: "보류",
+  unavailable: "사용 불가",
+};
+
+function queueStateLabel(state: DiscoveryState): string {
+  return QUEUE_STATE_LABELS[state];
+}
+
+function queueStateStatus(
+  state: DiscoveryState,
+): "ready" | "needs-action" | "running" | "error" | "neutral" {
+  if (state === "completed") return "ready";
+  if (state === "opened") return "running";
+  if (state === "skipped") return "needs-action";
+  if (state === "unavailable") return "error";
+  return "neutral";
+}
+
+function formatQueueDate(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return "게시일 확인 필요";
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return trimmed;
+  return `${parsed.getUTCFullYear()}.${String(parsed.getUTCMonth() + 1).padStart(2, "0")}.${String(parsed.getUTCDate()).padStart(2, "0")}`;
+}
+
 function renderSegments(document: Document, state: TodayState, handlers: TodayHandlers): Element {
   const panel = document.createElement("div");
   panel.className = "queue-segments";
-  const selected =
-    state.stateFilter === "skipped"
-      ? "skipped"
-      : state.sourceFilter === "search"
-        ? "search"
-        : "neighbor";
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-label", "작업 목록 범위");
+  const selected = selectedSegment(state);
   for (const [segment, label, count] of [
     ["neighbor", "이웃 새 글", state.counts.neighbor],
     ["search", "새 이웃 후보", state.counts.search],
@@ -688,6 +856,7 @@ function renderSegments(document: Document, state: TodayState, handlers: TodayHa
   ] as const) {
     const choice = document.createElement("button");
     choice.type = "button";
+    choice.id = `queue-segment-${segment}`;
     choice.className = "queue-segment";
     choice.dataset.segment = segment;
     choice.setAttribute("aria-pressed", String(selected === segment));
@@ -698,16 +867,50 @@ function renderSegments(document: Document, state: TodayState, handlers: TodayHa
   return panel;
 }
 
+function selectedSegment(state: TodayState): "neighbor" | "search" | "skipped" | null {
+  if (state.sourceFilter === "all" && state.stateFilter === "all") return null;
+  if (state.stateFilter === "skipped") return "skipped";
+  if (state.sourceFilter === "search") return "search";
+  if (state.sourceFilter === "neighbor") return "neighbor";
+  return null;
+}
+
 function renderFilters(document: Document, state: TodayState, handlers: TodayHandlers): Element {
   const panel = document.createElement("div");
   panel.className = "queue-filters";
+  panel.setAttribute("role", "search");
+  panel.setAttribute("aria-label", "작업 목록 탐색");
+  const queryLabel = document.createElement("label");
+  queryLabel.htmlFor = "queue-query";
+  queryLabel.textContent = "검색";
   const query = document.createElement("input");
   query.id = "queue-query";
   query.type = "search";
   query.placeholder = "제목, 작성자, 검색어 검색";
   query.value = state.query;
-  query.addEventListener("change", () => handlers.onQueryChange(query.value));
-  panel.append(query);
+  const applyQuery = () => handlers.onQueryChange(query.value);
+  query.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    applyQuery();
+  });
+  const search = Button(document, {
+    id: "queue-search-button",
+    label: "검색 적용",
+    variant: "secondary",
+    onClick: applyQuery,
+  });
+  panel.append(queryLabel, query, search);
+
+  const advanced = document.createElement("details");
+  advanced.className = "queue-advanced-filters";
+  advanced.open =
+    state.sourceFilter === "all" || state.stateFilter !== "all" || state.sort === "oldest";
+  const advancedSummary = document.createElement("summary");
+  advancedSummary.id = "queue-advanced-filters-toggle";
+  advancedSummary.textContent = "고급 필터";
+  const fields = document.createElement("div");
+  fields.className = "queue-filter-fields";
 
   const source = document.createElement("select");
   source.id = "queue-source-filter";
@@ -722,6 +925,9 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     option.selected = state.sourceFilter === value;
     source.append(option);
   }
+  const sourceLabel = document.createElement("label");
+  sourceLabel.htmlFor = source.id;
+  sourceLabel.textContent = "출처";
   source.addEventListener("change", () => handlers.onFilterChange("source", source.value));
   const status = document.createElement("select");
   status.id = "queue-state-filter";
@@ -729,7 +935,7 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     ["all", "모든 상태"],
     ["queued", "대기"],
     ["opened", "열어봄"],
-    ["skipped", "건너뜀"],
+    ["skipped", "보류"],
     ["completed", "완료"],
     ["unavailable", "사용 불가"],
   ]) {
@@ -739,6 +945,9 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     option.selected = state.stateFilter === value;
     status.append(option);
   }
+  const statusLabel = document.createElement("label");
+  statusLabel.htmlFor = status.id;
+  statusLabel.textContent = "상태";
   status.addEventListener("change", () => handlers.onFilterChange("state", status.value));
   const sort = document.createElement("select");
   sort.id = "queue-sort";
@@ -752,8 +961,13 @@ function renderFilters(document: Document, state: TodayState, handlers: TodayHan
     option.selected = state.sort === value;
     sort.append(option);
   }
+  const sortLabel = document.createElement("label");
+  sortLabel.htmlFor = sort.id;
+  sortLabel.textContent = "정렬";
   sort.addEventListener("change", () => handlers.onSortChange(sort.value as "newest" | "oldest"));
-  panel.append(source, status, sort);
+  fields.append(sourceLabel, source, statusLabel, status, sortLabel, sort);
+  advanced.append(advancedSummary, fields);
+  panel.append(advanced);
   return panel;
 }
 
@@ -896,25 +1110,19 @@ function renderDetail(
 
   const badges = document.createElement("ul");
   badges.className = "detail-badges";
-  for (const [kind, label] of [
-    ["source", `출처 · ${SOURCE_LABELS[post.source]}`],
-    ["context", `검색어 · ${post.sourceLabel ?? "확인 필요"}`],
-    ["author", `작성자 · ${post.publisherName ?? post.publisherBlogId ?? "확인 필요"}`],
-    ["published", `시각 · ${post.publishedAt ?? post.createdAt}`],
-  ] as const) {
-    const badge = document.createElement("li");
-    badge.dataset.badge = kind;
-    badge.textContent = label;
-    badges.append(badge);
-  }
+  const sourceBadge = document.createElement("li");
+  sourceBadge.dataset.badge = "source";
+  sourceBadge.textContent = `출처 · ${SOURCE_LABELS[post.source]}`;
+  const stateBadge = document.createElement("li");
+  stateBadge.dataset.badge = "status";
+  stateBadge.textContent = `상태 · ${queueStateLabel(post.state)}`;
+  badges.append(sourceBadge, stateBadge);
   section.append(badges);
 
   const list = document.createElement("dl");
-  appendTerm(document, list, "출처", SOURCE_LABELS[post.source]);
-  appendTerm(document, list, "탐색 맥락", post.sourceLabel ?? "확인 필요");
-  appendTerm(document, list, "게시 시각", post.publishedAt ?? post.createdAt);
   appendTerm(document, list, "작성자", post.publisherName ?? post.publisherBlogId ?? "확인 필요");
-  appendTerm(document, list, "상태", post.state);
+  appendTerm(document, list, "탐색 맥락", post.sourceLabel ?? "확인 필요");
+  appendTerm(document, list, "게시일", formatQueueDate(post.publishedAt ?? post.createdAt));
   section.append(list);
 
   const link = document.createElement("a");
@@ -923,33 +1131,49 @@ function renderDetail(
   link.rel = "noreferrer noopener";
   link.target = "_blank";
   link.textContent = "원문 주소 열기";
-  section.append(link);
 
-  const open = button(document, "open-post-button", "이 글 처리하기", () =>
-    handlers.onOpenPost(post.id),
-  );
+  const actions = document.createElement("div");
+  actions.className = "detail-actions";
+  const open = Button(document, {
+    id: "open-post-button",
+    label: "이 글 처리하기",
+    variant: "primary",
+    onClick: () => handlers.onOpenPost(post.id),
+  });
   open.disabled = state.phase === "loading" || !canOpenSelected(state);
-  section.append(open);
-
-  const stateAction = button(
-    document,
-    "skip-post-button",
-    post.state === "skipped" ? "다시 대기" : "이 글 건너뛰기",
-    () => handlers.onPostStateChange(post.id, post.state === "skipped" ? "queued" : "skipped"),
-  );
+  const stateAction = Button(document, {
+    id: "skip-post-button",
+    label: post.state === "skipped" ? "다시 대기" : "이 글 건너뛰기",
+    variant: "secondary",
+    onClick: () =>
+      handlers.onPostStateChange(post.id, post.state === "skipped" ? "queued" : "skipped"),
+  });
   // Queue filters/segments re-fetch the selected post asynchronously. Keep the action disabled
   // while that refresh is in flight so a fast follow-up click cannot be silently discarded by the
   // controller's request guard.
   stateAction.disabled = state.phase === "loading";
-  section.append(stateAction);
+  link.classList.add("detail-tertiary-action");
+  actions.append(open, stateAction, link);
+  section.append(actions);
 
   if (open.disabled) {
     const hint = document.createElement("p");
     hint.className = "detail-hint";
-    hint.textContent = "브라우저를 시작하고 네이버에 로그인한 뒤 처리할 수 있습니다.";
+    hint.textContent = detailDisabledHint(state);
     section.append(hint);
   }
   return section;
+}
+
+function detailDisabledHint(state: TodayState): string {
+  if (state.phase === "loading") return "브라우저와 로그인 상태를 확인하는 중입니다.";
+  if (state.session?.state !== "ready") {
+    return "자동화 브라우저를 시작하고 네이버에 로그인한 뒤 이 글을 처리할 수 있습니다.";
+  }
+  if (state.session.login !== "authenticated") {
+    return "PC 자동화 브라우저에서 네이버에 로그인한 뒤 이 글을 처리할 수 있습니다.";
+  }
+  return "현재 연결 상태에서는 이 글을 처리할 수 없습니다.";
 }
 
 function blockerLabel(blocker: string): string {

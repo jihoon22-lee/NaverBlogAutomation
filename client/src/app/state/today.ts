@@ -162,6 +162,17 @@ export function withSort(state: TodayState, sort: TodayState["sort"]): TodayStat
   return { ...state, sort };
 }
 
+/** Restore the queue controls to the default workbench scope without discarding queue state. */
+export function resetQueueFilters(state: TodayState): TodayState {
+  return {
+    ...state,
+    query: "",
+    sourceFilter: "neighbor",
+    stateFilter: "all",
+    sort: "newest",
+  };
+}
+
 /** Toggle a batch selection while preserving the order in which the person picked posts. */
 export function withPostSelection(state: TodayState, postId: string): TodayState {
   if (!state.posts.some((post) => post.id === postId)) return state;

@@ -17,6 +17,7 @@ import type {
 import {
   type TodayState,
   initialTodayState,
+  resetQueueFilters,
   selectedPost,
   startLoading,
   withFailure,
@@ -159,15 +160,27 @@ export class TodayController {
 
   /** Render the current state without contacting the service. */
   render(): void {
+    const active = this.#root.ownerDocument.activeElement;
+    const focusId =
+      this.#view === "workbench" &&
+      active !== null &&
+      this.#root.contains(active) &&
+      (active.id.startsWith("queue-") || active.id.startsWith("batch-step-"))
+        ? active.id
+        : null;
     if (this.#view === "home") {
       renderHome(this.#root, this.#state, this.#handlers());
-      return;
-    }
-    if (this.#view === "onboarding") {
+    } else if (this.#view === "onboarding") {
       renderOnboarding(this.#root, this.#state, this.#onboardingHandlers());
-      return;
+    } else {
+      renderToday(this.#root, this.#state, this.#handlers());
     }
-    renderToday(this.#root, this.#state, this.#handlers());
+    if (focusId !== null) {
+      const replacement = this.#root.ownerDocument.getElementById(focusId);
+      if (replacement instanceof HTMLElement && !replacement.matches(":disabled")) {
+        replacement.focus({ preventScroll: true });
+      }
+    }
   }
 
   /** Switch between the summary-only home and the queue-owning workbench without discarding state. */
@@ -186,6 +199,7 @@ export class TodayController {
       onOpenWorkbench: this.#onWorkbenchRequested,
       onOpenWriting: this.#onWritingRequested,
       onOpenOnboarding: this.#onOnboardingRequested,
+      onClearFilters: () => void this.clearFilters(),
       onOpenBatch: () =>
         this.#onBatchRequested({
           approvedSteps: this.#state.approvedSteps,
@@ -290,6 +304,14 @@ export class TodayController {
   async setQuery(value: string): Promise<void> {
     this.#state = withQuery(this.#state, value);
     await this.load();
+  }
+
+  async clearFilters(): Promise<void> {
+    if (this.#busy) return;
+    this.#state = resetQueueFilters(this.#state);
+    await this.load();
+    const query = this.#root.ownerDocument.getElementById("queue-query");
+    if (query instanceof HTMLElement) query.focus({ preventScroll: true });
   }
 
   setSort(value: "newest" | "oldest"): void {

@@ -12,6 +12,7 @@ import {
   canOpenSelected,
   initialTodayState,
   queueCounts,
+  resetQueueFilters,
   selectedPost,
   startLoading,
   visiblePosts,
@@ -297,6 +298,35 @@ describe("workbench filters and batch selection", () => {
       "old",
       "new",
     ]);
+  });
+
+  it("resets every queue control while preserving the selected and batch state", () => {
+    const loaded = withLoaded(initialTodayState(), {
+      posts: [post("1"), post("2")],
+      nextCursor: "next-page",
+      safety: SAFETY,
+      service: SERVICE,
+      session: SESSION,
+    });
+    const selected = withPostSelection(withPostSelection(withSelection(loaded, "2"), "2"), "1");
+    const dirty = withSort(
+      withQuery(withFilters(selected, { source: "search", state: "skipped" }), "찾을 글"),
+      "oldest",
+    );
+
+    const reset = resetQueueFilters(dirty);
+
+    expect(reset.query).toBe("");
+    expect(reset.sourceFilter).toBe("neighbor");
+    expect(reset.stateFilter).toBe("all");
+    expect(reset.sort).toBe("newest");
+    expect(reset.posts).toBe(dirty.posts);
+    expect(reset.selectedPostId).toBe(dirty.selectedPostId);
+    expect(reset.selectedPostIds).toEqual(dirty.selectedPostIds);
+    expect(reset.detailOpen).toBe(dirty.detailOpen);
+    expect(reset.nextCursor).toBe(dirty.nextCursor);
+    expect(reset.safety).toBe(dirty.safety);
+    expect(reset.approvedSteps).toBe(dirty.approvedSteps);
   });
 
   it("calculates a current per-step preflight and refuses a stale or exhausted safety scope", () => {

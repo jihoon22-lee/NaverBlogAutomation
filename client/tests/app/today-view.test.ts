@@ -107,6 +107,7 @@ function handlers(): TodayHandlers {
   return {
     onCloseSession: vi.fn(),
     onCloseDetail: vi.fn(),
+    onClearFilters: vi.fn(),
     onFilterChange: vi.fn(),
     onFocusSession: vi.fn(),
     onLaunchSession: vi.fn(),
@@ -359,11 +360,14 @@ describe("home and onboarding views", () => {
     expect(viewHandlers.onRefresh).toHaveBeenCalledOnce();
   });
 
-  it("renders the workbench service/onboarding shell without a selected detail", () => {
+  it("renders a compact workbench header and readiness banner without a selected detail", () => {
     const root = mountRoot();
     const state = {
       ...initialTodayState(),
       phase: "ready" as const,
+      counts: { neighbor: 1, search: 0, skipped: 2, total: 3 },
+      posts: [post("header")],
+      nextCursor: "next",
       readiness: readiness(["web_app_assets_missing"]),
       service: SERVICE,
       session: STOPPED_SESSION,
@@ -371,9 +375,83 @@ describe("home and onboarding views", () => {
 
     renderToday(root, state, handlers());
 
-    expect(document.querySelector(".onboarding-panel")).not.toBeNull();
+    expect(document.querySelector(".workbench-header")).not.toBeNull();
+    expect(document.querySelector(".workbench-readiness-banner")).not.toBeNull();
+    expect(document.querySelector(".onboarding-panel")).toBeNull();
     expect(document.querySelector(".detail-panel")).toBeNull();
     expect(document.getElementById("launch-session-button")).not.toBeNull();
+    expect(
+      document.querySelector('[data-metric="active"] .workbench-header-metric-value')?.textContent,
+    ).toBe("1");
+    expect(
+      document.querySelector('[data-metric="skipped"] .workbench-header-metric-value')?.textContent,
+    ).toBe("2");
+    expect(document.querySelectorAll("#load-more-queue-button")).toHaveLength(1);
+  });
+
+  it("keeps service actions disabled while loading or a browser transition is in progress", () => {
+    const root = mountRoot();
+    const base = {
+      ...initialTodayState(),
+      phase: "loading" as const,
+      counts: { neighbor: 1, search: 0, skipped: 0, total: 1 },
+      posts: [post("busy")],
+      selectedPostId: "busy",
+      readiness: readiness([]),
+      service: SERVICE,
+      session: READY_SESSION,
+    };
+
+    renderToday(root, base, handlers());
+    expect((document.getElementById("focus-session-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((document.getElementById("close-session-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    renderToday(root, { ...base, phase: "failed", error: "서비스 오류" }, handlers());
+    expect((document.getElementById("focus-session-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    renderToday(
+      root,
+      { ...base, phase: "ready", session: { ...STOPPED_SESSION, state: "launching" } },
+      handlers(),
+    );
+    expect((document.getElementById("launch-session-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    renderToday(
+      root,
+      { ...base, phase: "ready", session: { ...STOPPED_SESSION, state: "closing" } },
+      handlers(),
+    );
+    expect((document.getElementById("launch-session-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("keeps stale readiness blockers modest during loading and failure", () => {
+    const root = mountRoot();
+    const stale = readiness(["browser_not_running"]);
+    const base = {
+      ...initialTodayState(),
+      readiness: stale,
+      service: SERVICE,
+      session: STOPPED_SESSION,
+    };
+
+    renderToday(root, { ...base, phase: "loading" }, handlers());
+    expect(document.querySelector(".workbench-readiness-banner")).toBeNull();
+    expect(text("#workspace-status")).toContain("불러오는 중");
+
+    renderToday(root, { ...base, phase: "failed", error: "서비스 오류" }, handlers());
+    expect(document.querySelector(".workbench-readiness-banner")).toBeNull();
+    expect(document.querySelector(".today-layout")).toBeNull();
+    expect(text("#workspace-status")).toBe("서비스 오류");
   });
 });
 
@@ -425,6 +503,143 @@ describe("load", () => {
         (option) => option.value,
       ),
     ).toEqual(["all", "queued", "opened", "skipped", "completed", "unavailable"]);
+  });
+
+  it("exposes a labelled advanced filter disclosure and no false segment selection", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+    const base: TodayState = {
+      ...initialTodayState(),
+      phase: "ready",
+      counts: { neighbor: 1, search: 1, skipped: 1, total: 3 },
+      posts: [post("filter-neighbor"), post("filter-search", "search")],
+      sourceFilter: "all",
+      readiness: readiness([]),
+      service: SERVICE,
+      session: READY_SESSION,
+    };
+
+    renderToday(root, base, viewHandlers);
+
+    expect(document.querySelector(".queue-segments")?.getAttribute("role")).toBe("group");
+    expect(document.querySelector(".queue-segments")?.getAttribute("aria-label")).toBe(
+      "작업 목록 범위",
+    );
+    expect(
+      Array.from(document.querySelectorAll<HTMLButtonElement>(".queue-segment")).every(
+        (segment) => segment.getAttribute("aria-pressed") === "false",
+      ),
+    ).toBe(true);
+    expect(document.querySelector('label[for="queue-query"]')?.textContent).toBe("검색");
+    const query = document.getElementById("queue-query") as HTMLInputElement;
+    query.value = "찾을 글";
+    query.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+        key: "Enter",
+      }),
+    );
+    expect(viewHandlers.onQueryChange).not.toHaveBeenCalled();
+    query.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+    );
+    expect(viewHandlers.onQueryChange).toHaveBeenCalledWith("찾을 글");
+    (document.getElementById("queue-search-button") as HTMLButtonElement).click();
+    expect(viewHandlers.onQueryChange).toHaveBeenLastCalledWith("찾을 글");
+    const advanced = document.querySelector(".queue-advanced-filters") as HTMLDetailsElement;
+    expect(advanced.open).toBe(true);
+    expect(advanced.querySelectorAll(".queue-filter-fields label")).toHaveLength(3);
+    expect(advanced.querySelector("#queue-source-filter")?.parentElement).toBe(
+      advanced.querySelector(".queue-filter-fields"),
+    );
+
+    renderToday(
+      root,
+      { ...base, sourceFilter: "neighbor", stateFilter: "all", sort: "newest" },
+      viewHandlers,
+    );
+    expect((document.querySelector(".queue-advanced-filters") as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    renderToday(root, { ...base, sourceFilter: "neighbor", stateFilter: "queued" }, viewHandlers);
+    expect((document.querySelector(".queue-advanced-filters") as HTMLDetailsElement).open).toBe(
+      true,
+    );
+  });
+
+  it("distinguishes a filtered empty queue and resets it with the clear action", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+    const state: TodayState = {
+      ...initialTodayState(),
+      phase: "ready",
+      query: "없는 글",
+      readiness: readiness([]),
+      service: SERVICE,
+      session: READY_SESSION,
+    };
+
+    renderToday(root, state, viewHandlers);
+    expect(text(".queue-empty")).toContain("검색 또는 필터 조건에 맞는 글이 없습니다");
+    const clear = document.getElementById("queue-clear-filters") as HTMLButtonElement;
+    expect(clear.disabled).toBe(false);
+    clear.click();
+    expect(viewHandlers.onClearFilters).toHaveBeenCalledOnce();
+
+    renderToday(root, { ...state, phase: "loading" }, viewHandlers);
+    expect((document.getElementById("queue-clear-filters") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("renders structured rows with readable states, dates, and invalid-date fallback", () => {
+    const root = mountRoot();
+    const completed = { ...post("completed"), state: "completed" as const };
+    const invalid = {
+      ...post("invalid", "search"),
+      publishedAt: "not-a-date",
+      sourceLabel: "검색 결과",
+      publisherName: null,
+      publisherBlogId: "fallback-author",
+    };
+    const state: TodayState = {
+      ...initialTodayState(),
+      phase: "ready",
+      counts: { neighbor: 1, search: 1, skipped: 0, total: 2 },
+      posts: [
+        {
+          ...post("dated"),
+          publishedAt: "2026-08-09T23:30:00Z",
+          sourceLabel: "이웃 탐색",
+        },
+        completed,
+        invalid,
+      ],
+      sourceFilter: "all",
+      readiness: readiness([]),
+      service: SERVICE,
+      session: READY_SESSION,
+    };
+
+    renderToday(root, state, handlers());
+
+    expect(document.querySelectorAll(".queue-item")).toHaveLength(3);
+    expect(document.querySelectorAll(".queue-item-topline")).toHaveLength(3);
+    expect(document.querySelectorAll(".queue-item-title")).toHaveLength(3);
+    expect(document.querySelectorAll(".queue-item-meta")).toHaveLength(3);
+    expect(document.querySelectorAll(".queue-item-state")).toHaveLength(3);
+    expect(text('.queue-item[data-post-id="dated"] time')).toBe("2026.08.09");
+    expect(text('.queue-item[data-post-id="invalid"] time')).toBe("not-a-date");
+    expect(
+      document.querySelector('.queue-item[data-post-id="dated"] time')?.getAttribute("datetime"),
+    ).toBe("2026-08-09T23:30:00Z");
+    expect(text('.queue-item[data-post-id="completed"] .queue-item-state')).toContain("완료");
+    expect(text('.queue-item[data-post-id="invalid"] .queue-item-meta')).toContain(
+      "fallback-author",
+    );
+    expect(document.getElementById("queue-batch-dated")).not.toBeNull();
   });
 
   it("marks the selected queue item with aria-pressed", async () => {
@@ -595,8 +810,19 @@ describe("selection and opening", () => {
     const controller = new TodayController(mountRoot(), { api: client as never });
     await controller.load();
 
-    expect(document.querySelectorAll(".detail-badges [data-badge]")).toHaveLength(4);
+    expect(document.querySelectorAll(".detail-badges [data-badge]")).toHaveLength(2);
     expect(text('.detail-badges [data-badge="source"]')).toContain("이웃 새 글");
+    expect(text('.detail-badges [data-badge="status"]')).toContain("대기");
+    expect(document.querySelectorAll(".detail-actions > *")).toHaveLength(3);
+    expect(document.getElementById("open-post-button")?.classList).toContain("ui-button--primary");
+    expect(document.getElementById("skip-post-button")?.classList).toContain(
+      "ui-button--secondary",
+    );
+    expect(document.querySelector(".detail-tertiary-action")).toBe(
+      document.querySelector(".detail-link"),
+    );
+    expect(document.querySelectorAll(".detail-panel dt")).toHaveLength(3);
+    expect(text(".detail-panel dd:last-of-type")).toBe("2026.07.30");
     expect(controller.state.detailOpen).toBe(false);
 
     (document.querySelector(".queue-item") as HTMLButtonElement).click();
@@ -809,6 +1035,11 @@ describe("workbench queue controls", () => {
     });
     await controller.load();
 
+    const directPanel = document.querySelector(".direct-url-panel") as HTMLDetailsElement;
+    expect(directPanel).not.toBeNull();
+    expect(directPanel.querySelector("summary")?.textContent).toBe("대기열에 없는 글 처리");
+    expect(directPanel.querySelector("#direct-post-url")).not.toBeNull();
+    expect(directPanel.querySelector("#open-direct-url-button")).not.toBeNull();
     expect(await controller.openDirectUrl(" ")).toBeNull();
     expect(await controller.openDirectUrl(" https://blog.naver.com/direct ")).toBeNull();
     expect(direct).toHaveBeenCalledWith("https://blog.naver.com/direct");
