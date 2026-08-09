@@ -289,6 +289,234 @@ describe("discovery settings", () => {
 
     expect(text(root)).toContain("공개된 metadata만 모읍니다");
   });
+
+  it("keeps a local edit while moving between settings sections", async () => {
+    const { root, controller } = harness();
+    await controller.load();
+    controller.render();
+
+    type(root, "#own-blog-id", "local-blog");
+    controller.setSection("connections");
+    controller.render();
+    controller.setSection("automation");
+    controller.render();
+
+    expect(controller.state.section).toBe("automation");
+    expect(controller.state.form.ownBlogId).toBe("local-blog");
+    expect(root.querySelector<HTMLInputElement>("#own-blog-id")?.value).toBe("local-blog");
+  });
+
+  it("does not send a duplicate discovery save while the first request is pending", async () => {
+    let resolveSave!: (settings: AutoDiscoverySettings) => void;
+    const saveAutoDiscoverySettings = vi.fn(
+      () => new Promise<AutoDiscoverySettings>((resolve) => (resolveSave = resolve)),
+    );
+    const { root, controller, api } = harness({ saveAutoDiscoverySettings });
+    await controller.load();
+    controller.render();
+    type(root, "#own-blog-id", "local-blog");
+
+    const firstSave = controller.save();
+    const secondSave = controller.save();
+    expect(api.saveAutoDiscoverySettings).toHaveBeenCalledOnce();
+
+    resolveSave({ ...SETTINGS, ownBlogId: "local-blog" });
+    await firstSave;
+    await secondSave;
+    expect(controller.state.phase).toBe("ready");
+  });
+
+  it("keeps a local discovery edit when a late load response arrives", async () => {
+    let resolveSettings!: (settings: AutoDiscoverySettings) => void;
+    const autoDiscoverySettings = vi.fn(
+      () => new Promise<AutoDiscoverySettings>((resolve) => (resolveSettings = resolve)),
+    );
+    const { root, controller } = harness({ autoDiscoverySettings });
+    const loading = controller.load();
+
+    controller.setSection("connections");
+    controller.render();
+    type(root, "#own-blog-id", "local-blog");
+
+    resolveSettings({ ...SETTINGS, ownBlogId: "server-blog" });
+    await loading;
+
+    expect(controller.state.section).toBe("connections");
+    expect(controller.state.form.ownBlogId).toBe("local-blog");
+  });
+});
+
+describe("settings information architecture", () => {
+  it("shows purpose, current state, and next action for every top-level section", async () => {
+    const { root, controller } = harness();
+
+    await controller.load();
+    controller.render();
+
+    expect(root.querySelector("h1")?.textContent).toBe("설정");
+    expect(root.querySelectorAll("[data-settings-summary]")).toHaveLength(3);
+    expect(root.querySelector('[data-settings-summary="defaults"]')?.textContent).toContain(
+      "현재 상태",
+    );
+    expect(root.querySelector('[data-settings-summary="automation"]')?.textContent).toContain(
+      "다음 행동",
+    );
+    expect(root.querySelector('[data-settings-summary="connections"]')?.textContent).toContain(
+      "AI",
+    );
+    for (const name of ["defaults", "automation", "connections"]) {
+      expect(
+        root
+          .querySelector<HTMLButtonElement>(`[data-settings-section="${name}"]`)
+          ?.getAttribute("aria-controls"),
+      ).toBe(`settings-section-${name}`);
+    }
+    expect(
+      root.querySelector('[data-settings-section="defaults"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      root.querySelector('[data-settings-section="automation"]')?.hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("keeps essential automation fields visible and folds secondary panels", async () => {
+    const { root, controller } = harness();
+    await controller.load();
+    controller.setSection("automation");
+    controller.render();
+
+    expect(root.querySelector("#own-blog-id")?.closest("details")).toBeNull();
+    expect(root.querySelector("#sync-discovery-button")?.closest("details")).toBeNull();
+    expect(root.querySelector<HTMLDetailsElement>("#automation-source-details")?.open).toBe(false);
+    expect(root.querySelector<HTMLDetailsElement>("#automation-safety-details")?.open).toBe(false);
+    expect(root.querySelector<HTMLDetailsElement>("#advanced-automation-panel")?.open).toBe(false);
+    expect(
+      root.querySelector<HTMLDetailsElement>("#automation-source-details")?.dataset.settingsPanel,
+    ).toBe("automation-source-details");
+
+    const addSearch = root.querySelector<HTMLButtonElement>("#add-search-button");
+    const query = root.querySelector<HTMLInputElement>("#new-search-query");
+    if (addSearch === null || query === null) throw new Error("missing search form");
+    expect(addSearch.disabled).toBe(true);
+    query.value = "  여행  ";
+    query.dispatchEvent(new Event("input"));
+    expect(addSearch.disabled).toBe(false);
+    query.value = " ";
+    query.dispatchEvent(new Event("input"));
+    expect(addSearch.disabled).toBe(true);
+  });
+
+  it("groups desktop connections without changing existing field IDs", async () => {
+    const { root, controller } = harness({
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+    });
+    await controller.load();
+    controller.setSection("connections");
+    controller.render();
+
+    expect(
+      [...root.querySelectorAll(".runtime-settings-group legend")].map((item) => item.textContent),
+    ).toEqual(["AI 연결", "Naver Search 연결", "SMTP 연결", "브라우저 · 접근"]);
+    for (const id of [
+      "runtime-provider",
+      "runtime-naver-id",
+      "runtime-smtp-host",
+      "runtime-browser-driver",
+      "runtime-access-mode",
+    ]) {
+      expect(root.querySelector(`#${id}`)).not.toBeNull();
+    }
+    expect(root.querySelector<HTMLDetailsElement>("#runtime-ai-details")?.open).toBe(false);
+    expect(root.querySelector<HTMLDetailsElement>("#runtime-search-details")?.open).toBe(false);
+    expect(root.querySelector<HTMLDetailsElement>("#runtime-smtp-details")?.open).toBe(false);
+    expect(root.querySelector<HTMLDetailsElement>("#runtime-browser-details")?.open).toBe(false);
+  });
+
+  it("keeps the data reset as a separate collapsed danger zone", async () => {
+    const { root, controller } = harness({
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+    });
+    await controller.load();
+    controller.setSection("connections");
+    controller.render();
+
+    const danger = root.querySelector<HTMLDetailsElement>(".runtime-danger-zone");
+    expect(danger?.open).toBe(false);
+    expect(danger?.dataset.settingsPanel).toBe("runtime-data-reset");
+    expect(danger?.textContent).toContain("데이터 초기화");
+    expect(root.querySelector(".runtime-settings-panel .runtime-danger-zone")).toBeNull();
+  });
+
+  it("opens recovery details after a failed save even when they were previously closed", async () => {
+    const saveAppSetting = vi.fn(async () => {
+      throw new Error("save failed");
+    });
+    const { root, controller } = harness({ saveAppSetting });
+    await controller.load();
+    controller.setSection("automation");
+    controller.render();
+    expect(root.querySelector<HTMLDetailsElement>("#advanced-automation-panel")?.open).toBe(false);
+
+    await controller.saveAutomationSettings();
+
+    expect(controller.state.phase).toBe("failed");
+    expect(root.querySelector<HTMLDetailsElement>("#advanced-automation-panel")?.open).toBe(true);
+    expect(root.querySelector<HTMLDetailsElement>("#automation-source-details")?.open).toBe(true);
+  });
+
+  it("disables navigation, generic fields, and actions for every busy phase", async () => {
+    let finishSave: (settings: AutoDiscoverySettings) => void = () => {
+      throw new Error("save did not start");
+    };
+    const { root, controller } = harness({
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+      saveAutoDiscoverySettings: vi.fn(
+        () =>
+          new Promise<AutoDiscoverySettings>((resolve) => {
+            finishSave = resolve;
+          }),
+      ),
+    });
+    await controller.load();
+    controller.setSection("connections");
+    controller.render();
+    type(root, "#own-blog-id", "mine");
+    click(root, "#save-discovery-button");
+
+    expect(controller.state.phase).toBe("saving");
+    expect(
+      [...root.querySelectorAll<HTMLButtonElement>(".settings-navigation-item")].every(
+        (item) => item.disabled,
+      ),
+    ).toBe(true);
+    expect(root.querySelector<HTMLInputElement>("#runtime-openai-model")?.disabled).toBe(true);
+    expect(root.querySelector<HTMLSelectElement>("#runtime-browser-driver")?.disabled).toBe(true);
+    expect(root.querySelector<HTMLSelectElement>("#comment-length")?.disabled).toBe(true);
+    expect(root.querySelector<HTMLSelectElement>("#schedule-mode")?.disabled).toBe(true);
+    expect(root.querySelector<HTMLInputElement>("#new-search-query")?.disabled).toBe(true);
+    expect(
+      root.querySelector<HTMLButtonElement>("#save-runtime-configuration-button")?.disabled,
+    ).toBe(true);
+
+    finishSave(SETTINGS);
+    await Promise.resolve();
+  });
+
+  it("keeps IDs unique and labels attached after progressive disclosure", async () => {
+    const { root, controller } = harness();
+    await controller.load();
+    controller.setSection("connections");
+    controller.render();
+
+    const ids = [...root.querySelectorAll<HTMLElement>("[id]")].map((element) => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const label of root.querySelectorAll<HTMLLabelElement>("label[for]")) {
+      expect(root.ownerDocument.getElementById(label.htmlFor)).not.toBeNull();
+    }
+  });
 });
 
 describe("desktop runtime configuration", () => {
@@ -352,7 +580,6 @@ describe("desktop runtime configuration", () => {
       true,
     );
     type(root, "#runtime-data-reset-confirmation", "RESET LOCAL DATA");
-    controller.render();
     expect((root.querySelector("#reset-runtime-data-button") as HTMLButtonElement).disabled).toBe(
       false,
     );
@@ -414,6 +641,74 @@ describe("desktop runtime configuration", () => {
 
     expect(text(root)).toContain("not saved");
     expect(text(root)).not.toContain("private-value");
+    expect(controller.state.runtimeForm.openaiApiKey).toBe("private-value");
+  });
+
+  it("preserves newer runtime edits when an earlier save resolves", async () => {
+    let resolvePatch!: (runtime: RuntimeConfiguration) => void;
+    const patchRuntimeConfiguration = vi.fn(
+      () => new Promise<RuntimeConfiguration>((resolve) => (resolvePatch = resolve)),
+    );
+    const { root, controller } = harness({
+      patchRuntimeConfiguration,
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+    });
+    await controller.load();
+    controller.render();
+
+    type(root, "#runtime-openai-key", "first-secret");
+    const saving = controller.saveRuntimeConfiguration();
+    type(root, "#runtime-smtp-host", "newer-host");
+
+    resolvePatch({ ...RUNTIME, restartRequired: true });
+    await saving;
+
+    expect(controller.state.runtimeForm.openaiApiKey).toBe("first-secret");
+    expect(controller.state.runtimeForm.smtpHost).toBe("newer-host");
+    expect(root.querySelector<HTMLInputElement>("#runtime-openai-key")?.value).toBe("");
+  });
+
+  it("keeps an expanded settings panel through an async save rerender", async () => {
+    let resolveDigest!: (digest: DigestSettings) => void;
+    const saveDigestSettings = vi.fn(
+      () => new Promise<DigestSettings>((resolve) => (resolveDigest = resolve)),
+    );
+    const { root, controller } = harness({ saveDigestSettings });
+    await controller.load();
+    controller.render();
+
+    const panel = root.querySelector<HTMLDetailsElement>("#automation-source-details");
+    if (panel === null) throw new Error("missing settings panel");
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    expect(controller.state.expandedPanels["automation-source-details"]).toBe(true);
+
+    const saving = controller.saveDigest();
+    expect(root.querySelector<HTMLDetailsElement>("#automation-source-details")?.open).toBe(true);
+    resolveDigest(DIGEST);
+    await saving;
+
+    expect(root.querySelector<HTMLDetailsElement>("#automation-source-details")?.open).toBe(true);
+  });
+
+  it("keeps the expanded panel discoverable after a save failure", async () => {
+    const { root, controller } = harness({
+      saveDigestSettings: vi.fn(async () => {
+        throw new ApiError("offline", { status: 503 });
+      }),
+    });
+    await controller.load();
+    controller.render();
+
+    const panel = root.querySelector<HTMLDetailsElement>("#automation-source-details");
+    if (panel === null) throw new Error("missing settings panel");
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+
+    await controller.saveDigest();
+
+    expect(controller.state.phase).toBe("failed");
+    expect(root.querySelector<HTMLDetailsElement>("#automation-source-details")?.open).toBe(true);
   });
 
   it("downloads a desktop data export without adding paths to settings", async () => {
@@ -457,7 +752,7 @@ describe("desktop runtime configuration", () => {
 
   it("keeps the restart notice when the replacement never becomes ready", async () => {
     vi.useFakeTimers();
-    const { controller } = harness({
+    const { root, controller } = harness({
       resetRuntimeData: vi.fn(async () => ({ backupLocation: "/backup", restartRequired: true })),
       runtimeConfiguration: vi.fn(async () => RUNTIME),
       runtimeData: vi.fn(async () => RUNTIME_DATA),
@@ -468,10 +763,18 @@ describe("desktop runtime configuration", () => {
     await controller.load();
 
     const reset = controller.resetRuntimeData();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(controller.state.phase).toBe("restarting");
+    expect(root.querySelector<HTMLInputElement>("#runtime-data-reset-confirmation")?.disabled).toBe(
+      true,
+    );
+
     await vi.runAllTimersAsync();
     await reset;
 
     expect(controller.state.notice).toContain("잠시 후 화면을 새로고침하세요");
+    expect(controller.state.phase).toBe("ready");
     vi.useRealTimers();
   });
 });
@@ -534,7 +837,7 @@ describe("synchronizing now", () => {
     await controller.sync();
     controller.render();
 
-    expect(text(root)).toContain("검색 API key가 없어");
+    expect(text(root)).toContain("검색 API 키가 없어");
     expect(text(root)).toContain("이웃 새 글은 그대로 모았습니다");
   });
 
