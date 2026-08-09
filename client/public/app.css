@@ -1559,6 +1559,313 @@ summary:focus-visible,
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* PR2 home dashboard                                                         */
+/* -------------------------------------------------------------------------- */
+
+/* `:has(.home-hero)` scopes the layout to the home render without changing the
+   shared workspace root used by workbench, editor, activity, and settings. */
+#workspace:has(.home-hero) {
+  align-items: start;
+  column-gap: clamp(1rem, 2.5vw, 2rem);
+  display: grid;
+  grid-template-areas:
+    "status status"
+    "hero hero"
+    "summary readiness"
+    "summary quick";
+  grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.9fr);
+  row-gap: 1rem;
+}
+
+#workspace:has(.home-hero) > #workspace-status {
+  grid-area: status;
+  margin: 0;
+  min-width: 0;
+}
+
+#workspace:has(.home-hero) > .home-hero,
+#workspace:has(.home-hero) > .home-summary-panel,
+#workspace:has(.home-hero) > .home-readiness-panel,
+#workspace:has(.home-hero) > .home-quick-panel {
+  margin: 0;
+  max-width: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.home-hero) > .home-hero {
+  border-top: 0.3rem solid var(--nba-primary);
+  align-items: stretch;
+  display: grid;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  grid-area: hero;
+  grid-template-areas:
+    "title next"
+    "intro next";
+  grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.9fr);
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+
+#home-hero-title {
+  align-self: end;
+  font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.35rem);
+  grid-area: title;
+  line-height: 1.2;
+  margin: 0;
+  max-width: 28ch;
+}
+
+.home-hero-intro {
+  align-self: start;
+  color: var(--nba-muted);
+  font-size: clamp(0.95rem, 0.9rem + 0.15vw, 1.05rem);
+  grid-area: intro;
+  line-height: 1.65;
+  margin: 0;
+  max-width: 62ch;
+}
+
+.home-next-action {
+  align-content: start;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.55rem;
+  grid-area: next;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.35rem);
+}
+
+.home-next-action h2,
+.home-next-action-description {
+  margin: 0;
+}
+
+.home-next-action h2 {
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.home-next-status {
+  justify-self: start;
+}
+
+.home-next-action-description {
+  color: var(--nba-muted);
+  line-height: 1.55;
+}
+
+.home-primary-action {
+  justify-self: start;
+  margin-top: 0.25rem;
+  min-width: min(12rem, 100%);
+}
+
+#workspace:has(.home-hero) > .home-summary-panel {
+  grid-area: summary;
+}
+
+#workspace:has(.home-hero) > .home-readiness-panel {
+  grid-area: readiness;
+}
+
+#workspace:has(.home-hero) > .home-quick-panel {
+  grid-area: quick;
+}
+
+.home-summary-panel,
+.home-readiness-panel,
+.home-quick-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.home-summary-panel h2,
+.home-readiness-panel h2,
+.home-quick-panel h2 {
+  margin: 0;
+}
+
+.home-summary-description,
+.home-readiness-description,
+.home-quick-panel > p {
+  color: var(--nba-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.home-metrics-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0.25rem;
+}
+
+.home-metric-card {
+  align-content: space-between;
+  display: grid;
+  gap: 0.45rem;
+  min-height: 6.25rem;
+  padding: 0.8rem;
+}
+
+.home-metric-card h3,
+.home-metric-value {
+  margin: 0;
+}
+
+.home-metric-card h3 {
+  color: var(--nba-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.home-metric-value {
+  color: var(--nba-ink);
+  font-size: clamp(1.4rem, 1.15rem + 0.6vw, 1.85rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.home-metric-card[data-metric="total"] {
+  background: var(--nba-ready-soft);
+  border-color: #b8e5c5;
+}
+
+.home-readiness-status {
+  justify-self: start;
+}
+
+.home-readiness-list {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0.15rem 0 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.home-readiness-list > li {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.home-readiness-list > li::before {
+  color: var(--nba-muted);
+  content: "•";
+  flex: 0 0 auto;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.home-readiness-list > .home-readiness-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.home-readiness-list > .home-readiness-item::before {
+  content: "";
+  display: none;
+}
+
+.home-readiness-item .ui-status-chip {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  min-height: 1.65rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.home-readiness-item-label {
+  min-width: 0;
+}
+
+.home-readiness-item > .ui-button {
+  justify-self: end;
+  min-width: 6rem;
+}
+
+.home-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.home-quick-actions .ui-button {
+  flex: 1 1 10rem;
+}
+
+@media (max-width: 60rem) {
+  #workspace:has(.home-hero) {
+    grid-template-areas:
+      "status"
+      "hero"
+      "summary"
+      "readiness"
+      "quick";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.home-hero) > .home-hero {
+    grid-template-areas:
+      "title"
+      "intro"
+      "next";
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 30rem) {
+  #workspace:has(.home-hero) {
+    row-gap: 0.75rem;
+  }
+
+  #workspace:has(.home-hero) > .home-hero,
+  #workspace:has(.home-hero) > .home-summary-panel,
+  #workspace:has(.home-hero) > .home-readiness-panel,
+  #workspace:has(.home-hero) > .home-quick-panel {
+    padding: 1rem;
+  }
+
+  .home-metrics-grid {
+    gap: 0.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-metric-card {
+    min-height: 5.5rem;
+    padding: 0.7rem;
+  }
+
+  .home-readiness-list > .home-readiness-item {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .home-readiness-item > .ui-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .home-quick-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .home-quick-actions .ui-button {
+    width: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --nba-motion-fast: 0.01ms;
