@@ -13,6 +13,8 @@
   --nba-danger: #b4232f;
   --nba-danger-soft: #fff1f2;
   --nba-warning: #9a5b00;
+  --nba-warning-line: #f0d496;
+  --nba-warning-soft: #fff8e8;
   --nba-ready-soft: #eaf8ef;
   --nba-running-soft: #edf5ff;
   --nba-error-soft: #fff1f2;
@@ -1076,8 +1078,8 @@ button:active:not(:disabled),
 }
 
 .ui-status-chip--needs-action {
-  background: #fff8e8;
-  border-color: #f0d496;
+  background: var(--nba-warning-soft);
+  border-color: var(--nba-warning-line);
   color: var(--nba-warning);
 }
 
@@ -2201,6 +2203,719 @@ summary:focus-visible,
   .onboarding-step[data-state="current"],
   .onboarding-step[data-state="upcoming"],
   .onboarding-shell .onboarding-complete {
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* PR4 workbench                                                             */
+/* -------------------------------------------------------------------------- */
+
+.workbench-header {
+  align-items: flex-end;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: grid;
+  column-gap: clamp(0.75rem, 2vw, 1.5rem);
+  grid-template-areas:
+    "title summary"
+    "description summary"
+    "status refresh"
+    "details details";
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  row-gap: 0.6rem;
+}
+
+.workbench-header > :where(h1, h2, h3) {
+  font-size: clamp(1.35rem, 1.05rem + 0.8vw, 1.9rem);
+  grid-area: title;
+  line-height: 1.25;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workbench-header > .workbench-header-description {
+  color: var(--nba-muted);
+  grid-area: description;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 65ch;
+  overflow-wrap: anywhere;
+}
+
+.workbench-header-summary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  grid-area: summary;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.workbench-header-summary :where(p, span) {
+  color: var(--nba-muted);
+  margin: 0;
+}
+
+.workbench-header-metric {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 6rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.workbench-header-metric-label {
+  color: var(--nba-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.workbench-header-metric-value {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.workbench-header-metric[data-metric="active"] {
+  background: var(--nba-ready-soft);
+  border-color: #b8e5c5;
+}
+
+.workbench-header-metric[data-metric="skipped"] {
+  background: var(--nba-subtle);
+}
+
+.workbench-connection-status {
+  align-items: center;
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-inline-start: 0.3rem solid var(--nba-primary);
+  border-radius: var(--nba-radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  grid-area: status;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+}
+
+.workbench-connection-status > span {
+  color: var(--nba-muted);
+  line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workbench-connection-status[data-status="needs-action"] {
+  border-inline-start-color: var(--nba-warning);
+}
+
+.workbench-connection-status[data-status="error"] {
+  border-inline-start-color: var(--nba-danger);
+}
+
+.workbench-refresh-action {
+  grid-area: refresh;
+  min-width: 7rem;
+}
+
+.workbench-service-details {
+  background: var(--nba-surface);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  margin: 0 0 0.75rem;
+  min-width: 0;
+  padding: 0.2rem 0.75rem;
+}
+
+.workbench-header > .workbench-service-details {
+  grid-area: details;
+  margin: 0;
+  width: 100%;
+}
+
+.workbench-service-details > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  min-height: 2.75rem;
+  overflow-wrap: anywhere;
+}
+
+.workbench-service-details[open] {
+  padding: 0.65rem 0.75rem 0.75rem;
+}
+
+.workbench-service-details[open] > summary {
+  margin-bottom: 0.55rem;
+}
+
+.workbench-service-details :where(dl, p, .service-actions) {
+  margin: 0;
+}
+
+.workbench-service-details-content {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.workbench-service-details :where(dl) {
+  gap: 0.2rem 0.8rem;
+}
+
+.workbench-readiness-banner {
+  align-items: center;
+  background: var(--nba-warning-soft);
+  border: 1px solid var(--nba-warning-line);
+  border-inline-start: 0.3rem solid var(--nba-warning);
+  border-radius: var(--nba-radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  min-width: 0;
+  padding: 0.65rem 0.8rem;
+}
+
+.workbench-readiness-banner :where(h2, h3, p) {
+  margin: 0;
+}
+
+.workbench-readiness-banner :where(p) {
+  color: var(--nba-muted);
+  flex: 1 1 14rem;
+  line-height: 1.45;
+}
+
+#workspace:has(.queue-panel) .today-layout {
+  align-items: start;
+  display: grid;
+  gap: clamp(0.75rem, 2vw, 1.5rem);
+  grid-template-columns: minmax(18rem, 0.9fr) minmax(22rem, 1.1fr);
+}
+
+#workspace:has(.queue-panel) .today-layout > :where(*) {
+  min-width: 0;
+}
+
+.queue-panel {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+  max-width: none;
+  min-width: 0;
+  padding: clamp(0.9rem, 2vw, 1.25rem);
+}
+
+.queue-panel > :where(h2, h3) {
+  line-height: 1.3;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-panel > .queue-description {
+  color: var(--nba-muted);
+  line-height: 1.45;
+  margin: -0.45rem 0 0;
+}
+
+.queue-panel .queue-segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.queue-panel .queue-segments > :where(button, .ui-button) {
+  flex: 1 1 8rem;
+  min-height: 2.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.queue-panel .queue-filters {
+  align-items: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.queue-panel .queue-filters > :where(input, select) {
+  flex: 1 1 10rem;
+  min-width: min(100%, 10rem);
+  width: 100%;
+}
+
+.queue-panel .queue-filters > label {
+  align-self: center;
+  font-size: 0.875rem;
+  font-weight: 700;
+  min-height: 2.75rem;
+  padding-block: 0.65rem;
+}
+
+.queue-panel .queue-filters > :where(#queue-query) {
+  flex-grow: 2;
+  min-width: min(100%, 16rem);
+}
+
+.queue-panel .queue-filters > #queue-search-button {
+  flex: 0 1 7rem;
+}
+
+.queue-panel .queue-advanced-filters {
+  background: var(--nba-subtle);
+  border: 1px solid var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0.2rem 0.65rem;
+}
+
+.queue-panel .queue-advanced-filters > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  min-height: 2.75rem;
+  overflow-wrap: anywhere;
+}
+
+.workbench-service-details > summary::-webkit-details-marker,
+.queue-panel .queue-advanced-filters > summary::-webkit-details-marker,
+#workspace:has(.queue-panel) .direct-url-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workbench-service-details > summary::after,
+.queue-panel .queue-advanced-filters > summary::after,
+#workspace:has(.queue-panel) .direct-url-panel > summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-inline-start: auto;
+  padding-inline-start: 0.75rem;
+}
+
+.workbench-service-details[open] > summary::after,
+.queue-panel .queue-advanced-filters[open] > summary::after,
+#workspace:has(.queue-panel) .direct-url-panel[open] > summary::after {
+  content: "−";
+}
+
+.queue-panel .queue-advanced-filters[open] > summary {
+  margin-bottom: 0.65rem;
+}
+
+.queue-panel .queue-filter-fields {
+  display: grid;
+  gap: 0.65rem;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, auto));
+  min-width: 0;
+}
+
+.queue-panel .queue-filter-fields :where(label, .ui-field) {
+  min-width: 0;
+}
+
+.queue-panel .queue-filter-fields :where(input, select) {
+  min-width: 0;
+  width: 100%;
+}
+
+.queue-panel .queue-empty {
+  align-items: center;
+  background: var(--nba-subtle);
+  border: 1px dashed var(--nba-line);
+  border-radius: var(--nba-radius-md);
+  color: var(--nba-muted);
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+}
+
+.queue-panel .queue-list {
+  display: grid;
+  gap: 0.55rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.queue-panel .queue-list > li {
+  align-items: stretch;
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.queue-panel .queue-batch-select {
+  align-items: center;
+  align-self: center;
+  color: var(--nba-muted);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: center;
+  margin: 0;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.2rem;
+  text-align: center;
+}
+
+.queue-panel .queue-batch-select input {
+  accent-color: var(--nba-primary);
+  block-size: 1.1rem;
+  inline-size: 1.1rem;
+  margin: 0;
+}
+
+.queue-panel .queue-item {
+  align-content: start;
+  background: var(--nba-subtle);
+  border: 1px solid transparent;
+  border-radius: var(--nba-radius-md);
+  display: grid;
+  gap: 0.35rem;
+  justify-content: stretch;
+  min-height: 4.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+  width: 100%;
+}
+
+.queue-panel .queue-item-topline {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  justify-self: stretch;
+  min-width: 0;
+}
+
+.queue-panel .queue-item-title {
+  font-weight: 750;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-panel .queue-item-meta {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-panel .queue-item-state {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.queue-panel .queue-item-state:not(.ui-status-chip) {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.queue-panel .queue-item-date,
+.queue-panel .queue-item-source {
+  color: var(--nba-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.queue-panel .queue-item-source {
+  font-weight: 700;
+}
+
+.queue-panel .queue-item[aria-pressed="true"] {
+  background: var(--nba-ready-soft);
+  border-color: var(--nba-primary);
+  box-shadow: inset 0.25rem 0 var(--nba-primary);
+  color: var(--nba-ink);
+}
+
+.queue-panel .queue-item:focus-visible {
+  outline: 3px solid var(--nba-focus);
+  outline-offset: 2px;
+}
+
+#workspace:has(.queue-panel) .queue-batch-preview {
+  background: var(--nba-subtle);
+  border: 1px dashed var(--nba-line);
+  box-shadow: none;
+  margin: 0;
+  padding: 0.85rem;
+}
+
+#workspace:has(.queue-panel) .queue-batch-preview > :where(h2, h3, p, ol) {
+  margin-top: 0;
+}
+
+#workspace:has(.queue-panel) .queue-batch-preview > section {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--nba-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0.7rem 0 0;
+  padding: 0.7rem 0 0;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel {
+  background: var(--nba-subtle);
+  border: 1px dashed var(--nba-line);
+  box-shadow: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel > p {
+  color: var(--nba-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  min-height: 2.75rem;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel[open] {
+  display: grid;
+  gap: 0.55rem;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel[open] > summary {
+  margin-bottom: 0.1rem;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel :where(input) {
+  min-width: 0;
+  width: 100%;
+}
+
+#workspace:has(.queue-panel) .direct-url-panel :where(button, .ui-button) {
+  min-height: 2.75rem;
+}
+
+#workspace:has(.queue-panel) .detail-panel {
+  align-self: start;
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  max-height: calc(100dvh - 2rem);
+  min-width: 0;
+  overflow: auto;
+  padding: clamp(1rem, 2vw, 1.35rem);
+  position: sticky;
+  top: 1rem;
+}
+
+#workspace:has(.queue-panel) .detail-panel > :where(h2, h3, p, dl) {
+  margin: 0;
+}
+
+#workspace:has(.queue-panel) .detail-panel > :where(h2, h3) {
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.queue-panel) .detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+#workspace:has(.queue-panel) .detail-badges li {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.queue-panel) .detail-panel dl {
+  gap: 0.2rem 0.8rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
+#workspace:has(.queue-panel) .detail-link {
+  color: var(--nba-primary);
+  font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+#workspace:has(.queue-panel) .detail-hint {
+  color: var(--nba-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+#workspace:has(.queue-panel) .detail-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+#workspace:has(.queue-panel) .detail-actions :where(button, .ui-button, a) {
+  min-height: 2.75rem;
+}
+
+#workspace:has(.queue-panel) .detail-actions .ui-button--primary {
+  order: -1;
+}
+
+#workspace:has(.queue-panel) .detail-sheet-close {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+@media (max-width: 60rem) {
+  #workspace:has(.queue-panel) .today-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.queue-panel) .detail-panel[data-detail-open="false"] {
+    display: none;
+  }
+
+  #workspace:has(.queue-panel) .detail-panel[data-detail-open="true"] {
+    bottom: calc(5.75rem + env(safe-area-inset-bottom));
+    left: 1rem;
+    margin: 0;
+    max-height: none;
+    overflow: auto;
+    position: fixed;
+    right: 1rem;
+    top: 1rem;
+    width: auto;
+    z-index: 20;
+  }
+
+  #workspace:has(.queue-panel) .detail-sheet-close {
+    display: inline-flex;
+    margin-inline-start: auto;
+  }
+}
+
+@media (max-width: 48rem) {
+  .workbench-header {
+    align-items: flex-start;
+    grid-template-areas:
+      "title"
+      "description"
+      "summary"
+      "status"
+      "refresh"
+      "details";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-header-summary {
+    justify-content: flex-start;
+  }
+
+  .queue-panel .queue-filter-fields {
+    grid-template-rows: repeat(3, minmax(0, auto));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 30rem) {
+  .workbench-header {
+    gap: 0.5rem;
+  }
+
+  .workbench-readiness-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workbench-readiness-banner > p {
+    flex-basis: auto;
+  }
+
+  .queue-panel .queue-segments,
+  .queue-panel .queue-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue-panel .queue-segments > :where(button, .ui-button),
+  .queue-panel .queue-filters > :where(input, select),
+  .queue-panel .queue-filters > :where(#queue-query, #queue-search-button) {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .queue-panel .queue-filter-fields {
+    grid-template-rows: repeat(6, minmax(0, auto));
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue-panel .queue-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue-panel .queue-batch-select {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .queue-panel .queue-item {
+    min-height: 4rem;
+  }
+
+  #workspace:has(.queue-panel) .detail-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #workspace:has(.queue-panel) .detail-actions :where(button, .ui-button, a),
+  #workspace:has(.queue-panel) .direct-url-panel :where(input, button, .ui-button) {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  .workbench-header-metric,
+  .workbench-connection-status,
+  .workbench-readiness-banner,
+  .queue-panel .queue-item[aria-pressed="true"] {
     border-color: ButtonText;
     box-shadow: none;
   }
