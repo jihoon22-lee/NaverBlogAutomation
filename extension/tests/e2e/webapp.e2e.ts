@@ -248,6 +248,30 @@ for (const viewport of VIEWPORTS) {
       await page.locator(`[data-draft-id="${draftId}"]`).click();
       await expect(page.locator("#draft-title")).toHaveValue("웹앱 편집 합성 초안");
       await expect(page.locator(".block-canvas .editor-block")).toHaveCount(2);
+      if (viewport.width === 1440 || viewport.width === 320) {
+        await expect(page.locator(".writing-editor-main")).toBeVisible();
+        await expect(page.locator(".writing-editor-sidebar")).toBeVisible();
+        const editorOrder = await page
+          .locator(".writing-editor-layout")
+          .evaluate((layout) => Array.from(layout.children).map((child) => child.className));
+        expect(editorOrder).toEqual(["writing-editor-main", "writing-editor-sidebar"]);
+      }
+      if (viewport.width === 1440) {
+        const block = page.locator('[data-block-index="0"]');
+        const bodyTextarea = block.locator("textarea");
+        const blockTools = block.locator(".block-tools");
+        await bodyTextarea.focus();
+        await expect
+          .poll(
+            async () =>
+              blockTools.evaluate((element) => {
+                const styles = getComputedStyle(element);
+                return { opacity: styles.opacity, pointerEvents: styles.pointerEvents };
+              }),
+            { timeout: 2_000 },
+          )
+          .toEqual({ opacity: "1", pointerEvents: "auto" });
+      }
       const autosave = page.waitForRequest(
         (request) =>
           request.method() === "PUT" &&
@@ -263,6 +287,21 @@ for (const viewport of VIEWPORTS) {
       });
       await page.locator(".editor-preview summary").click();
       await expect(page.locator(".block-preview-content")).toContainText("수정된 첫 문단");
+      await expect(page.locator(".autosave-status")).toHaveText("자동 저장되었습니다.");
+      await page.locator("#start-new-draft-button").click();
+      await expect(page).toHaveURL(/#writing$/);
+      await expect(page.locator('.writing-shell[data-mode="start"]')).toBeVisible();
+      await expect(page.locator("#seed-title")).toBeFocused();
+      await expect(page.locator(`[data-draft-id="${draftId}"]`)).toBeVisible();
+      if (viewport.width === 1440 || viewport.width === 320) {
+        const writingOverflow = await page.evaluate(() => ({
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        }));
+        expect(writingOverflow.documentWidth, JSON.stringify(writingOverflow)).toBeLessThanOrEqual(
+          writingOverflow.viewportWidth,
+        );
+      }
 
       await page.locator('[data-section="more"]').click();
       await expect(page.locator("#more-settings")).toBeVisible();
