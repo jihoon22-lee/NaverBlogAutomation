@@ -307,15 +307,46 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#more-settings")).toBeVisible();
       await page.locator("#more-settings").click();
       await expect(page.locator(".settings-navigation")).toBeVisible();
+      const assertSettingsLayout = async () => {
+        const layout = await page.evaluate(() => {
+          const controls = [
+            ...document.querySelectorAll<HTMLElement>(
+              "#workspace button, #workspace select, #workspace textarea, #workspace input:not([type='checkbox']):not([type='radio']), #workspace summary",
+            ),
+          ].filter((element) => !element.hidden && element.getClientRects().length > 0);
+          return {
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: window.innerWidth,
+            undersized: controls
+              .map((element) => ({
+                height: Math.round(element.getBoundingClientRect().height),
+                id: element.id,
+                tag: element.tagName.toLowerCase(),
+                width: Math.round(element.getBoundingClientRect().width),
+              }))
+              .filter(({ height, width }) => height < 44 || width < 44),
+          };
+        });
+        expect(layout.documentWidth, JSON.stringify(layout)).toBeLessThanOrEqual(
+          layout.viewportWidth,
+        );
+        expect(layout.undersized, JSON.stringify(layout)).toEqual([]);
+      };
+      await assertSettingsLayout();
       await expect(page.locator("#runtime-openai-key")).toHaveAttribute("type", "password");
       await page.locator('.settings-navigation-item[data-settings-section="connections"]').click();
       await expect(page.locator(".runtime-data-panel")).toBeVisible();
+      await assertSettingsLayout();
       const download = page.waitForEvent("download");
       await page.locator("#export-runtime-data-button").click();
       await expect((await download).suggestedFilename()).toBe("naver-blog-assistant-data.zip");
       await page.locator(".runtime-data-reset summary").click();
       await expect(page.locator("#runtime-data-reset-confirmation")).toBeVisible();
       await expect(page.locator("#reset-runtime-data-button")).toBeDisabled();
+      await page.locator("#runtime-data-reset-confirmation").fill("RESET LOCAL DATA");
+      await expect(page.locator("#reset-runtime-data-button")).toBeEnabled();
+      await page.locator("#runtime-data-reset-confirmation").fill("");
+      await assertSettingsLayout();
 
       const shellCache = await page.evaluate(async () => {
         if (!("serviceWorker" in navigator)) return { registered: false, apiCached: false };
