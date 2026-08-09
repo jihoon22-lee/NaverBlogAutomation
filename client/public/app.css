@@ -674,6 +674,16 @@ button:disabled {
   gap: 0.4rem;
 }
 
+.queue-selection label,
+.manual-choice {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  overflow-wrap: anywhere;
+  padding-block: 0.35rem;
+}
+
 .allowed-hours-field {
   display: flex;
   flex-wrap: wrap;

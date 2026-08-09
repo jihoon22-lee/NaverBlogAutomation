@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { Readable } from "node:stream";
 
 import { expect, test } from "@playwright/test";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 
 import { resolveApiCommand } from "./api-command.js";
 
@@ -27,6 +27,28 @@ const VIEWPORTS = [
   { name: "tablet landscape", width: 1024, height: 768 },
   { name: "phone", width: 320, height: 720 },
 ] as const;
+
+async function assertAccessibleViewport(page: Page): Promise<void> {
+  const layout = await page.evaluate(() => {
+    const controls = [
+      ...document.querySelectorAll<HTMLElement>(
+        "#workspace button, #workspace select, #workspace textarea, #workspace input:not([type='checkbox']):not([type='radio']):not([type='file']), #workspace summary, #workspace label:has(> input[type='checkbox']), #workspace label:has(> input[type='radio'])",
+      ),
+    ].filter((element) => !element.hidden && element.getClientRects().length > 0);
+    return {
+      documentWidth: document.documentElement.scrollWidth,
+      undersized: controls.flatMap((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.height < 44 || rect.width < 44
+          ? [`${element.tagName.toLowerCase()}#${element.id || "(no-id)"}`]
+          : [];
+      }),
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(layout.documentWidth, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.undersized, JSON.stringify(layout)).toEqual([]);
+}
 
 for (const viewport of VIEWPORTS) {
   test(`packaged web app resumes the workbench at ${viewport.name}`, async () => {
@@ -83,6 +105,14 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator(".home-primary-action")).toBeVisible();
       await expect(page.locator("#home-open-onboarding")).toHaveText("초기 설정 계속");
       await expect(page.locator("#home-start-writing")).toBeVisible();
+      await assertAccessibleViewport(page);
+
+      await page.locator("#skip-link").focus();
+      await expect(page.locator("#skip-link")).toBeFocused();
+      await page.locator("#skip-link").press("Enter");
+      await expect
+        .poll(async () => page.evaluate(() => document.activeElement?.id ?? ""))
+        .toMatch(/^workspace(?:-status)?$/u);
 
       await page.locator("#home-open-onboarding").click();
       await expect(page).toHaveURL(/#setup$/);
@@ -120,13 +150,13 @@ for (const viewport of VIEWPORTS) {
       );
       const serviceDetails = page.locator(".workbench-service-details");
       await expect(serviceDetails.locator("summary")).toHaveText("연결 상태 상세");
-      await serviceDetails.locator("summary").click();
+      await serviceDetails.locator("summary").press("Enter");
       await expect(serviceDetails.locator(".workbench-service-details-content")).toContainText(
         "서비스",
       );
       const advancedFilters = page.locator(".queue-advanced-filters");
       await expect(advancedFilters.locator("summary")).toHaveText("고급 필터");
-      await advancedFilters.locator("summary").click();
+      await advancedFilters.locator("summary").press("Enter");
       await expect(page.locator('label[for="queue-source-filter"]')).toHaveText("출처");
       await expect(page.locator('label[for="queue-state-filter"]')).toHaveText("상태");
       await expect(page.locator('label[for="queue-sort"]')).toHaveText("정렬");
@@ -161,6 +191,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#open-batch-preview")).toBeEnabled();
       await page.locator("#open-batch-preview").click();
       await expect(page.locator("#session-queue-selection")).toBeVisible();
+      await assertAccessibleViewport(page);
 
       const choice = page.locator(`input[data-post-id="${postId}"]`);
       await choice.check();
@@ -187,6 +218,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#detail-title")).toHaveText("웹앱 배치 합성 글");
       await expect(page.locator("#open-post-button")).toBeDisabled();
       await expect(page.locator("#skip-post-button")).toBeVisible();
+      await assertAccessibleViewport(page);
       if (viewport.width <= 768) {
         await expect(page.locator("#close-detail-sheet")).toBeVisible();
         await page.locator("#close-detail-sheet").click();
@@ -248,6 +280,7 @@ for (const viewport of VIEWPORTS) {
       await page.locator(`[data-draft-id="${draftId}"]`).click();
       await expect(page.locator("#draft-title")).toHaveValue("웹앱 편집 합성 초안");
       await expect(page.locator(".block-canvas .editor-block")).toHaveCount(2);
+      await assertAccessibleViewport(page);
       if (viewport.width === 1440 || viewport.width === 320) {
         await expect(page.locator(".writing-editor-main")).toBeVisible();
         await expect(page.locator(".writing-editor-sidebar")).toBeVisible();
@@ -293,6 +326,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator('.writing-shell[data-mode="start"]')).toBeVisible();
       await expect(page.locator("#seed-title")).toBeFocused();
       await expect(page.locator(`[data-draft-id="${draftId}"]`)).toBeVisible();
+      await assertAccessibleViewport(page);
       if (viewport.width === 1440 || viewport.width === 320) {
         const writingOverflow = await page.evaluate(() => ({
           documentWidth: document.documentElement.scrollWidth,
@@ -307,46 +341,21 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("#more-settings")).toBeVisible();
       await page.locator("#more-settings").click();
       await expect(page.locator(".settings-navigation")).toBeVisible();
-      const assertSettingsLayout = async () => {
-        const layout = await page.evaluate(() => {
-          const controls = [
-            ...document.querySelectorAll<HTMLElement>(
-              "#workspace button, #workspace select, #workspace textarea, #workspace input:not([type='checkbox']):not([type='radio']), #workspace summary",
-            ),
-          ].filter((element) => !element.hidden && element.getClientRects().length > 0);
-          return {
-            documentWidth: document.documentElement.scrollWidth,
-            viewportWidth: window.innerWidth,
-            undersized: controls
-              .map((element) => ({
-                height: Math.round(element.getBoundingClientRect().height),
-                id: element.id,
-                tag: element.tagName.toLowerCase(),
-                width: Math.round(element.getBoundingClientRect().width),
-              }))
-              .filter(({ height, width }) => height < 44 || width < 44),
-          };
-        });
-        expect(layout.documentWidth, JSON.stringify(layout)).toBeLessThanOrEqual(
-          layout.viewportWidth,
-        );
-        expect(layout.undersized, JSON.stringify(layout)).toEqual([]);
-      };
-      await assertSettingsLayout();
+      await assertAccessibleViewport(page);
       await expect(page.locator("#runtime-openai-key")).toHaveAttribute("type", "password");
       await page.locator('.settings-navigation-item[data-settings-section="connections"]').click();
       await expect(page.locator(".runtime-data-panel")).toBeVisible();
-      await assertSettingsLayout();
+      await assertAccessibleViewport(page);
       const download = page.waitForEvent("download");
       await page.locator("#export-runtime-data-button").click();
       await expect((await download).suggestedFilename()).toBe("naver-blog-assistant-data.zip");
-      await page.locator(".runtime-data-reset summary").click();
+      await page.locator(".runtime-data-reset summary").press("Enter");
       await expect(page.locator("#runtime-data-reset-confirmation")).toBeVisible();
       await expect(page.locator("#reset-runtime-data-button")).toBeDisabled();
       await page.locator("#runtime-data-reset-confirmation").fill("RESET LOCAL DATA");
       await expect(page.locator("#reset-runtime-data-button")).toBeEnabled();
       await page.locator("#runtime-data-reset-confirmation").fill("");
-      await assertSettingsLayout();
+      await assertAccessibleViewport(page);
 
       const shellCache = await page.evaluate(async () => {
         if (!("serviceWorker" in navigator)) return { registered: false, apiCached: false };
