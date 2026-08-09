@@ -105,6 +105,13 @@ function installWorkspaceApi(
         generator_model: "fake",
       });
     }
+    if (url.includes("/app/discovery/queue")) {
+      return response({
+        items: [],
+        counts: { neighbor: 0, search: 0, skipped: 0, total: 0 },
+        next_cursor: null,
+      });
+    }
     if (url.includes("/app/readiness")) {
       return response({
         access_mode: options.accessMode ?? "local",
@@ -185,6 +192,7 @@ describe("mount", () => {
       "#today",
       "#home",
       "#workbench",
+      "#setup",
       "#more",
       "#activity",
       "#settings",
@@ -314,6 +322,7 @@ describe("createWorkspace", () => {
 
     for (const hash of [
       "#writing/22222222-2222-4222-8222-222222222222",
+      "#setup",
       "#session/33333333-3333-4333-8333-333333333333",
       "#activity",
       "#settings",
@@ -346,6 +355,7 @@ describe("createWorkspace", () => {
       ["#writing", () => workspace.showHome()],
       ["#activity", () => workspace.showHome()],
       ["#settings", () => workspace.showHome()],
+      ["#setup", () => workspace.showHome()],
     ] as const) {
       show();
       if (document.defaultView !== null) document.defaultView.location.hash = hash;
@@ -567,6 +577,42 @@ describe("navigation", () => {
     expect(workspace.writing.state.phase).toBe("seed");
   });
 
+  it("opens setup from the home blocker action and keeps the home tab current", async () => {
+    installWorkspaceApi();
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showHome();
+    await flush();
+    await flush();
+
+    const action = document.getElementById("home-open-onboarding") as HTMLButtonElement | null;
+    expect(action?.textContent).toBe("초기 설정 계속");
+    action?.click();
+
+    expect(document.defaultView?.location.hash).toBe("#setup");
+    expect(tab("home").getAttribute("aria-current")).toBe("page");
+    expect(document.getElementById("workspace-nav")?.hidden).toBe(false);
+    expect(root.querySelector("#workspace-status")).not.toBeNull();
+    expect(workspace.today.state.phase).toBe("loading");
+    await flush();
+    expect(workspace.today.state.phase).toBe("ready");
+  });
+
+  it("renders the independent setup route with home navigation ownership", () => {
+    installWorkspaceApi();
+    const root = shell();
+    const workspace = createWorkspace(root);
+
+    workspace.showOnboarding();
+
+    expect(document.defaultView?.location.hash).toBe("#setup");
+    expect(tab("home").getAttribute("aria-current")).toBe("page");
+    expect(document.getElementById("workspace-nav")?.hidden).toBe(false);
+    expect(root.querySelector("#workspace-status")).not.toBeNull();
+    expect(root.contains(document.activeElement)).toBe(true);
+  });
+
   it("returns to the workbench from the nav", () => {
     const root = shell();
     const workspace = createWorkspace(root);
@@ -621,6 +667,7 @@ describe("navigation", () => {
   it("maps documented hash routes to their owning workspace section", () => {
     expect(routeFromHash("#today")).toBe("home");
     expect(routeFromHash("#home")).toBe("home");
+    expect(routeFromHash("#setup")).toBe("onboarding");
     expect(routeFromHash("#more")).toBe("more");
     expect(routeFromHash("#workbench")).toBe("workbench");
     expect(routeFromHash("#queue")).toBe("workbench");

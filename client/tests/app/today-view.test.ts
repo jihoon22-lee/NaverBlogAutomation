@@ -115,6 +115,7 @@ function handlers(): TodayHandlers {
     onOpenDirectUrl: vi.fn(),
     onOpenPost: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenOnboarding: vi.fn(),
     onOpenWorkbench: vi.fn(),
     onOpenWriting: vi.fn(),
     onPostStateChange: vi.fn(),
@@ -203,17 +204,20 @@ describe("home and onboarding views", () => {
       },
       viewHandlers,
     );
+    expect(document.getElementById("home-open-onboarding")?.textContent).toBe("초기 설정 계속");
     expect(document.getElementById("home-launch-browser")).not.toBeNull();
     expect(document.getElementById("home-focus-browser")).not.toBeNull();
     expect(document.getElementById("home-llm_provider_missing")).not.toBeNull();
     expect(document.querySelectorAll(".home-primary-action")).toHaveLength(1);
     expect(document.querySelectorAll(".ui-button--primary")).toHaveLength(1);
 
+    (document.getElementById("home-open-onboarding") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenOnboarding).toHaveBeenCalledOnce();
     (document.getElementById("home-llm_provider_missing") as HTMLButtonElement).click();
     expect(viewHandlers.onOpenSettings).toHaveBeenCalledWith("connections");
   });
 
-  it("uses blocker priority for the single primary action and routes quick actions", () => {
+  it("uses one guided setup action for blockers and routes quick actions", () => {
     const root = mountRoot();
     const viewHandlers = handlers();
     const state = {
@@ -227,13 +231,15 @@ describe("home and onboarding views", () => {
 
     expect(document.getElementById("home-launch-browser")).not.toBeNull();
     expect(document.querySelector(".home-next-action .home-primary-action")?.id).toBe(
-      "home-launch-browser",
+      "home-open-onboarding",
     );
     expect(document.querySelectorAll(".home-primary-action")).toHaveLength(1);
     expect(document.querySelector(".home-readiness-status")?.textContent).toContain("필요 조치");
 
     (document.getElementById("home-start-writing") as HTMLButtonElement).click();
     (document.getElementById("home-quick-workbench") as HTMLButtonElement).click();
+    (document.getElementById("home-open-onboarding") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenOnboarding).toHaveBeenCalledOnce();
     expect(viewHandlers.onOpenWriting).toHaveBeenCalledOnce();
     expect(viewHandlers.onOpenWorkbench).toHaveBeenCalledOnce();
   });
@@ -266,10 +272,10 @@ describe("home and onboarding views", () => {
       },
       viewHandlers,
     );
-    expect(document.getElementById("home-web_app_assets_missing")).not.toBeNull();
+    expect(document.getElementById("home-open-onboarding")?.textContent).toBe("초기 설정 계속");
     expect(document.getElementById("home-open-workbench")).toBeNull();
-    (document.getElementById("home-web_app_assets_missing") as HTMLButtonElement).click();
-    expect(viewHandlers.onRefresh).toHaveBeenCalledOnce();
+    (document.getElementById("home-open-onboarding") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenOnboarding).toHaveBeenCalledOnce();
   });
 
   it("exposes labelled sections and a textual heading hierarchy", () => {
