@@ -116,6 +116,7 @@ function handlers(): TodayHandlers {
     onOpenPost: vi.fn(),
     onOpenSettings: vi.fn(),
     onOpenWorkbench: vi.fn(),
+    onOpenWriting: vi.fn(),
     onPostStateChange: vi.fn(),
     onQueryChange: vi.fn(),
     onRefresh: vi.fn(),
@@ -161,20 +162,34 @@ describe("home and onboarding views", () => {
 
     renderHome(
       root,
-      { ...base, counts: { neighbor: 0, search: 0, skipped: 0, total: 0 } },
+      {
+        ...base,
+        phase: "ready",
+        counts: { neighbor: 0, search: 0, skipped: 0, total: 0 },
+        readiness: readiness([]),
+      },
       viewHandlers,
     );
     expect(text(".home-summary-panel")).toContain("아직 처리할 글이 없습니다");
+    expect(document.getElementById("home-hero-title")?.tagName).toBe("H2");
+    expect(document.getElementById("home-refresh")?.textContent).toBe("새로 수집");
+    expect(document.querySelectorAll(".home-primary-action")).toHaveLength(1);
+    expect(document.querySelectorAll(".home-metric-card")).toHaveLength(4);
 
     const ready: TodayState = {
       ...base,
       phase: "ready",
-      counts: { neighbor: 2, search: 1, skipped: 0, total: 3 },
+      counts: { neighbor: 2, search: 1, skipped: 4, total: 7 },
       readiness: readiness([]),
     };
     renderHome(root, ready, viewHandlers);
-    expect(text(".home-readiness-panel")).toContain("시작할 준비");
-    expect(text(".home-summary-panel")).toContain("처리 대기 3건");
+    expect(text(".home-readiness-panel")).toContain("준비 완료");
+    expect(text(".home-summary-panel")).toContain("처리할 글 3건");
+    expect(document.getElementById("home-open-workbench")?.textContent).toBe("작업함 열기");
+    expect(document.querySelector('[data-metric="skipped"] .home-metric-value')?.textContent).toBe(
+      "4",
+    );
+    expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
 
     renderHome(
       root,
@@ -191,9 +206,151 @@ describe("home and onboarding views", () => {
     expect(document.getElementById("home-launch-browser")).not.toBeNull();
     expect(document.getElementById("home-focus-browser")).not.toBeNull();
     expect(document.getElementById("home-llm_provider_missing")).not.toBeNull();
+    expect(document.querySelectorAll(".home-primary-action")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-button--primary")).toHaveLength(1);
 
     (document.getElementById("home-llm_provider_missing") as HTMLButtonElement).click();
     expect(viewHandlers.onOpenSettings).toHaveBeenCalledWith("connections");
+  });
+
+  it("uses blocker priority for the single primary action and routes quick actions", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+    const state = {
+      ...initialTodayState(),
+      phase: "ready" as const,
+      counts: { neighbor: 2, search: 0, skipped: 0, total: 2 },
+      readiness: readiness(["llm_provider_missing", "naver_login_required", "browser_not_running"]),
+    };
+
+    renderHome(root, state, viewHandlers);
+
+    expect(document.getElementById("home-launch-browser")).not.toBeNull();
+    expect(document.querySelector(".home-next-action .home-primary-action")?.id).toBe(
+      "home-launch-browser",
+    );
+    expect(document.querySelectorAll(".home-primary-action")).toHaveLength(1);
+    expect(document.querySelector(".home-readiness-status")?.textContent).toContain("필요 조치");
+
+    (document.getElementById("home-start-writing") as HTMLButtonElement).click();
+    (document.getElementById("home-quick-workbench") as HTMLButtonElement).click();
+    expect(viewHandlers.onOpenWriting).toHaveBeenCalledOnce();
+    expect(viewHandlers.onOpenWorkbench).toHaveBeenCalledOnce();
+  });
+
+  it("does not treat skipped-only counts or asset blockers as ready work", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+    const base = initialTodayState();
+
+    renderHome(
+      root,
+      {
+        ...base,
+        phase: "ready",
+        counts: { neighbor: 0, search: 0, skipped: 3, total: 3 },
+        readiness: readiness([]),
+      },
+      viewHandlers,
+    );
+    expect(document.getElementById("home-refresh")?.textContent).toBe("새로 수집");
+    expect(document.getElementById("home-open-workbench")).toBeNull();
+
+    renderHome(
+      root,
+      {
+        ...base,
+        phase: "ready",
+        counts: { neighbor: 2, search: 0, skipped: 0, total: 2 },
+        readiness: readiness(["web_app_assets_missing"]),
+      },
+      viewHandlers,
+    );
+    expect(document.getElementById("home-web_app_assets_missing")).not.toBeNull();
+    expect(document.getElementById("home-open-workbench")).toBeNull();
+    (document.getElementById("home-web_app_assets_missing") as HTMLButtonElement).click();
+    expect(viewHandlers.onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("exposes labelled sections and a textual heading hierarchy", () => {
+    const root = mountRoot();
+    renderHome(
+      root,
+      {
+        ...initialTodayState(),
+        phase: "ready",
+        readiness: readiness([]),
+      },
+      handlers(),
+    );
+
+    for (const selector of [
+      ".home-hero",
+      ".home-summary-panel",
+      ".home-readiness-panel",
+      ".home-quick-panel",
+    ]) {
+      const section = document.querySelector(selector);
+      const labelledBy = section?.getAttribute("aria-labelledby");
+      expect(labelledBy).toBeTruthy();
+      expect(
+        typeof labelledBy === "string" ? document.getElementById(labelledBy) : null,
+      ).not.toBeNull();
+    }
+    expect(document.querySelectorAll("h2").length).toBeGreaterThanOrEqual(4);
+    expect(document.querySelectorAll("h3")).toHaveLength(4);
+  });
+
+  it("renders explicit loading and failed readiness states", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+
+    renderHome(root, { ...initialTodayState(), phase: "loading" }, viewHandlers);
+    const loadingAction = document.getElementById("home-refresh") as HTMLButtonElement;
+    expect(loadingAction.disabled).toBe(true);
+    expect(text(".home-readiness-status")).toBe("확인 중");
+    expect(text(".home-readiness-list")).toContain("확인하는 중");
+
+    renderHome(
+      root,
+      {
+        ...initialTodayState(),
+        phase: "failed",
+        error: "서비스 연결 실패",
+        readiness: readiness([]),
+      },
+      viewHandlers,
+    );
+    const retry = document.getElementById("home-refresh") as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    expect(text(".home-readiness-status")).toBe("확인 실패");
+    expect(text(".home-readiness-list")).toContain("다시 확인하세요");
+    expect(text(".home-readiness-list")).not.toContain("AI 생성 준비됨");
+    retry.click();
+    expect(viewHandlers.onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps missing readiness data retryable after the main load succeeds", () => {
+    const root = mountRoot();
+    const viewHandlers = handlers();
+
+    renderHome(
+      root,
+      {
+        ...initialTodayState(),
+        phase: "ready",
+        readiness: null,
+      },
+      viewHandlers,
+    );
+
+    const retry = document.getElementById("home-refresh") as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    expect(retry.textContent).toBe("준비 상태 다시 확인");
+    expect(text(".home-readiness-status")).toBe("일부 미확인");
+    expect(text(".home-readiness-list")).toContain("불러오지 못했습니다");
+    retry.click();
+    expect(viewHandlers.onRefresh).toHaveBeenCalledOnce();
   });
 
   it("renders the workbench service/onboarding shell without a selected detail", () => {

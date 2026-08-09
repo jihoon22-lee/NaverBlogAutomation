@@ -61,6 +61,7 @@ export interface TodayControllerOptions {
   onRemotePairingRequired?: () => void;
   onSettingsRequested?: (section?: SettingsSection) => void;
   onWorkbenchRequested?: () => void;
+  onWritingRequested?: () => void;
   onBatchRequested?: (request: BatchPreflightRequest) => void;
 }
 
@@ -73,6 +74,7 @@ export class TodayController {
   readonly #onRemotePairingRequired: () => void;
   readonly #onSettingsRequested: (section?: SettingsSection) => void;
   readonly #onWorkbenchRequested: () => void;
+  readonly #onWritingRequested: () => void;
   readonly #onBatchRequested: (request: BatchPreflightRequest) => void;
   #state: TodayState = initialTodayState();
   #busy = false;
@@ -87,6 +89,7 @@ export class TodayController {
     this.#onRemotePairingRequired = options.onRemotePairingRequired ?? (() => undefined);
     this.#onSettingsRequested = options.onSettingsRequested ?? (() => undefined);
     this.#onWorkbenchRequested = options.onWorkbenchRequested ?? (() => undefined);
+    this.#onWritingRequested = options.onWritingRequested ?? (() => undefined);
     this.#onBatchRequested = options.onBatchRequested ?? (() => undefined);
   }
 
@@ -167,6 +170,7 @@ export class TodayController {
       onOpenPost: (postId: string) => void this.openPost(postId),
       onOpenDirectUrl: (url: string) => void this.openDirectUrl(url),
       onOpenWorkbench: this.#onWorkbenchRequested,
+      onOpenWriting: this.#onWritingRequested,
       onOpenBatch: () =>
         this.#onBatchRequested({
           approvedSteps: this.#state.approvedSteps,
