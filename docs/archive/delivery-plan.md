@@ -3,7 +3,7 @@
 Status: PR 1~8 delivered on 2026-07-17
 
 > 보관 문서입니다. 이 계획의 구현은 완료됐습니다. 현재 제품 작업은
-> [`../webapp-experience-redesign-plan.md`](../webapp-experience-redesign-plan.md)를 따릅니다.
+> [`webapp-experience-redesign-plan.md`](webapp-experience-redesign-plan.md)를 따릅니다.
 
 PR 1~3 delivered the domain/use cases, SQLite adapter, and local FastAPI contract. The following
 PRs implement the accepted Side Panel architecture. Each PR targets `main`, is opened ready for
@@ -11,7 +11,7 @@ review, and merges only after all required CI checks pass. Later work depends on
 being merged unless an explicitly isolated implementation can be rebased without contract drift.
 
 All planned implementation slices are complete. The sections below remain as the release scope and
-acceptance record; operational commands are maintained in [`local-operations.md`](local-operations.md).
+acceptance record; operational commands are maintained in [`../local-operations.md`](../local-operations.md).
 
 ## PR 5 — Side Panel and Naver Extraction
 

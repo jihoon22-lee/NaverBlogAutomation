@@ -1,10 +1,14 @@
 # 네이버 블로그 댓글·글쓰기 보조 도구 아키텍처
 
-Status: 현재 구현을 반영한 개정본, 갱신 2026-08-01
+Status: 현재 구현을 반영한 개정본, 갱신 2026-08-09 (PR #96~#105)
 
-이 문서는 v0.6 이후의 실제 런타임 구조를 기술합니다. 현재 제품 범위와 다음 구현 순서는
-[`webapp-experience-redesign-plan.md`](webapp-experience-redesign-plan.md)에, PR 1–8이 만든 원래 Side Panel
-아키텍처와 delivery boundary는 [`archive/delivery-plan.md`](archive/delivery-plan.md)에 남아 있습니다.
+이 문서는 v0.6 이후의 실제 런타임 구조와 현재 웹앱 UX 계약을 기술합니다. 사용자용 설치·운영
+절차는 [`getting-started.md`](getting-started.md)와 [`local-operations.md`](local-operations.md)를,
+현재 화면과 반응형·접근성 기준은 [`ux-design.md`](ux-design.md)를 기준으로 삼습니다.
+[`archive/webapp-experience-redesign-plan.md`](archive/webapp-experience-redesign-plan.md)는
+PR #90~#91의 원래 실행 기록과 #96~#105 closure snapshot을 함께 보관하며, PR 1~8이 만든
+원래 Side Panel 아키텍처와 delivery boundary는 [`archive/delivery-plan.md`](archive/delivery-plan.md)에
+보관되어 있습니다. archive 문서는 현재 구현의 변경 기준이 아닙니다.
 
 ## 목적과 경계
 
@@ -44,17 +48,71 @@ TypeScript SPA로 빌드되며 같은 loopback 서비스에서 static으로 제�
 설정 없이 같은 origin에서 API를 호출합니다.
 
 워크스페이스의 primary navigation은 **홈(Home)**, **작업함(Workbench)**, **글쓰기(Writing)**,
-**더보기(More)** 네 항목이며, 한 번에 하나만 표시합니다. 세션 배치, 이력, 일반 설정은 작업함과
-더보기의 세부 화면으로 열린다.
+**관리(Management)** 네 항목이며, 한 번에 하나만 표시합니다. 화면의 네 번째 label은 `관리`지만
+호환성을 위해 DOM의 `data-section="more"`와 `more` route 이름은 유지합니다. 세션 배치, 이력,
+일반 설정은 작업함과 관리의 보조 화면으로 열립니다.
 
-- **Home / Workbench** — 준비 상태, 탐색 대기열 상태, 큐 동기화, 개별 글 처리와 세션 배치 시작.
+- **App shell** — `client/public/index.html`의 skip link, semantic header/nav, `#workspace` main을
+  소유합니다. nav는 workspace 밖에 있어 view rerender 뒤에도 유지되며, 현재 section은
+  `aria-current="page"`로 표시합니다.
+- **Home** — readiness blocker, 오늘의 queue metric, 작업함·새 글 quick action을 보여 주는
+  작은 dashboard입니다. blocker가 있으면 단일 primary action으로 `#setup` guided onboarding을
+  열고, 준비가 끝나면 작업함 또는 새 글 흐름으로 보냅니다.
+- **Workbench** — readiness, 탐색 대기열, queue filtering/cursor, 개별 글 처리와 session batch
+  preflight를 소유합니다. 긴 queue는 home에 복제하지 않습니다.
+- **Onboarding** — `#setup`/`#onboarding`의 단계형 readiness checklist입니다. 현재 단계의
+  설정 section deep-link, browser session launch/focus, refresh, home 복귀를 위임받습니다.
 - **Comment** — 추출 뒤 기본 후보를 생성하고, 선택·AI 빠른 다듬기·복사·한 번의 실행 승인을 제공합니다.
-- **Session** — 세션 배치 승인, SSE 기반 진행 추적, 취소.
-- **Writing** — 초안 생성과 AI 완성, title·block working copy 자동 저장, revision checkpoint, 태그 생성,
-  임시저장 실행.
-- **More** — 저장된 recommendation·배치·초안을 다시 열고 개인화 예시와 로컬 기록, 설정을 정리합니다.
+- **Session** — 세션 배치 승인, safety preflight, SSE 기반 진행 추적, 취소와 작업함 복귀를
+  소유합니다.
+- **Writing** — seed form과 recent drafts, block canvas, title·block working copy autosave,
+  revision checkpoint, AI compose/refine/tag, 이미지·태그·임시저장 실행을 소유합니다.
+- **Management** — `#more`의 이력·설정·PC 전용 태블릿 연결 entry입니다. 설정은 defaults,
+  automation, connections 세 section과 필요한 경우에만 펼치는 progressive disclosure panel로
+  구성됩니다.
 
 SPA는 secret이나 API key를 보유하지 않으며, LLM provider 설정 여부만 표시합니다.
+
+### Shell·route 계약
+
+`main.ts`는 하나의 `#workspace` root에 controller를 조립하고 hash를 화면 소유 section으로
+해석합니다. primary tab과 내부 화면을 분리해 legacy bookmark를 보존합니다.
+
+| Route | 소유 화면 | 호환 별칭·비고 |
+| --- | --- | --- |
+| `#home` | 홈 dashboard | `#today`는 home의 legacy alias |
+| `#workbench` | 작업함 queue | `#queue`, `#batch` alias; `#post/:id`는 선택 글 detail |
+| `#setup` | 초기 설정 가이드 | `#onboarding` alias; 완료 뒤 홈으로 복귀 |
+| `#writing` | 새 글 seed/editor | `#writing/:draftId`는 특정 초안 재개 |
+| `#more` | 관리 entry | `#menu`, `#devices`, `#pairing` 등 legacy route가 관리로 귀속 |
+| `#activity` | 이력 | `#history`, `#logs` alias; 관리 tab을 current로 유지 |
+| `#settings?section=...` | 설정 | `defaults`, `automation`, `connections`; 관리 tab을 current로 유지 |
+| `#session[/id]` | batch 진행 화면 | 작업함 tab을 current로 유지 |
+| `#comment/:id` | 저장된 댓글 결과 | 작업함 context를 유지하고 stale recommendation 응답을 버림 |
+
+화면 전환은 `activeView`를 먼저 갱신하고 route·nav·controller view를 함께 갱신합니다. 전환 시에는
+workspace로 focus를 옮기지만, 같은 화면의 state rerender에서는 입력 focus를 훔치지 않습니다.
+`#workspace`에는 전체 화면을 덮는 `aria-live`를 두지 않고, 각 view가 필요한 status live region만
+소유합니다.
+
+### Controller·state 소유권
+
+서버 응답은 controller가 API 경계에서 받아 state pure helper로 정규화한 뒤 view에 전달합니다.
+view는 DOM을 그리며 callback만 호출하고, route 변경·network·SSE·busy guard를 직접 소유하지
+않습니다.
+
+| 영역 | state/controller 책임 | 주요 보호 규칙 |
+| --- | --- | --- |
+| Home/Workbench/Onboarding | `TodayState`, `TodayController` | readiness·queue·safety·browser session을 함께 로드하고, busy 중 최신 `selectedPostId` 의도를 pending으로 보존합니다. queue filter reset은 query/source/state/sort만 되돌리고 selection·posts를 보존합니다. |
+| Comment | `CommentState`, `CommentController` | post/content sequence로 이전 글의 generation·restore·refine 응답을 현재 글에 적용하지 않습니다. |
+| Session | `SessionState`, `SessionController` | lifecycle와 stream generation으로 close/새 session 이후 응답을 무시하고, SSE payload의 session id를 확인합니다. terminal event에서는 source를 닫고, bounded reconnect 뒤 한 번의 read fallback만 수행합니다. |
+| Engagement run | `RunState`, `RunController` | run id와 lifecycle을 확인하며 중복 start/manual completion을 막습니다. terminal stream은 닫고 늦은 refresh를 현재 run에만 적용합니다. |
+| Writing | `WritingState`, `WritingController` | draft id·load/refresh sequence·`isActive`를 확인합니다. autosave timer/in-flight/queued request를 draft에 결박하고, stale response는 canvas를 덮지 않는 metadata acknowledgement로 축소합니다. terminal staging refresh도 같은 draft에서만 적용합니다. |
+| Settings | `SettingsState`, `SettingsController` | 한 번에 하나의 load/save/sync/restart만 허용하며 form snapshot이 로드·저장 중 사용자의 변경을 덮지 않게 합니다. `expandedPanels`와 `data-settings-panel`로 progressive disclosure 상태를 rerender 뒤 유지합니다. |
+
+모든 비동기 action은 `try/catch/finally`에서 busy 상태를 해제하고, 실패를 사용자가 다음 행동으로
+복구할 수 있는 message/notice로 변환합니다. stale 응답은 성공·실패 어느 쪽도 현재 화면에
+전파하지 않는 것이 기본 불변 조건입니다.
 
 ### Page Script Injection (`client/src/page/`)
 
@@ -71,9 +129,10 @@ application과 domain 레이어는 FastAPI, Chrome, SQLAlchemy, 어떤 LLM SDK�
 않습니다.
 
 SQLite는 추천(recommendations), 교류 실행(engagement runs), 탐색 큐(discovery posts),
-세션 배치(automation sessions), 초안(post drafts)과 그 revision·tag·이미지 metadata,
-설정(app settings), LLM 호출 기록(call attempts)의 정식 소유자입니다. 완전한 기사
-본문은 절대 저장하지 않습니다.
+세션 배치(automation sessions), 사용자가 작성한 초안(post drafts)과 그 revision·tag·이미지
+metadata, 설정(app settings), LLM 호출 기록(call attempts)의 정식 소유자입니다. 탐색 대상의
+원문 전체와 provider credential은 저장하지 않습니다. 사용자가 만든 초안의 canonical blocks와
+working copy는 재개·충돌 복구를 위해 저장됩니다.
 
 ### 다중 LLM Provider 구조
 
@@ -132,6 +191,44 @@ infrastructure/llm/
 `ComposePost` use case는 참고 글 본문(최대 4,000자 × `reference_post_count`건)과
 초안 seed text를 LLM provider에 보내 본문을 생성합니다. 다듬기는 기존 body를 입력으로
 같은 port를 호출합니다. 태그 생성도 동일한 경로를 사용합니다.
+
+#### Editor workspace 계약
+
+글쓰기 화면은 시작 상태와 editor 상태를 분리합니다.
+
+- 시작 상태는 제목·메모·카테고리 seed form과 최근 초안 목록을 함께 보여 줍니다. `초안만 저장`
+  과 `AI로 초안 완성`은 제목과 메모가 유효할 때만 활성화됩니다.
+- editor 상태는 본문을 textarea 하나로 평탄화하지 않고 `BodyBlock[]` canvas로 유지합니다.
+  문단·소제목·인용·순서/비순서 목록·구분선·이미지와 caption을 block 단위로 편집합니다.
+- 본문 옆에는 최근 초안, AI 도구, 이미지, 태그, 변경 기록, 임시저장 panel이 `details`로
+  배치됩니다. panel은 기본적으로 필요한 항목만 열리고, `data-writing-panel` open 상태는
+  rerender 뒤 복원됩니다.
+- 제목·본문 변경은 700ms debounce working-copy autosave를 사용합니다. 빈 제목·persistable하지
+  않은 본문은 API를 호출하지 않으며, title-only collecting draft는 title patch로 저장할 수
+  있습니다. autosave는 revision을 만들지 않습니다.
+- active revision과 현재 canvas가 다르면 compose/refine/tag/stage 같은 서버 작업을 잠그고
+  먼저 `버전으로 남기기`를 요구합니다. checkpoint는 변경이 있을 때만 호출하며, 임시저장
+  실행은 최신 working copy가 확정된 뒤 시작합니다.
+- 자동저장 conflict나 실패에서는 local title·blocks를 보존하고, 사용자가 새 편집 또는 명시적
+  저장으로 재시도할 수 있게 합니다. `새 글 시작`과 다른 초안 열기는 예약·in-flight 저장이
+  끝나기 전에는 차단하여 이전 초안의 변경이 유실되지 않게 합니다.
+- `start-new-draft-button`, `draft-title`, `seed-title`, `data-focus-key`와 block selector를
+  이용해 구조 변경·option selection·image insertion 뒤에도 입력 focus와 selection을 가능한
+  한 복구합니다. 비활성 control은 async action이 끝난 후에만 focus를 복원합니다.
+
+#### Progressive settings 계약
+
+설정은 하나의 긴 form 대신 세 개의 목적 기반 section으로 나뉩니다.
+
+1. `defaults`: 댓글과 글쓰기 기본값.
+2. `automation`: blog ID, 수집원, consent/safety, schedule과 AI budget.
+3. `connections`: AI·Naver Search·SMTP·browser·LAN 및 PC 전용 data management.
+
+각 section의 summary는 현재 상태와 다음 행동을 먼저 보여 주고, 세부 입력은 `details[data-settings-panel]`
+안에 둡니다. 패널을 펼친 뒤 저장·실패·reload가 발생해도 controller의 `expandedPanels`와 form
+snapshot이 열림 상태와 사용자의 미저장 입력을 보존합니다. 비밀값은 write-only input으로만
+전달되며 성공 응답에도 값을 다시 채우지 않습니다. paired tablet에서는 connections와 data
+management의 PC 전용 값을 노출하지 않습니다.
 
 ### 세션 배치 (`RunSession`, `SessionPostRunner`)
 
@@ -243,6 +340,21 @@ PR CI는 Ruff, ty, pytest(87% branch coverage 이상), TypeScript 검사, Biome,
 coverage, extension production build, 설치된 wheel smoke test, 별도 System E2E
 workflow를 실행합니다. Fixture는 합성 HTML만 포함하며, 실제 Naver 페이지나 live LLM
 호출은 opt-in입니다.
+
+현재 client 회귀 범위는 앱 셸·home·onboarding·workbench·writing editor·settings·async
+lifecycle guard를 포함합니다. packaged E2E는 desktop, 768px portrait, 1024px landscape에서
+navigation, queue/detail, writing interaction, settings disclosure, focus와 horizontal overflow를
+DOM/metric으로 확인합니다. Extension의 기존 Side Panel workflow는 별도 legacy suite이며, 새
+웹앱 기능의 source of truth가 아닙니다.
+
+비동기 회귀 테스트는 다음 불변 조건을 특히 확인합니다.
+
+- route/session/draft identity가 바뀐 뒤 이전 load, API, SSE 응답이 현재 화면·다른 초안을
+  갱신하지 않습니다.
+- terminal SSE 뒤 source를 닫아 EventSource가 종료된 실행에 재연결하지 않습니다.
+- busy 중 중복 start/save/stage를 만들지 않고, failure 뒤 사용자가 다시 시도할 수 있습니다.
+- rerender는 입력 focus, panel open state, local canvas를 보존하며 전체 `#workspace`를 live region으로
+  만들지 않습니다.
 
 ## 결과
 

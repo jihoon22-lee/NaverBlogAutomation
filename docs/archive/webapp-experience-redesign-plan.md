@@ -10,9 +10,9 @@
 > 실제 GitHub Actions 결과로 판정한다.
 >
 > 초기 웹앱 제공을 위한 과거 계획은
-> [`archive/webapp-first-delivery-plan.md`](archive/webapp-first-delivery-plan.md)에 **역사 자료**로
+> [`webapp-first-delivery-plan.md`](webapp-first-delivery-plan.md)에 **역사 자료**로
 > 보존한다. 해당 문서는 이번 UX 개편의 계획도, 완료 근거도 아니다. archive 이동은 구현 완료를
-> 뜻하지 않는다.
+> 뜻하지 않는다. 이는 초기 계획 문서의 보관 이력에 대한 설명이다.
 
 ### 현재 상태 한눈에 보기
 
@@ -787,3 +787,67 @@ runner가 재현할 수 있는 명령을 바꾸지 않으며, 실제 runner 결�
 그 외에 “구현이 덜 됐다”는 이유로
 남겨 둔 기능 ID는 없다. 새로운 요구가 생기면 이 문서에 ID와 직접 검증을 먼저 추가한 뒤 별도
 커밋/PR 단위로 범위를 확장한다.
+
+## 19. #96–#105 UX 현대화 closure snapshot (2026-08-09)
+
+이 절은 기존 계획·검증 기록을 다시 쓰지 않고, UX 현대화가 최신 main 기준으로 닫힌 시점을
+추가로 고정한 역사적 snapshot이다. 앞 절에 적힌 수치와 당시의 PR/run 판정은 당시 기준으로
+그대로 보존한다.
+
+### 기준과 판단
+
+- 정본 기준은 `origin/main`의 `25e3c50` (#105)이며, #96–#105가 연속적으로 반영된 상태다.
+- 현재 작업 tree가 해당 커밋과 다른 ancestry를 가질 수 있으므로, release/review 판단은
+  커밋 hash가 아니라 실제로 검증할 checkout의 tree와 CI 결과를 기준으로 한다.
+- #96–#105는 공통 visual foundation부터 화면별 hierarchy, 접근성·touch target, 비동기
+  경계와 고위험 흐름 테스트까지 포함하므로 이 문서는 더 이상 실행 backlog가 아니라
+  완료·인계 기록으로 보관한다.
+
+### 전달된 기능 단위
+
+| PR | commit | 범위 | 상태 |
+| --- | --- | --- | --- |
+| #96 | `c64cc48` | 공통 디자인 시스템과 앱 shell 개편 | 완료 |
+| #97 | `41ef82f` | 작업 중심 home dashboard 재구성 | 완료 |
+| #98 | `44cd739` | 단계형 onboarding 설정 흐름 | 완료 |
+| #99 | `b45ea5c` | workbench 탐색·상세 흐름 단순화 | 완료 |
+| #100 | `68ac339` | 집중형 writing editor workspace | 완료 |
+| #101 | `24b9e94` | 필요한 만큼만 펼치는 settings 흐름 | 완료 |
+| #102 | `40078eb` | 선택 항목 touch target 보장 | 완료 |
+| #103 | `47cf971` | 화면 이동 뒤 늦은 응답 무시 | 완료 |
+| #104 | `1e00885` | 고위험 session 흐름과 Python 품질 검증 강화 | 완료 |
+| #105 | `25e3c50` | 최신 경로에만 비동기 화면 상태 반영 | 완료 |
+
+### 현재 검증 기준
+
+현재의 수용 기준은 특정 test count가 아니라 `.github/workflows/ci.yml`의 required
+`quality-gate`가 모든 job에서 성공하는 것이다.
+
+| gate | 기준 명령/검사 | 수용 조건 |
+| --- | --- | --- |
+| Commit convention | workflow의 commit-message 검사 | Conventional Commit 규칙 통과 |
+| Python quality | `uv run --frozen ruff check --output-format=github .`, `uv run --frozen ruff format --check .`, `uv run --frozen ty check --output-format=github`, `uv run --frozen pytest` | lint/format/type/test 성공, `pyproject.toml`의 branch coverage 87% 이상, wheel install smoke 성공 |
+| TypeScript quality | `npm --prefix extension run format:check`, `lint`, `typecheck`, `test:coverage`, `build` | extension format/lint/type/test/build 성공 및 Vitest coverage의 branches/functions/lines/statements 각 80% 이상 |
+| Client quality | `npm --prefix client run format:check`, `lint`, `typecheck`, `test:coverage`, `build`와 boundary 검사 | client 품질 검사, page bundle, frozen extension boundary 모두 성공 및 Vitest coverage 각 80% 이상 |
+| System E2E | client build → Playwright Chromium·WebKit 설치 → packaged wheel 설치 → `npm --prefix extension run test:e2e` | standalone web-app과 legacy extension workflow 모두 성공 |
+| Automation browser | patchright Chromium 설치, browser integration pytest 2종, redacted `scripts.browser_smoke` | browser test와 `navigator.webdriver=False`, `state=ready`, `like=not_found` smoke 조건 성공 |
+| Platform launchers | Windows PowerShell/CMD, macOS shell, Linux shell syntax 및 invalid extension ID rejection 검사 | 세 플랫폼 launcher job 성공 |
+
+최신 main 직전 동일 tree에서 실행된 [CI run `31305998501`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31305998501)은
+위 required job 10개와 quality gate를 모두 성공했으며, `origin/main`의 #105 commit에는
+[CodeQL run `31306126229`](https://github.com/jihoon22-lee/NaverBlogAutomation/actions/runs/31306126229)도
+성공했다. 이 링크들은 현재 snapshot의 검증 근거이며, 앞 절의 `31262210039` 기록을 대체하지
+않고 최신 증거로 추가한다.
+
+기능 검증을 다시 실행할 때는 의존성을 잠근 CI 경로(`uv sync --frozen`, `npm ci`)를 사용하고,
+실제 Naver 계정이 필요한 `RUN_LIVE_NAVER=1` smoke는 별도의 opt-in 운영 절차로 남긴다.
+앞선 문서의 `1468/636/368/5` 같은 test count는 변경 이력의 당시 결과이므로 현재 snapshot의
+criterion으로 재해석하거나 교체하지 않는다.
+
+### Closure 이후 유지보수 규칙
+
+- #96–#105 범위의 구현을 보정할 때는 새 issue/PR과 직접적인 검증 증거를 남긴다.
+- 이 문서의 기존 절과 수치는 역사 기록으로 보존하고, 새로운 판정은 이 문서의 별도
+  snapshot 절로 추가한다.
+- live smoke, reviewer 승인·merge, release operator handoff는 구현 완료와 별개의 외부
+  prerequisite로 취급한다.

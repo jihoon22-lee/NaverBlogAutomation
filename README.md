@@ -1,13 +1,13 @@
 # 네이버 블로그 댓글 작성 보조 도구
 
 네이버 블로그 이웃 글에 댓글을 남기고 내 글을 작성하는 과정을 로컬에서 도와주는
-local-first 도구입니다. 사용자가 약관 안내에 동의하고 선택한 글의 실행 버튼을 누른
+local-first 도구입니다. 사용자가 자동 실행 범위를 확인하고 동의한 뒤 선택한 글의 실행 버튼을 누른
 경우에만 공감, 승인 댓글 등록과 선택적 서로이웃 신청을 순서대로 실행합니다. 무인 일괄
 실행은 명시적으로 켜지 않으면 동작하지 않으며, 기본은 여전히 사용자 승인입니다.
 
 ## 핵심 기능
 
-- 네 개의 primary 화면인 **홈**, **작업함**, **글쓰기**, **더보기**로 필요한 일을 빠르게 엽니다.
+- 네 개의 primary 화면인 **홈**, **작업함**, **글쓰기**, **관리**로 필요한 일을 빠르게 엽니다.
 - **작업함**에서 이웃 새 글·새 이웃 후보·보류된 글을 검색·필터링하고, 목록 위치를 유지한 채
   댓글 작성과 일괄 처리를 이어갑니다.
 - 글 본문 preview를 확인한 뒤에만 댓글 후보를 생성하고, 선택·편집·복사를 제공합니다.
@@ -19,9 +19,10 @@ local-first 도구입니다. 사용자가 약관 안내에 동의하고 선택�
 - **여러 글 처리(세션 배치):** 한 번 승인으로 여러 글을 이어서 처리합니다. 취소는 처리 중인 글이
   끝난 뒤 반영됩니다.
 - **글쓰기 워크플로:** 넓은 block canvas에서 문단·소제목·인용·목록·구분선·이미지/캡션을
-  자동 저장하며, 참고 글 수집 → 본문 생성 → 다듬기 → 태그 생성 → 임시저장 순서로 내 글을 만듭니다.
-  네이버 editor의 지원 구조와 순서를 확인하지 못하면 임시저장하지 않고 멈춥니다. 자동 발행은 하지
-  않으며, 발행은 사용자가 에디터에서 직접 합니다.
+  working copy로 자동 저장하며, 참고 글 수집 → 본문 생성 → 다듬기 → 태그 생성 → 임시저장 순서로
+  내 글을 만듭니다. 편집 내용을 `버전으로 남기기`로 확정해야 AI 도구와 태그를 이어서 사용할 수
+  있고, 제목과 빈 문단·목록 항목을 먼저 확인합니다. 네이버 editor의 지원 구조와 순서를 확인하지
+  못하면 임시저장하지 않고 멈춥니다. 자동 발행은 하지 않으며, 발행은 사용자가 에디터에서 직접 합니다.
 - 댓글·본문 생성 시 **OpenAI·Gemini·Claude**를 선택하거나 동시에 호출해 결과를 비교할 수 있습니다.
 - API key와 model 호출은 local FastAPI에만 남으며 웹앱에는 전달되지 않습니다.
 
@@ -60,17 +61,17 @@ env file에서 LAN mode를 명시적으로 켠 뒤 PC 화면의 일회용 코드
 
 ## 사용하는 흐름
 
-로컬 웹앱(`http://127.0.0.1:8765/app`)의 primary navigation은 **홈 · 작업함 · 글쓰기 · 더보기**입니다.
-배치와 이력은 작업 흐름 및 더보기에서 열며, PC 전용 연결·browser·비밀 설정은 paired tablet에 노출되지
-않습니다. **더보기 > 연결 및 앱**에서는 API key·Naver Search·SMTP password를 보이지 않는 write-only
-field로 갱신할 수 있습니다. 저장 뒤에는 **저장한 설정 적용**을 눌러 launcher가 안전하게 재시작하도록
-승인하세요. launcher가 아닌 수동 API 실행에서는 안내에 따라 직접 재시작합니다.
+로컬 웹앱(`http://127.0.0.1:8765/app`)의 primary navigation은 **홈 · 작업함 · 글쓰기 · 관리**입니다.
+배치와 이력은 작업 흐름 및 관리에서 열며, PC 전용 연결·browser·비밀 설정은 paired tablet에 노출되지
+않습니다. **관리 > 설정 > 연결 및 앱**에서는 API key·Naver Search·SMTP password를 보이지 않는
+write-only field로 갱신할 수 있습니다. 저장 뒤에는 **저장한 설정 적용**을 눌러 launcher가 안전하게
+재시작하도록 승인하세요. launcher가 아닌 수동 API 실행에서는 안내에 따라 직접 재시작합니다.
 
 ### 댓글·공감·서로이웃
 
-1. **더보기 > 설정 > 탐색 및 자동화**에서 내 블로그 ID와 시간을 저장하고, 필요하면 검색어·알림·서로이웃
+1. **관리 > 설정 > 탐색 및 자동화**에서 내 블로그 ID와 시간을 저장하고, 필요하면 검색어·알림·서로이웃
    기본 메시지를 설정합니다.
-2. **탐색 및 자동화 > 지금 동기화**에서 공개 이웃 목록·등록 이웃 RSS·검색 후보를 수집한 뒤, **작업함**에서
+2. **관리 > 설정 > 탐색 및 자동화 > 지금 동기화**에서 공개 이웃 목록·등록 이웃 RSS·검색 후보를 수집한 뒤, **작업함**에서
    이웃 새 글 또는 신규 이웃 후보를 고릅니다.
 3. **이 글 처리하기** 또는 **새 탭에서 처리**를 누르면 댓글 작성 화면으로 이동합니다.
 4. 본문 preview와 옵션을 확인하고 댓글 후보를 생성한 뒤 하나를 선택해 필요한 만큼 다듬습니다.
@@ -92,13 +93,16 @@ field로 갱신할 수 있습니다. 저장 뒤에는 **저장한 설정 적용*
 
 ### 글쓰기
 
-**글 작성** 탭에서 다음 순서로 내 글을 만듭니다.
+**글쓰기** 탭에서 다음 순서로 내 글을 만듭니다.
 
-1. 제목·초안 text와 이미지를 준비해 **초안 등록**을 누릅니다.
+1. 제목·짧은 메모와 카테고리를 입력합니다. record만 만들려면 **초안만 저장**, 첫 본문까지
+   만들려면 **AI로 초안 완성**을 누릅니다. 이미지는 초안이 만들어진 뒤 글쓰기 화면에서 추가합니다.
 2. 카테고리를 선택하면 같은 카테고리의 내 최근 참고 글을 자동으로 수집합니다.
-3. 길이·분위기·구성과 사용할 provider를 고른 뒤 **본문 생성**을 누릅니다.
-4. 결과를 확인하고 필요하면 **다듬기 요청**을 반복합니다.
-5. **태그 생성**으로 후보 태그를 만들고 선택합니다.
+3. 길이·분위기·구성과 사용할 AI 서비스(provider)를 고른 뒤 **본문 생성**을 누릅니다.
+4. 결과를 확인하고 제목·block을 편집합니다. 잠시 멈추면 working copy로 자동 저장되며, 편집 후에는
+   **버전으로 남기기**를 눌러야 AI 다듬기와 태그 생성을 이어갈 수 있습니다.
+5. **다듬기 요청**을 반복하고 **태그 생성**으로 후보 태그를 만들어 선택합니다. 빈 제목이나 빈
+   문단·목록 항목은 저장할 수 없습니다.
 6. **임시저장 실행**을 누르면 네이버 editor의 지원 block 구조와 제목·순서·이미지·태그를 확인한 뒤에만
    임시저장합니다. 구조를 확인하지 못하면 평문으로 바꾸지 않고 중단합니다.
 7. 네이버 editor에서 제목, block 순서, 이미지, 태그를 확인한 뒤 사용자가 직접 발행합니다.
@@ -110,21 +114,21 @@ field로 갱신할 수 있습니다. 저장 뒤에는 **저장한 설정 적용*
 공감은 실제 게시글의 표준 하트 control만 대상으로 하며, 반응 선택 레이어가 열리는 화면에서는
 기본 **공감** 항목을 확인해 선택합니다.
 
-## 다중 LLM provider 설정
+## 다중 LLM 서비스(provider) 설정
 
-댓글·본문 생성에 OpenAI, Gemini, Claude를 사용할 수 있습니다. 사용할 provider의 API key를 private
+댓글·본문 생성에 OpenAI, Gemini, Claude를 사용할 수 있습니다. 사용할 AI 서비스(provider)의 API key를 private
 env file에 넣고 API를 재시작합니다. 하나만 설정해도 되고, 여러 개를 동시에 설정하면 fan-out으로
 비교할 수 있습니다.
 
-| Provider | 환경변수 | 기본 model (변경 가능) |
+| AI 서비스(provider) | 환경변수 | 기본 model (변경 가능) |
 | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL` |
 | Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL` |
 | Claude | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` |
 
-웹앱 **더보기 > 설정 > 연결 및 앱**에서 기본 provider와 model을 선택하고, **탐색 및 자동화 >
-고급 · 예약 실행과 AI 예산**의 `llm_budget` 설정으로
-일일 호출 상한(`daily_call_cap`)과 요청당 provider 상한(`per_request_provider_cap`)을 조절합니다.
+웹앱 **관리 > 설정 > 연결 및 앱**에서 기본 AI 서비스와 model을 선택합니다. 호출 예산은
+**관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**에서 조절합니다
+(기술 설정 key: `llm_budget`, `daily_call_cap`, `per_request_provider_cap`).
 API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 번 전달된 뒤 private env file과
 재시작한 Python process에만 남습니다. 웹앱과 extension에는 구성 여부만 표시됩니다.
 실제 key를 어디서 발급하고 어느 파일에 넣는지는 [환경 파일에 값
@@ -134,7 +138,7 @@ API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 �
 
 ### 안전 정책
 
-**더보기 > 설정 > 탐색 및 자동화**에서 아래 항목을 저장합니다.
+**관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**에서 아래 항목을 저장합니다.
 
 - **일일 상한:** 공감·댓글·서로이웃 각각의 하루 최대 횟수
 - **허용 시간대:** 자동 실행을 허용하는 시간 목록 (0–23)
@@ -145,9 +149,10 @@ API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 �
 
 무인 스케줄은 opt-in이며 아래 세 조건을 모두 충족해야 활성화됩니다.
 
-1. **더보기 > 설정 > 탐색 및 자동화**에서 자동 실행에 동의
-2. 같은 화면에서 안전 정책을 한 번 이상 저장
-3. **고급 · 예약 실행과 AI 예산**의 `schedule_policy.mode`를 `schedule`로 변경
+1. **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**에서 자동 실행에 동의
+2. 같은 화면의 **안전 설정 저장**을 한 번 이상 실행
+3. **관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**의 **실행 방식**에서
+   **매일 예약 실행**을 선택 (기술 설정 key: `schedule_policy.mode=schedule`)
 
 세 조건을 모두 충족하면 매일 지정 시각에 최대 `max_posts`건을 자동으로 처리합니다. 하루에 한 번만
 실행되며, 이미 실행했거나 다른 세션이 진행 중이면 건너뜁니다. 조건이 하나라도 빠지면 무인 실행은
@@ -163,9 +168,9 @@ API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 �
 | 자동 이웃 RSS 탐색 | 내 블로그 ID | [글 탐색 대기열](docs/discovery.md) |
 | 신규 이웃 검색 후보 탐색 | 내 블로그 ID, private env file의 `NAVER_SEARCH_CLIENT_ID`·`NAVER_SEARCH_CLIENT_SECRET` | [글 탐색 대기열](docs/discovery.md#신규-이웃-검색) |
 | 이메일 일일 요약 | private env file의 `DIGEST_SMTP_*` 값 | [글 탐색 대기열](docs/discovery.md#smtp-이메일-요약-선택) |
-| 한 건 공감·댓글·서로이웃 실행 | **더보기 > 설정 > 탐색 및 자동화**의 약관 안내 확인과 동의, 글별 실행 버튼 클릭 | [Local Operations](docs/local-operations.md) |
+| 한 건 공감·댓글·서로이웃 실행 | **관리 > 설정 > 탐색 및 자동화 > 자동 실행과 안전**에서 자동 실행 동의, 글별 실행 버튼 클릭 | [Local Operations](docs/local-operations.md) |
 | 여러 글 처리 (세션 배치) | 자동 실행 동의, 안전 정책 저장 | [시작하기](docs/getting-started.md) |
-| 무인 스케줄 | 자동 실행 동의 + 안전 정책 저장 + schedule_policy `mode: schedule` | [시작하기](docs/getting-started.md) |
+| 무인 스케줄 | 자동 실행 동의 + 안전 정책 저장 + 고급 설정에서 **매일 예약 실행** 선택 (기술 key: `schedule_policy.mode`) | [시작하기](docs/getting-started.md) |
 | 초안 이미지 보관 | 앱이 관리하는 database 인접 `media/` directory | [Local Operations](docs/local-operations.md) |
 
 자동 탐색은 opt-in이며 공개 metadata만 사용합니다. 로그인 정보·쿠키를 수집하거나 Captcha를
@@ -179,9 +184,12 @@ API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 �
 | 동결된 legacy Chrome extension 설치 | [Extension Legacy](docs/extension-legacy.md) |
 | 이웃 RSS, 검색 후보, badge·알림, SMTP 요약 | [글 탐색 대기열](docs/discovery.md) |
 | runtime, 데이터 보관·정리, 문제 해결 | [Local Operations](docs/local-operations.md) |
+| 현재 화면 구조와 UX·접근성 기준 | [UX Design](docs/ux-design.md) |
 | 설계와 보안 경계 | [Architecture](docs/architecture.md) |
+| 테스트 범위와 품질 gate | [Testing](docs/testing.md) |
 | Local API 계약 | [API Contract](docs/api-contract.md) |
 | 릴리스 절차와 배포 산출물 | [Release Guide](docs/releasing.md) |
+| 전체 문서와 역사 기록 찾기 | [문서 허브](docs/README.md) |
 
 ## Privacy
 
