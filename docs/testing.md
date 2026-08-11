@@ -1,10 +1,10 @@
 # 테스트와 품질 기준
 
-Status: 현재 저장소 기준, 갱신 2026-08-09
+Status: 현재 저장소 기준, 갱신 2026-08-11
 
 이 문서는 변경 위험에 맞는 테스트 범위와 release gate를 설명합니다. 복사된 test count는 빠르게
 낡으므로 수용 기준으로 사용하지 않습니다. 정확한 threshold와 CI job은 `pyproject.toml`,
-`client/vitest.config.ts`, `extension/vitest.config.ts`, `.github/workflows/`가 source of truth입니다.
+`client/vitest.config.ts`, `client/playwright.config.ts`, `.github/workflows/`가 source of truth입니다.
 
 ## 기본 품질 gate
 
@@ -12,8 +12,7 @@ Status: 현재 저장소 기준, 갱신 2026-08-09
 | --- | --- | --- |
 | Python | `uv run ruff check .`, `uv run ruff format --check .`, `uv run ty check`, `uv run pytest` | 전체 성공, branch coverage 87% 이상 |
 | 웹앱 | `npm --prefix client run check` | format·lint·type·unit test·build 성공, statements/branches/functions/lines 각각 80% 이상 |
-| 동결 extension | `npm --prefix extension run check` | format·lint·type·unit test·build 성공, statements/branches/functions/lines 각각 80% 이상 |
-| Packaged E2E | `npm --prefix extension run test:e2e` | 설치 가능한 앱과 legacy workflow의 Playwright journey 성공 |
+| Packaged E2E | `npm --prefix client run test:e2e` | 설치된 wheel이 제공하는 웹앱의 Playwright journey 성공 |
 
 PR에서는 변경 영역의 targeted test를 먼저 실행하고, 제출 전 해당 package의 전체 check를 실행합니다.
 Python package나 설치 산출물에 영향이 있으면 전체 `uv run pytest`와 wheel smoke까지 확인합니다.

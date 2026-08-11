@@ -21,14 +21,12 @@ from naver_blog_assistant.api.models import (
 from naver_blog_assistant.domain import CommentLength, CommentMood, Relationship, SpeechStyle
 
 ROOT = Path(__file__).parents[3]
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 def test_checked_in_operations_match_fastapi_operation_ids() -> None:
     contract = yaml.safe_load((ROOT / "docs/api/openapi.yaml").read_text(encoding="utf-8"))
     app = create_app(
         ApiSettings(
-            extension_origin=ORIGIN,
             database_url="sqlite:///:memory:",
             generator_mode="fake",
             app_environment="test",

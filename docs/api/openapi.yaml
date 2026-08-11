@@ -25,8 +25,8 @@ tags:
     description: Local, user-reviewed blog discovery queues and digest settings.
   - name: Settings
     description: >-
-      Versioned local web app settings. The frozen extension keeps its own browser storage; these
-      records exist so the unattended scheduler can read the same preferences.
+      Versioned local web app settings, persisted so the unattended scheduler can read the same
+      preferences.
   - name: Automation
     description: >-
       Control the single locally owned browser session. The user signs in manually in that window;

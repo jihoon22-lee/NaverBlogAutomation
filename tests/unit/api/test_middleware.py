@@ -1,14 +1,14 @@
-"""Tests for the web-app and legacy-extension origin boundary."""
+"""Tests for the local web-app origin boundary."""
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from naver_blog_assistant.api.middleware import ExactCorsMiddleware
+from naver_blog_assistant.api.middleware import OriginBoundaryMiddleware
 
 
 def test_same_origin_web_app_request_needs_no_cors_header() -> None:
     app = FastAPI()
-    app.add_middleware(ExactCorsMiddleware, allowed_extension_origin=None)
+    app.add_middleware(OriginBoundaryMiddleware)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -21,9 +21,9 @@ def test_same_origin_web_app_request_needs_no_cors_header() -> None:
     assert "access-control-allow-origin" not in response.headers
 
 
-def test_foreign_browser_origin_is_rejected_when_extension_is_not_configured() -> None:
+def test_foreign_browser_origin_is_rejected() -> None:
     app = FastAPI()
-    app.add_middleware(ExactCorsMiddleware, allowed_extension_origin=None)
+    app.add_middleware(OriginBoundaryMiddleware)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -33,4 +33,4 @@ def test_foreign_browser_origin_is_rejected_when_extension_is_not_configured() -
         response = client.get("/health", headers={"Origin": "http://example.test"})
 
     assert response.status_code == 403
-    assert response.json()["code"] == "cors_origin_forbidden"
+    assert response.json()["code"] == "origin_forbidden"

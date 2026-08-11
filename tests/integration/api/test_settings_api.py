@@ -12,13 +12,10 @@ from fastapi.testclient import TestClient
 from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.domain import DEFAULT_SETTING_PAYLOADS, AppSettingKind
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'settings.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -150,7 +147,6 @@ def test_a_non_object_payload_is_rejected(client: TestClient) -> None:
 
 def test_settings_survive_a_restart(tmp_path: Path) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'settings.db'}",
         generator_mode="fake",
         app_environment="test",

@@ -1,9 +1,8 @@
 /**
  * Today view.
  *
- * The wide layout shows the queue list and the selected post's detail at the same time, which the
- * narrow extension panel could not do. Rendering is a pure function of state so the tests can assert the
- * DOM without a running service.
+ * The wide layout shows the queue list and the selected post's detail at the same time. Rendering
+ * is a pure function of state so tests can assert the DOM without a running service.
  */
 
 import type {

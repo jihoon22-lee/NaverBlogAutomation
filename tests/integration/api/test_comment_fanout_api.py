@@ -13,7 +13,6 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 FANOUT = "/api/v1/automation/comments/fanout"
 POST_URL = "https://blog.naver.com/example/223456789012"
 BODY = "전시에서 인상 깊었던 작품과 관람 동선을 자세하게 정리한 합성 본문입니다."
@@ -36,7 +35,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         page_probe_results={"captureArticle": CAPTURE},
     )
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'fanout.db'}",
         generator_mode="fake",
         app_environment="test",

@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from scripts._local_runtime import LocalRuntimeError, repo_database_path, sqlite_runtime_files
 from scripts.clear_local_data import clear_local_data
-from scripts.configure_local_env import configure_extension_origin, validate_extension_id
 from scripts.init_local_env import (
     ensure_private_directory,
     initialize_local_environment,
@@ -76,46 +75,6 @@ def test_explicit_environment_target_must_stay_outside_repository(tmp_path: Path
     )
     assert target == (tmp_path.parent / "private-config" / "env").resolve()
     assert prepare_parent
-
-
-def test_extension_origin_configuration_preserves_credentials(tmp_path: Path) -> None:
-    target = tmp_path / "env"
-    target.write_bytes(
-        b"OPENAI_API_KEY=private-test-value\r\n"
-        b"CHROME_EXTENSION_ORIGIN=chrome-extension://<replace-with-extension-id>\r\n"
-        b"APP_ENV=development\r\n"
-    )
-    target.chmod(0o600)
-
-    changed = configure_extension_origin(target=target, extension_id="B" * 32)
-
-    contents = target.read_text(encoding="utf-8")
-    assert changed
-    assert "OPENAI_API_KEY=private-test-value" in contents
-    assert "CHROME_EXTENSION_ORIGIN=chrome-extension://" + "b" * 32 in contents
-    assert b"\r\n" in target.read_bytes()
-    if os.name == "posix":
-        assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    assert not list(tmp_path.glob(".*.tmp"))
-    assert not configure_extension_origin(target=target, extension_id="b" * 32)
-
-
-@pytest.mark.parametrize("extension_id", ["", "a" * 31, "q" * 32, "a" * 33])
-def test_extension_id_validation_rejects_invalid_values(extension_id: str) -> None:
-    with pytest.raises(LocalRuntimeError, match="32 letters"):
-        validate_extension_id(extension_id)
-
-
-def test_extension_origin_configuration_rejects_ambiguous_files(tmp_path: Path) -> None:
-    target = tmp_path / "env"
-    target.write_text(
-        "CHROME_EXTENSION_ORIGIN=chrome-extension://" + "a" * 32 + "\n"
-        "CHROME_EXTENSION_ORIGIN=chrome-extension://" + "b" * 32 + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LocalRuntimeError, match="exactly one"):
-        configure_extension_origin(target=target, extension_id="c" * 32)
 
 
 @pytest.mark.parametrize(

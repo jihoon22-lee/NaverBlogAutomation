@@ -1,10 +1,9 @@
 /**
  * Mutual-neighbor discovery for the Naver buddy-add flow.
  *
- * Ported from the extension's mutual-neighbor gateway with every click and value assignment removed.
- * The probes report the relationship state, the stage of the popup, and the selectors involved; the
- * Python layer selects the 서로이웃 option, types the approved message, and advances with trusted
- * input. Ambiguous, occupied, captcha, and login states fail closed.
+ * The read-only probes report relationship state, popup stage, and selectors. The Python layer
+ * selects the 서로이웃 option, types the approved message, and advances with trusted input.
+ * Ambiguous, occupied, captcha, and login states fail closed.
  */
 
 import { elementSelector, isEnabled, isVisible, queryAllUnique, readValue } from "./dom";

@@ -1,9 +1,8 @@
 /**
  * Comment editor and submit-control discovery for one post document.
  *
- * Ported from the extension's comment input and publish gateways. Every mutation was removed: the
- * probes report the editor state and selectors, and the Python layer types with trusted key events
- * and clicks the submit control it was told about.
+ * The probes report the editor state and selectors without mutating the page. The Python layer
+ * types with trusted key events and clicks the submit control it was told about.
  */
 
 import {

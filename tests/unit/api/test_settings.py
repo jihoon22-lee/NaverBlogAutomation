@@ -4,13 +4,10 @@ import pytest
 
 from naver_blog_assistant.api import ApiSettings
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
 
 def test_environment_defaults_to_real_generator_not_fake(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.delenv("COMMENT_GENERATOR_MODE", raising=False)
 
@@ -27,7 +24,6 @@ def test_environment_defaults_to_real_generator_not_fake(
 def test_provider_timeout_must_finish_before_outer_timeout() -> None:
     with pytest.raises(ValueError, match="below GENERATION_TIMEOUT_SECONDS"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             generation_timeout_seconds=10,
             openai_timeout_seconds=10,
@@ -38,7 +34,6 @@ def test_provider_timeout_must_finish_before_outer_timeout() -> None:
 def test_provider_timeout_must_be_positive_and_finite(timeout: float) -> None:
     with pytest.raises(ValueError, match="positive finite"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             openai_timeout_seconds=timeout,
         )
@@ -46,22 +41,7 @@ def test_provider_timeout_must_be_positive_and_finite(timeout: float) -> None:
 
 def test_fake_generator_requires_explicit_non_production_environment() -> None:
     with pytest.raises(ValueError, match="forbidden"):
-        ApiSettings(extension_origin=ORIGIN, generator_mode="fake")
-
-
-@pytest.mark.parametrize(
-    "origin",
-    ["http://example.com", "chrome-extension://invalid"],
-)
-def test_extension_origin_must_be_one_exact_chrome_origin(origin: str) -> None:
-    with pytest.raises(ValueError, match="CHROME_EXTENSION_ORIGIN"):
-        ApiSettings(extension_origin=origin, openai_api_key="test-key")
-
-
-def test_extension_origin_is_optional_for_the_independent_web_app() -> None:
-    settings = ApiSettings(openai_api_key="test-key")
-
-    assert settings.extension_origin == ""
+        ApiSettings(generator_mode="fake")
 
 
 def test_selected_non_openai_provider_requires_its_own_key() -> None:
@@ -73,7 +53,7 @@ def test_selected_non_openai_provider_requires_its_own_key() -> None:
 
 
 def test_automation_defaults_to_patchright_in_a_visible_window() -> None:
-    settings = ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key")
+    settings = ApiSettings(openai_api_key="test-key")
 
     assert settings.automation_driver == "patchright"
     assert settings.automation_headless is False
@@ -84,17 +64,16 @@ def test_automation_defaults_to_patchright_in_a_visible_window() -> None:
 @pytest.mark.parametrize("driver", ["", "selenium", "PATCHRIGHT", "patch right"])
 def test_unknown_automation_driver_is_rejected(driver: str) -> None:
     with pytest.raises(ValueError, match="AUTOMATION_DRIVER"):
-        ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key", automation_driver=driver)
+        ApiSettings(openai_api_key="test-key", automation_driver=driver)
 
 
 def test_fake_browser_driver_is_forbidden_in_production() -> None:
     with pytest.raises(ValueError, match="fake browser driver"):
-        ApiSettings(extension_origin=ORIGIN, openai_api_key="test-key", automation_driver="fake")
+        ApiSettings(openai_api_key="test-key", automation_driver="fake")
 
 
 def test_fake_browser_driver_is_allowed_outside_production() -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         generator_mode="fake",
         app_environment="test",
         automation_driver="fake",
@@ -106,7 +85,6 @@ def test_fake_browser_driver_is_allowed_outside_production() -> None:
 def test_automation_profile_dir_length_is_bounded() -> None:
     with pytest.raises(ValueError, match="AUTOMATION_PROFILE_DIR"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             automation_profile_dir="/" + "p" * 1024,
         )
@@ -115,7 +93,6 @@ def test_automation_profile_dir_length_is_bounded() -> None:
 def test_automation_browser_channel_length_is_bounded() -> None:
     with pytest.raises(ValueError, match="AUTOMATION_BROWSER_CHANNEL"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             automation_browser_channel="c" * 33,
         )
@@ -128,7 +105,6 @@ def test_automation_browser_channel_length_is_bounded() -> None:
 def test_automation_headless_reads_boolean_flags(
     monkeypatch: pytest.MonkeyPatch, value: str, expected: bool
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AUTOMATION_HEADLESS", value)
 
@@ -136,7 +112,6 @@ def test_automation_headless_reads_boolean_flags(
 
 
 def test_invalid_automation_headless_flag_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AUTOMATION_HEADLESS", "maybe")
 
@@ -147,7 +122,6 @@ def test_invalid_automation_headless_flag_is_rejected(monkeypatch: pytest.Monkey
 def test_automation_driver_is_normalized_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AUTOMATION_DRIVER", "  PlayWright ")
 
@@ -156,14 +130,13 @@ def test_automation_driver_is_normalized_from_the_environment(
 
 def test_openai_mode_requires_key() -> None:
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
-        ApiSettings(extension_origin=ORIGIN)
+        ApiSettings()
 
 
 @pytest.mark.parametrize("database_url", ["", "not a URL", "postgresql://localhost/app"])
 def test_database_url_must_use_sqlite_without_echoing_its_value(database_url: str) -> None:
     with pytest.raises(ValueError, match="DATABASE_URL") as captured:
         ApiSettings(
-            extension_origin=ORIGIN,
             database_url=database_url,
             openai_api_key="test-key",
         )
@@ -174,7 +147,6 @@ def test_database_url_must_use_sqlite_without_echoing_its_value(database_url: st
 
 def test_api_key_is_hidden_from_settings_repr() -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         openai_api_key="private-test-key",
         naver_search_client_id="private-client-id",
         naver_search_client_secret="private-client-secret",
@@ -194,7 +166,6 @@ def test_naver_search_credentials_must_be_configured_together(
 ) -> None:
     with pytest.raises(ValueError, match="NAVER_SEARCH_CLIENT_ID"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             naver_search_client_id=client_id,
             naver_search_client_secret=client_secret,
@@ -212,7 +183,6 @@ def test_naver_search_credentials_must_be_configured_together(
 def test_environment_reports_actionable_numeric_errors(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str, message: str
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv(name, value)
 
@@ -234,7 +204,6 @@ def test_environment_reports_actionable_numeric_errors(
 def test_environment_rejects_nonpositive_limits(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str, message: str
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv(name, value)
 
@@ -245,7 +214,6 @@ def test_environment_rejects_nonpositive_limits(
 def test_secretless_validation_rejects_an_empty_key_without_exposing_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CHROME_EXTENSION_ORIGIN", ORIGIN)
     monkeypatch.setenv("OPENAI_API_KEY", "")
 
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
@@ -261,7 +229,6 @@ def test_secretless_validation_rejects_an_empty_key_without_exposing_it(
 def test_rate_limit_settings_must_be_positive(requests: int, window: float) -> None:
     with pytest.raises(ValueError, match="RATE_LIMIT_REQUESTS"):
         ApiSettings(
-            extension_origin=ORIGIN,
             openai_api_key="test-key",
             rate_limit_requests=requests,
             rate_limit_window_seconds=window,

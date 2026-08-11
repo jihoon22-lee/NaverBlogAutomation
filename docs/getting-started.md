@@ -14,8 +14,7 @@
 ## 1. 환경별 설정
 
 repository root에서 사용하는 환경에 맞는 launcher를 실행합니다. 모든 launcher는 locked dependency
-설치와 web app bundle build를 마친 뒤 private 환경 파일을 만듭니다. Chrome extension 설치와 ID 입력은
-필요하지 않습니다.
+설치와 web app bundle build를 마친 뒤 private 환경 파일을 만듭니다.
 
 ### Windows
 
@@ -48,7 +47,7 @@ scripts/setup-linux.sh
 ```
 
 private env file은 `${XDG_CONFIG_HOME:-$HOME/.config}/naver-blog-assistant/env`에 mode `0600`으로
-만들어집니다. WSL에서도 browser extension을 설치할 필요가 없습니다. `/mnt/e` 같은 DrvFs에는 credential file을
+만들어집니다. `/mnt/e` 같은 DrvFs에는 credential file을
 만들지 마세요. repository가 `/mnt/c/...`·`/mnt/e/...` 같은 Windows 드라이브에 있어도 launcher는 Python
 virtual environment를 Linux 파일 시스템의 `${XDG_DATA_HOME:-$HOME/.local/share}/naver-blog-assistant/python-venv`에
 자동으로 둡니다. 처음 setup은 이 환경을 준비하므로 조금 걸릴 수 있지만, 이후 API 시작 시 느린 Windows
@@ -95,7 +94,7 @@ Platform dashboard에서 API key를 새로 만든 뒤, 표시된 key 전체를 `
 뒤 네이버에서 직접 로그인하세요.
 
 private 환경 파일은 repository 밖에 있으므로 Git에 올라가지 않습니다. key를 `README.md`, `.env.example`,
-extension 설정, screenshot, shell history에 복사하지 마세요. 개발자가 의도적으로 repository에서 API를
+screenshot, shell history에 복사하지 마세요. 개발자가 의도적으로 repository에서 API를
 수동 실행할 때만 `.env.local`과 `uv run --env-file .env.local ...` 경로를 사용합니다.
 
 자동화 browser는 별도 설치 없이 bundled Chromium을 기본으로 사용합니다. WSL에서는 Windows에 설치된
@@ -122,9 +121,6 @@ scripts/start-macos.command
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
 ```
-
-동결된 legacy extension을 계속 사용하려면 setup launcher에 `--with-extension`을 추가하고
-[Extension Legacy](extension-legacy.md)를 따르세요.
 
 ## 태블릿에서 열기 (선택)
 
@@ -372,5 +368,4 @@ service를 다시 시작하면 이전의 pending/running batch는 `process_resta
 ## 11. 업데이트
 
 웹앱은 설치 launcher가 client bundle을 다시 build하므로, source update 뒤 setup launcher를 다시
-실행하고 service를 재시작하면 됩니다. 동결된 legacy extension을 함께 설치한 경우의 reload 절차는
-[Extension Legacy](extension-legacy.md)를 참고하세요.
+실행하고 service를 재시작하면 됩니다.

@@ -16,8 +16,6 @@ from naver_blog_assistant.api.routers.runtime_configuration import (
 from naver_blog_assistant.application.runtime_configuration import RuntimeConfiguration
 from naver_blog_assistant.domain import BrowserLoginState, BrowserSessionState, BrowserSessionStatus
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
 
 def test_runtime_configuration_never_echoes_a_secret_and_requests_a_supervised_restart(
     tmp_path: Path, monkeypatch
@@ -29,7 +27,6 @@ def test_runtime_configuration_never_echoes_a_secret_and_requests_a_supervised_r
     monkeypatch.setenv("NBA_RUNTIME_CONFIG_FILE", str(private_environment))
     monkeypatch.setenv("NBA_SUPERVISOR_RESTART_FILE", str(marker))
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'runtime.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -127,7 +124,6 @@ def test_runtime_data_export_and_recoverable_reset_are_desktop_only(
     monkeypatch.setenv("NBA_RUNTIME_CONFIG_FILE", str(private_environment))
     monkeypatch.setenv("NBA_SUPERVISOR_RESTART_FILE", str(marker))
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database}",
         generator_mode="fake",
         app_environment="test",

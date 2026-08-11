@@ -19,7 +19,7 @@ IPv4 Host와 loopback Host만 허용합니다. 이 저장은 `WEBAPP_ACCESS_MODE
 env file에 기록하며, port는 웹 설정으로 바꿀 수 없습니다.
 non-loopback device는 PC에서 만든 일회용 code로 pair해야 하며 이후 `HttpOnly`, `SameSite=Strict`
 session cookie와 `X-NBA-CSRF` header를 사용합니다. public hosting과 port forwarding은 지원하지
-않습니다. 설정된 legacy extension origin 외의 foreign Origin은 거부합니다.
+않습니다. 같은 service와 일치하지 않는 foreign Origin은 거부합니다.
 
 ## Create a Recommendation
 
@@ -473,4 +473,4 @@ Response에는 API key, source text, provider request body, stack trace, raw pro
 - Response field 추가는 SPA 업데이트를 요구합니다(client가 undeclared field를 거부).
 - Field 제거·이름 변경, enum 변경, 허용 limit 강화는 새 API version을 요구합니다.
 - Pydantic transport model과 체크인된 OpenAPI 파일은 contract test로 보호합니다.
-- Extension fixture는 합성 콘텐츠만 사용하며 비공개·미발행 글은 금지합니다.
+- Browser fixture는 합성 콘텐츠만 사용하며 비공개·미발행 글은 금지합니다.

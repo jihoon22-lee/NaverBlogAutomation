@@ -14,7 +14,6 @@ from naver_blog_assistant.domain import AppSettingKind, DomainValidationError
 from naver_blog_assistant.domain.settings import normalize_setting_payload
 from naver_blog_assistant.domain.writing import DraftTag, body_tags
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DRAFTS = "/api/v1/drafts"
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 
@@ -22,7 +21,6 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'drafts.db'}",
         generator_mode="fake",
         app_environment="test",

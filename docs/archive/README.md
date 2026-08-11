@@ -3,6 +3,8 @@
 `docs/archive/`는 완료된 계획, 당시의 검증 결과, 인계 기록을 보존하는 공간입니다.
 보관 문서는 현재 제품 범위나 우선순위를 정하는 backlog가 아니며, 문서에 기록된 test count·
 commit·run 정보는 작성 당시의 역사적 결과로 취급합니다.
+2026-08-11에 제거된 `extension/` 경로와 관련 검증 기록도 당시 snapshot을 설명하는 표기로 남아
+있으며, 원본 코드는 Git history에서 확인합니다.
 
 현재 UX 현대화의 closure 기록은
 [`webapp-experience-redesign-plan.md`](webapp-experience-redesign-plan.md)입니다. 이 문서는

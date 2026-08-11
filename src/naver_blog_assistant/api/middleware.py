@@ -17,19 +17,16 @@ from naver_blog_assistant.api.models import ProblemDetails
 from naver_blog_assistant.application.remote_access import RemoteAccessService
 
 logger = logging.getLogger("naver_blog_assistant.api")
-ALLOWED_CORS_METHODS = frozenset({"DELETE", "GET", "POST", "PUT", "PATCH"})
-ALLOWED_CORS_HEADERS = frozenset({"content-type", "idempotency-key", "x-nba-csrf"})
 REMOTE_SESSION_COOKIE = "nba_device_session"
 REMOTE_CSRF_COOKIE = "nba_csrf"
 REMOTE_CSRF_HEADER = "x-nba-csrf"
 
 
-class ExactCorsMiddleware:
-    """Allow the same web-app origin and one optional legacy extension origin."""
+class OriginBoundaryMiddleware:
+    """Reject browser requests whose Origin does not match this web-app service."""
 
-    def __init__(self, app: ASGIApp, *, allowed_extension_origin: str | None) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
-        self.allowed_extension_origin = allowed_extension_origin
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -37,81 +34,17 @@ class ExactCorsMiddleware:
             return
         headers = Headers(scope=scope)
         origin = headers.get("origin")
-        if origin is None:
+        if origin is None or _is_same_service_origin(headers, origin):
             await self.app(scope, receive, send)
             return
-        if _is_same_service_origin(headers, origin):
-            await self.app(scope, receive, send)
-            return
-        extension_origin = self.allowed_extension_origin
-        if origin != extension_origin:
-            await _send_problem(
-                scope,
-                send,
-                status=403,
-                code="cors_origin_forbidden",
-                title="Origin forbidden",
-                detail="This browser origin is not allowed to access the local API.",
-            )
-            return
-        assert extension_origin is not None
-        if scope["method"] == "OPTIONS":
-            await self._preflight(scope, headers, send)
-            return
-
-        async def send_with_cors(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                mutable_headers = list(message.get("headers", []))
-                mutable_headers.extend(
-                    (
-                        (
-                            b"access-control-allow-origin",
-                            extension_origin.encode(),
-                        ),
-                        (b"vary", b"Origin"),
-                        (
-                            b"access-control-expose-headers",
-                            b"Idempotency-Replayed, Engagement-Replayed, Retry-After",
-                        ),
-                    )
-                )
-                message["headers"] = mutable_headers
-            await send(message)
-
-        await self.app(scope, receive, send_with_cors)
-
-    async def _preflight(self, scope: Scope, headers: Headers, send: Send) -> None:
-        extension_origin = self.allowed_extension_origin
-        assert extension_origin is not None
-        method = headers.get("access-control-request-method", "")
-        requested_headers = {
-            value.strip().lower()
-            for value in headers.get("access-control-request-headers", "").split(",")
-            if value.strip()
-        }
-        if method not in ALLOWED_CORS_METHODS or not requested_headers <= ALLOWED_CORS_HEADERS:
-            await _send_problem(
-                scope,
-                send,
-                status=403,
-                code="cors_request_forbidden",
-                title="CORS request forbidden",
-                detail="The requested browser method or headers are not allowed.",
-            )
-            return
-        response_headers = [
-            (b"access-control-allow-origin", extension_origin.encode()),
-            (b"access-control-allow-methods", b"DELETE, GET, POST, PUT, PATCH"),
-            (b"access-control-allow-headers", b"Content-Type, Idempotency-Key, X-NBA-CSRF"),
-            (
-                b"access-control-expose-headers",
-                b"Idempotency-Replayed, Engagement-Replayed, Retry-After",
-            ),
-            (b"vary", b"Origin"),
-            (b"content-length", b"0"),
-        ]
-        await send({"type": "http.response.start", "status": 200, "headers": response_headers})
-        await send({"type": "http.response.body", "body": b""})
+        await _send_problem(
+            scope,
+            send,
+            status=403,
+            code="origin_forbidden",
+            title="Origin forbidden",
+            detail="This browser origin is not allowed to access the local API.",
+        )
 
 
 def _is_same_service_origin(headers: Headers, origin: str) -> bool:

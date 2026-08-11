@@ -37,11 +37,9 @@ CPython 3.14, `uv`, Node.js 24 LTS/npm 11, Chrome 120 이상이 필요합니다.
 | macOS | `scripts/setup-macos.command` | `scripts/start-macos.command` |
 | Linux·WSL | `scripts/setup-linux.sh` | `scripts/start-linux.sh` |
 
-Setup launcher는 웹앱 bundle을 준비하고 private 환경 파일을 만듭니다. extension 설치나 ID 입력은
-더 이상 필요하지 않습니다. 시작 launcher는 준비가 끝나면 기본 브라우저에서 `/app/`을 엽니다.
-기존 extension을 계속 쓸 때만 setup launcher에 `--with-extension`을 더하세요. 플랫폼별 상세 설치와
-첫 실행은 [시작하기](docs/getting-started.md), legacy extension은
-[별도 안내](docs/extension-legacy.md)를 따르세요.
+Setup launcher는 웹앱 bundle을 준비하고 private 환경 파일을 만듭니다. 시작 launcher는 준비가
+끝나면 기본 브라우저에서 `/app/`을 엽니다.
+플랫폼별 상세 설치와 첫 실행은 [시작하기](docs/getting-started.md)를 따르세요.
 
 실제 AI를 사용하려면 setup 뒤 자동 생성된 private 환경 파일에 다음 세 값을 넣습니다. 앞의 두 값은
 그대로 입력하고, 마지막 값에는 OpenAI Platform에서 직접 발급한 개인 API key 전체를 넣어야 합니다.
@@ -181,7 +179,6 @@ API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 �
 | 목적 | 문서 |
 | --- | --- |
 | 플랫폼별 웹앱 설치와 첫 작업 | [시작하기](docs/getting-started.md) |
-| 동결된 legacy Chrome extension 설치 | [Extension Legacy](docs/extension-legacy.md) |
 | 이웃 RSS, 검색 후보, badge·알림, SMTP 요약 | [글 탐색 대기열](docs/discovery.md) |
 | runtime, 데이터 보관·정리, 문제 해결 | [Local Operations](docs/local-operations.md) |
 | 현재 화면 구조와 UX·접근성 기준 | [UX Design](docs/ux-design.md) |

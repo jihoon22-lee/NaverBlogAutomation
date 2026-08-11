@@ -27,10 +27,6 @@ def test_launcher_starts_composed_app_on_fixed_address(monkeypatch: pytest.Monke
     monkeypatch.setenv("API_PORT", "8765")
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("COMMENT_GENERATOR_MODE", "fake")
-    monkeypatch.setenv(
-        "CHROME_EXTENSION_ORIGIN",
-        "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    )
     app = object()
     create_app = Mock(return_value=app)
     run = Mock()

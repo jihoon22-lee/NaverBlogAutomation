@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from naver_blog_assistant.api import ApiSettings, create_app
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 PROVIDERS = "/api/v1/llm/providers"
 GEMINI_KEY = "gemini-secret-value"
 ANTHROPIC_KEY = "anthropic-secret-value"
@@ -19,7 +18,6 @@ ANTHROPIC_KEY = "anthropic-secret-value"
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'providers.db'}",
         generator_mode="fake",
         app_environment="test",

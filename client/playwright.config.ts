@@ -7,7 +7,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   forbidOnly: Boolean(process.env.CI),
   fullyParallel: false,
-  outputDir: join(tmpdir(), `naver-blog-assistant-playwright-${process.pid}`),
+  outputDir: join(tmpdir(), `naver-blog-assistant-webapp-playwright-${process.pid}`),
   reporter: "list",
   retries: 0,
   testDir: "./tests/e2e",

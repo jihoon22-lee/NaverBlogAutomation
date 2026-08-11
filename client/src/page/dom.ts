@@ -1,9 +1,8 @@
 /**
  * Shared DOM helpers for the injected page scripts.
  *
- * The extension had to duplicate these helpers inside every function because
- * `chrome.scripting.executeScript` serializes one function at a time. The bundled page script has
- * no such constraint, so the helpers live here once.
+ * The bundled page script shares these helpers across every probe while still producing one
+ * self-contained browser artifact.
  *
  * These scripts are read-only: they locate elements, report state, and return a stable selector for
  * the caller. Clicking and typing happen through trusted CDP input in the Python layer, because a

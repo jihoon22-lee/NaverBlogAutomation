@@ -1,9 +1,8 @@
 /**
  * Article capture for one document.
  *
- * Ported from the extension's `captureCurrentFrame`. The supported-host gate moved to the Python
- * layer so the same script can run against synthetic fixtures, and the caller decides which frame
- * result wins.
+ * The supported-host gate lives in the Python layer so this script can run against synthetic
+ * fixtures, and the caller decides which frame result wins.
  */
 
 import { collectVisibleText, isInsideExcludedRegion, normalizeExtractedText } from "./dom";

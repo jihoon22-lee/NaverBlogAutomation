@@ -17,10 +17,12 @@
     "lint": "biome lint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test --config playwright.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.13.3",
     "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.28.1",

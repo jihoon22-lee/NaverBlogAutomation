@@ -1,4 +1,4 @@
-/** Packaged web-app journey without loading the legacy extension. */
+/** Packaged web-app journey against an installed Python wheel. */
 
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,13 +7,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Readable } from "node:stream";
 
-import { expect, test } from "@playwright/test";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 
 import { resolveApiCommand } from "./api-command.js";
 
-const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const repositoryRoot = resolve(extensionRoot, "..");
+const clientRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repositoryRoot = resolve(clientRoot, "..");
 const apiOrigin = "http://127.0.0.1:8765";
 type ApiProcess = ChildProcessByStdio<null, Readable, Readable>;
 

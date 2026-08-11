@@ -217,7 +217,7 @@ export class LocalApiClient {
    * Read both queue sources.
    *
    * The existing contract requires one `source` per request, so the app merges the two lists rather
-   * than changing an endpoint the frozen extension also uses.
+   * than widening the endpoint response and its pagination semantics.
    */
   async discoveryQueue(): Promise<DiscoveryPost[]> {
     const [neighbor, search] = await Promise.all([

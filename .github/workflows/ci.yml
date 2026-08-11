@@ -169,101 +169,6 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: extension/package-lock.json
-
-      - name: Install locked dependencies
-        run: npm ci --prefix extension
-
-      - name: Check formatting
-        id: formatting
-        continue-on-error: true
-        run: npm --prefix extension run format:check
-
-      - name: Lint
-        id: lint
-        continue-on-error: true
-        run: npm --prefix extension run lint
-
-      - name: Type check
-        id: types
-        continue-on-error: true
-        run: npm --prefix extension run typecheck
-
-      - name: Test
-        id: tests
-        continue-on-error: true
-        shell: bash
-        run: |
-          mkdir -p reports
-          set -o pipefail
-          npm --prefix extension run test:coverage | tee reports/vitest-output.txt
-
-      - name: Build
-        id: build
-        continue-on-error: true
-        run: npm --prefix extension run build
-
-      - name: Upload TypeScript reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: typescript-quality-reports
-          path: |
-            reports/vitest-output.txt
-            extension/coverage/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Enforce TypeScript quality gate
-        if: always()
-        shell: bash
-        env:
-          FORMAT_RESULT: ${{ steps.formatting.outcome }}
-          LINT_RESULT: ${{ steps.lint.outcome }}
-          TYPES_RESULT: ${{ steps.types.outcome }}
-          TEST_RESULT: ${{ steps.tests.outcome }}
-          BUILD_RESULT: ${{ steps.build.outcome }}
-        run: |
-          echo "## TypeScript quality gate" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Biome format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Biome lint | $LINT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| TypeScript | $TYPES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Vitest + coverage | $TEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Extension build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-
-          if [[ -f reports/vitest-output.txt ]]; then
-            echo "### Vitest summary" >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 20 reports/vitest-output.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [[ "$FORMAT_RESULT" != "success" \
-            || "$LINT_RESULT" != "success" \
-            || "$TYPES_RESULT" != "success" \
-            || "$TEST_RESULT" != "success" \
-            || "$BUILD_RESULT" != "success" ]]; then
-            echo "One or more TypeScript checks failed." >&2
-            exit 1
-          fi
-
-  client-quality:
-    name: Client quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .node-version
-          cache: npm
           cache-dependency-path: client/package-lock.json
 
       - name: Install locked dependencies
@@ -273,11 +178,6 @@ jobs:
         id: formatting
         continue-on-error: true
         run: npm --prefix client run format:check
-
-      - name: Check the frozen extension boundary
-        id: extension_boundary
-        continue-on-error: true
-        run: python3 scripts/check_extension_boundary.py
 
       - name: Lint
         id: lint
@@ -303,31 +203,23 @@ jobs:
         continue-on-error: true
         run: npm --prefix client run build
 
-      - name: Verify the page bundle boundary
-        id: boundary
+      - name: Verify injected page bundle
+        id: bundle
         continue-on-error: true
-        shell: bash
-        run: |
-          # The client must stay independent of the frozen extension so the automation surface can be
-          # split into its own repository later without untangling imports.
-          if grep -rn "extension/" client/src client/tests client/scripts; then
-            echo "client code must not reference the frozen extension" >&2
-            exit 1
-          fi
-          test -s src/naver_blog_assistant/infrastructure/browser/bundles/page.js
+        run: test -s src/naver_blog_assistant/infrastructure/browser/bundles/page.js
 
-      - name: Upload client reports
+      - name: Upload TypeScript reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: client-quality-reports
+          name: typescript-quality-reports
           path: |
             reports/client-vitest.txt
             client/coverage/
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Enforce client quality gate
+      - name: Enforce TypeScript quality gate
         if: always()
         shell: bash
         env:
@@ -336,28 +228,32 @@ jobs:
           TYPES_RESULT: ${{ steps.types.outcome }}
           TEST_RESULT: ${{ steps.tests.outcome }}
           BUILD_RESULT: ${{ steps.build.outcome }}
-          BOUNDARY_RESULT: ${{ steps.boundary.outcome }}
-          EXTENSION_BOUNDARY_RESULT: ${{ steps.extension_boundary.outcome }}
+          BUNDLE_RESULT: ${{ steps.bundle.outcome }}
         run: |
-          echo "## Client quality gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "## TypeScript quality gate" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Biome format | $FORMAT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Biome lint | $LINT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| TypeScript | $TYPES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Vitest + coverage | $TEST_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Client build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Page bundle boundary | $BOUNDARY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Frozen extension boundary | $EXTENSION_BOUNDARY_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Web app build | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Injected page bundle | $BUNDLE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -f reports/client-vitest.txt ]]; then
+            echo "### Vitest summary" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 20 reports/client-vitest.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           if [[ "$FORMAT_RESULT" != "success" \
             || "$LINT_RESULT" != "success" \
             || "$TYPES_RESULT" != "success" \
             || "$TEST_RESULT" != "success" \
             || "$BUILD_RESULT" != "success" \
-            || "$BOUNDARY_RESULT" != "success" \
-            || "$EXTENSION_BOUNDARY_RESULT" != "success" ]]; then
-            echo "One or more client checks failed." >&2
+            || "$BUNDLE_RESULT" != "success" ]]; then
+            echo "One or more TypeScript checks failed." >&2
             exit 1
           fi
 
@@ -382,27 +278,25 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: extension/package-lock.json
+          cache-dependency-path: client/package-lock.json
 
-      - name: Install locked extension dependencies
+      - name: Install locked client dependencies
         id: dependencies
         continue-on-error: true
-        run: npm ci --prefix extension
+        run: npm ci --prefix client
 
       - name: Build web-app and injected page bundles
         id: page_bundle
         if: steps.dependencies.outcome == 'success'
         continue-on-error: true
-        run: |
-          npm ci --prefix client
-          npm --prefix client run build
+        run: npm --prefix client run build
 
-      - name: Install Chromium·WebKit and system dependencies
+      - name: Install Chromium and system dependencies
         id: chromium
         if: steps.dependencies.outcome == 'success'
         continue-on-error: true
-        working-directory: extension
-        run: npx playwright install --with-deps chromium webkit
+        working-directory: client
+        run: npx playwright install --with-deps chromium
 
       - name: Build and install wheel in an isolated environment
         id: package
@@ -420,14 +314,14 @@ jobs:
           test -x "$executable"
           echo "SYSTEM_E2E_API_EXECUTABLE=$executable" >> "$GITHUB_ENV"
 
-      - name: Run packaged legacy extension and standalone web-app workflows
+      - name: Run packaged web-app workflow
         id: e2e
         if: >-
           steps.dependencies.outcome == 'success' &&
           steps.chromium.outcome == 'success' &&
           steps.package.outcome == 'success'
         continue-on-error: true
-        run: npm --prefix extension run test:e2e
+        run: npm --prefix client run test:e2e
 
       - name: Enforce System E2E gate
         if: always()
@@ -442,11 +336,11 @@ jobs:
           echo "## System E2E gate" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Locked extension dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Locked client dependencies | $DEPENDENCIES_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Injected page bundle | $BUNDLE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Playwright Chromium·WebKit | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Playwright Chromium | $CHROMIUM_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Installed Python wheel | $PACKAGE_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Packaged web-app·legacy workflows | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Packaged web-app workflow | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$DEPENDENCIES_RESULT" != "success" \
             || "$BUNDLE_RESULT" != "success" \
@@ -576,20 +470,6 @@ jobs:
             throw "PowerShell launcher syntax validation failed."
           }
 
-          $stdout = Join-Path $env:RUNNER_TEMP "windows-launcher.stdout.txt"
-          $stderr = Join-Path $env:RUNNER_TEMP "windows-launcher.stderr.txt"
-          $process = Start-Process -FilePath "cmd.exe" -ArgumentList @(
-            "/d",
-            "/c",
-            "echo.| scripts\setup-windows.cmd -ExtensionId $('q' * 32) -SkipDependencies"
-          ) -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          $output = (Get-Content $stdout, $stderr -Raw) -join "`n"
-          if ($process.ExitCode -ne 1 -or $output -notmatch "Extension ID") {
-            Write-Output $output
-            throw "The CMD launcher did not reject an invalid extension ID safely."
-          }
-
   macos-launcher:
     name: macOS launcher
     runs-on: macos-latest
@@ -606,17 +486,6 @@ jobs:
           test -x scripts/setup-macos.command
           test -x scripts/start-macos.command
           bash -n scripts/setup-macos.command scripts/start-macos.command
-          set +e
-          output="$(bash scripts/setup-macos.command \
-            --extension-id qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq \
-            --skip-dependencies 2>&1)"
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          if [[ "$status" -ne 1 || "$output" != *"Extension ID"* ]]; then
-            echo "The macOS launcher did not reject an invalid extension ID safely." >&2
-            exit 1
-          fi
 
   linux-launcher:
     name: Linux launcher
@@ -634,17 +503,6 @@ jobs:
           test -x scripts/setup-linux.sh
           test -x scripts/start-linux.sh
           bash -n scripts/setup-linux.sh scripts/start-linux.sh
-          set +e
-          output="$(bash scripts/setup-linux.sh \
-            --extension-id qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq \
-            --skip-dependencies 2>&1)"
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          if [[ "$status" -ne 1 || "$output" != *"Extension ID"* ]]; then
-            echo "The Linux launcher did not reject an invalid extension ID safely." >&2
-            exit 1
-          fi
 
   quality-gate:
     name: Quality gate
@@ -653,7 +511,6 @@ jobs:
       - commit-convention
       - python-quality
       - typescript-quality
-      - client-quality
       - system-e2e
       - automation-browser
       - windows-launcher
@@ -668,7 +525,6 @@ jobs:
           COMMIT_RESULT: ${{ needs.commit-convention.result }}
           PYTHON_RESULT: ${{ needs.python-quality.result }}
           TYPESCRIPT_RESULT: ${{ needs.typescript-quality.result }}
-          CLIENT_RESULT: ${{ needs.client-quality.result }}
           E2E_RESULT: ${{ needs.system-e2e.result }}
           AUTOMATION_RESULT: ${{ needs.automation-browser.result }}
           WINDOWS_RESULT: ${{ needs.windows-launcher.result }}
@@ -681,7 +537,6 @@ jobs:
           echo "| Commit convention | $COMMIT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Python quality | $PYTHON_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| TypeScript quality | $TYPESCRIPT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Client quality | $CLIENT_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| System E2E | $E2E_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Automation browser | $AUTOMATION_RESULT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows launcher | $WINDOWS_RESULT |" >> "$GITHUB_STEP_SUMMARY"
@@ -691,7 +546,6 @@ jobs:
           if [[ "$COMMIT_RESULT" != "success" \
             || "$PYTHON_RESULT" != "success" \
             || "$TYPESCRIPT_RESULT" != "success" \
-            || "$CLIENT_RESULT" != "success" \
             || "$E2E_RESULT" != "success" \
             || "$AUTOMATION_RESULT" != "success" \
             || "$WINDOWS_RESULT" != "success" \

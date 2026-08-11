@@ -1,8 +1,8 @@
 /**
  * Like-control discovery for one post document.
  *
- * Ported from the extension's `probeLikeTarget`, with the click removed: the probe reports what it
- * found and where it is, and the Python layer performs a trusted click.
+ * The read-only probe reports what it found and where it is, and the Python layer performs a
+ * trusted click.
  */
 
 import { elementSelector, isEnabled } from "./dom";

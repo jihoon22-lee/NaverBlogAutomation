@@ -1,9 +1,8 @@
 """Server-owned idempotency keys for web app generation requests.
 
-The extension had to persist its own key registry because the service could not know which browser
-click belonged to which attempt. The web app posts a URL instead of a body, so the service derives
-the key itself: the same normalized request always maps to the same key, which makes duplicate
-clicks, interrupted responses, and timeouts replay instead of paying for a second provider call.
+The service derives the key from the normalized request: the same request always maps to the same
+key, which makes duplicate clicks, interrupted responses, and timeouts replay instead of paying for
+a second provider call.
 
 A replacement attempt is deliberate. It requires an explicit flag, because the prior provider result
 may be unknown and a new key can bill again.
