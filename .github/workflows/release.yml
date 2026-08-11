@@ -68,6 +68,7 @@ jobs:
         run: npm --prefix client run check
 
       - name: Build release assets
+        id: assets
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -76,11 +77,15 @@ jobs:
           uv build --wheel --out-dir wheel
           wheel="$(find wheel -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
-          cp "$wheel" "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl"
+          wheel_name="$(basename "$wheel")"
+          cp "$wheel" "release-assets/$wheel_name"
+          echo "wheel_name=$wheel_name" >> "$GITHUB_OUTPUT"
           (
             cd release-assets
             sha256sum ./*.whl > SHA256SUMS.txt
           )
+          uv run --isolated --no-project --with "release-assets/$wheel_name" \
+            python scripts/smoke_installed_wheel.py
           uv run --frozen python -m scripts.extract_release_notes \
             --version "$VERSION" --output release-assets/release-notes.md
 
@@ -96,7 +101,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          VERSION: ${{ steps.version.outputs.value }}
+          WHEEL_NAME: ${{ steps.assets.outputs.wheel_name }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; refusing to overwrite published assets." >&2
@@ -104,7 +109,7 @@ jobs:
           fi
           notes="$(cat release-assets/release-notes.md)"
           gh release create "$TAG" \
-            "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl#Python wheel" \
+            "release-assets/${WHEEL_NAME}#Python wheel" \
             "release-assets/SHA256SUMS.txt#SHA-256 checksums" \
             --title "Naver Blog Assistant $TAG" \
             --notes "$notes" \
