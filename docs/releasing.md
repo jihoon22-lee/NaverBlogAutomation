@@ -17,8 +17,8 @@ FastAPI의 `/api/v1` 계약 버전은 제품 릴리스 버전과 별개이므로
 main의 원하는 commit에서 annotated tag를 만들고 push합니다.
 
 ```bash
-git tag -a v0.5.0 -m "v0.5.0"
-git push origin v0.5.0
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 tag workflow는 version metadata와 CHANGELOG를 검증하고, Python wheel과 `SHA256SUMS.txt`를 GitHub

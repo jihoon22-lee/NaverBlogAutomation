@@ -1,5 +1,6 @@
 """Tests for tag-to-version and curated-release-note validation."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,12 @@ def write_release_files(root: Path, *, version: str = "0.2.0") -> None:
     )
     (root / "client/package.json").write_text('{"version": "' + version + '"}\n', encoding="utf-8")
     (root / "client/package-lock.json").write_text(
-        '{"version": "' + version + '"}\n', encoding="utf-8"
+        json.dumps(
+            {"version": version, "packages": {"": {"version": version}}},
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n## [0.2.0]\n\n### 추가\n\n- 테스트 변경\n"
@@ -44,6 +50,49 @@ def test_verify_release_metadata_rejects_mismatched_version(tmp_path: Path) -> N
     package.write_text('{"version": "0.1.0"}\n', encoding="utf-8")
 
     with pytest.raises(ReleaseMetadataError, match="client/package.json=0.1.0"):
+        verify_release_metadata("v0.2.0", root=tmp_path)
+
+
+def test_verify_release_metadata_rejects_mismatched_package_lock_root_version(
+    tmp_path: Path,
+) -> None:
+    write_release_files(tmp_path)
+    package_lock = tmp_path / "client/package-lock.json"
+    package_lock.write_text(
+        '{"version": "0.2.0", "packages": {"": {"version": "0.1.0"}}}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match=r'client/package-lock\.json#packages\[""\]\.version=0\.1\.0',
+    ):
+        verify_release_metadata("v0.2.0", root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "package_lock",
+    [
+        {"version": "0.2.0"},
+        {"version": "0.2.0", "packages": {}},
+        {"version": "0.2.0", "packages": {"": {}}},
+        {"version": "0.2.0", "packages": {"": {"version": 200}}},
+    ],
+)
+def test_verify_release_metadata_rejects_missing_package_lock_root_version(
+    tmp_path: Path,
+    package_lock: dict[str, object],
+) -> None:
+    write_release_files(tmp_path)
+    (tmp_path / "client/package-lock.json").write_text(
+        json.dumps(package_lock) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match=r'client/package-lock\.json#packages\[""\]\.version is missing or not a string',
+    ):
         verify_release_metadata("v0.2.0", root=tmp_path)
 
 

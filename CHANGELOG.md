@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-11
+
+### 호환성 변경
+
+- Chrome extension과 Side Panel 지원을 제거하고 **local Web App**을 유일한 사용자 화면으로
+  통합했습니다. Setup launcher는 extension 설치나 ID 입력 없이 Web App을 준비하며, start launcher가
+  기본 browser에서 `/app/`을 엽니다.
+- 기존 Chrome extension 사용자는 Chrome의 확장 프로그램 관리 화면에서 기존 도구를 제거한 뒤 platform
+  setup launcher를 다시 실행해 수동으로 전환해야 합니다. Extension의 browser-local 설정은 자동
+  이전되지 않으므로 Web App의 **관리 > 설정**에서 기본값·자동화 동의·안전 한도를 다시 확인하세요.
+  Local service의 SQLite 데이터는 extension을 제거해도 삭제되지 않습니다.
+- GitHub Release에서 extension ZIP을 제거했습니다. 이제 Web App을 포함한 Python wheel과 checksum만
+  제공합니다.
+- Extension Origin을 허용하던 호환 경로를 제거했습니다. Web App 요청은 기본적으로 service와 같은
+  origin에서만 허용되며, 신뢰하는 private Wi-Fi에서 명시적으로 pairing한 기기만 제한된 session으로
+  접근할 수 있습니다.
+
+### 개선
+
+- Naver page probe와 packaged E2E를 `client/` toolchain으로 모아 Web App의 build·test 흐름을 하나로
+  통합했습니다.
+- Client의 statements·branches·functions·lines coverage 기준을 각각 85% 이상으로 높였습니다. 화면 이동
+  뒤의 오래된 응답, 글쓰기 autosave·checkpoint·staging 경쟁 상태, 설정 저장과 session 취소·재시도처럼
+  사용자 입력 유실이나 중복 실행으로 이어질 수 있는 회귀 테스트를 강화했습니다.
+
 ## [0.7.0]
 
 ### 추가

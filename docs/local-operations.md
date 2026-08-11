@@ -136,8 +136,9 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
 
 ### 기본 연결·설정
 
-- **API unavailable 또는 CORS error:** 다른 process가 port `8765`를 사용하지 않는지 확인하고
-  `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다.
+- **API unavailable 또는 `origin_forbidden` 오류:** 다른 process가 port `8765`를 사용하지 않는지
+  확인하고 `python -m scripts.check_local_setup --require-api`를 같은 `--env-file`로 실행합니다. 이
+  검사는 local health와 foreign-Origin 차단을 함께 확인합니다.
 - **태블릿 연결 code를 만들 수 없음:** PC의 **관리 > 설정 > 연결 및 앱**에서 access mode를
   **신뢰 Wi-Fi**로 저장하고 **저장한 설정 적용**을 누르세요. 태블릿과 PC가 같은 private Wi-Fi인지도
   확인하세요. launcher 없이 수동 API로 실행 중이면 그 화면의 재시작 안내에 따라 직접 다시 시작합니다.

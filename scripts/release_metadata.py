@@ -11,6 +11,7 @@ from typing import Final
 TAG_PATTERN: Final = re.compile(r"^v(?P<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$")
 CHANGELOG_HEADING: Final = re.compile(r"^## \[(?P<version>[^\]]+)\](?:\s|$)")
 REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
+PACKAGE_LOCK_ROOT_VERSION: Final = 'client/package-lock.json#packages[""].version'
 
 
 class ReleaseMetadataError(RuntimeError):
@@ -43,11 +44,20 @@ def checked_in_versions(*, root: Path = REPOSITORY_ROOT) -> dict[str, str]:
         raise ReleaseMetadataError(
             "uv.lock does not contain the local naver-blog-assistant package"
         )
+    package_lock_packages = package_lock.get("packages")
+    package_lock_root = (
+        package_lock_packages.get("") if isinstance(package_lock_packages, dict) else None
+    )
+    if not isinstance(package_lock_root, dict) or not isinstance(
+        package_lock_root.get("version"), str
+    ):
+        raise ReleaseMetadataError(f"{PACKAGE_LOCK_ROOT_VERSION} is missing or not a string")
     versions = {
         "pyproject.toml": str(pyproject["project"]["version"]),
         "uv.lock": locked_project["version"],
         "client/package.json": str(package["version"]),
         "client/package-lock.json": str(package_lock["version"]),
+        PACKAGE_LOCK_ROOT_VERSION: package_lock_root["version"],
     }
     return versions
 
