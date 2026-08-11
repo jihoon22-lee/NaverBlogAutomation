@@ -10,7 +10,6 @@
 | --- | --- | --- |
 | [시작하기](getting-started.md) | local web app 설치, 환경 파일, 첫 댓글·글쓰기·태블릿 연결 흐름 | 사용자, 처음 설치하는 운영자 |
 | [글 탐색 대기열](discovery.md) | RSS·검색 후보 수집 조건, 보관 기간, SMTP 요약 | queue를 설정하는 사용자 |
-| [Legacy Chrome extension](extension-legacy.md) | 동결된 Side Panel 설치와 제한 | 기존 extension 사용자 |
 
 현재 웹앱의 visible primary navigation은 **홈 · 작업함 · 글쓰기 · 관리**입니다. 문서와 UI에서
 `관리`라고 부르는 네 번째 탭은 내부 호환 key `more`와 `#more` route를 유지합니다.

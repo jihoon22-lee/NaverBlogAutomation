@@ -12,7 +12,7 @@ from scripts.release_metadata import (
 
 
 def write_release_files(root: Path, *, version: str = "0.2.0") -> None:
-    (root / "extension/public").mkdir(parents=True)
+    (root / "client").mkdir()
     (root / "pyproject.toml").write_text(
         f"[project]\nname = 'naver-blog-assistant'\nversion = '{version}'\n",
         encoding="utf-8",
@@ -21,10 +21,8 @@ def write_release_files(root: Path, *, version: str = "0.2.0") -> None:
         f'[[package]]\nname = "naver-blog-assistant"\nversion = "{version}"\n',
         encoding="utf-8",
     )
-    (root / "extension/package.json").write_text(
-        '{"version": "' + version + '"}\n', encoding="utf-8"
-    )
-    (root / "extension/public/manifest.json").write_text(
+    (root / "client/package.json").write_text('{"version": "' + version + '"}\n', encoding="utf-8")
+    (root / "client/package-lock.json").write_text(
         '{"version": "' + version + '"}\n', encoding="utf-8"
     )
     (root / "CHANGELOG.md").write_text(
@@ -42,10 +40,10 @@ def test_verify_release_metadata_accepts_matching_stable_tag(tmp_path: Path) -> 
 
 def test_verify_release_metadata_rejects_mismatched_version(tmp_path: Path) -> None:
     write_release_files(tmp_path)
-    package = tmp_path / "extension/package.json"
+    package = tmp_path / "client/package.json"
     package.write_text('{"version": "0.1.0"}\n', encoding="utf-8")
 
-    with pytest.raises(ReleaseMetadataError, match="extension/package.json=0.1.0"):
+    with pytest.raises(ReleaseMetadataError, match="client/package.json=0.1.0"):
         verify_release_metadata("v0.2.0", root=tmp_path)
 
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { DraftRevision, PostDraft, PublishRun } from "../../src/app/api/types";
+import type { BodyBlock, DraftRevision, PostDraft, PublishRun } from "../../src/app/api/types";
 import {
   activeRevision,
   blocksFromText,
@@ -231,6 +231,30 @@ describe("writing state", () => {
     expect(acknowledged.bodyText).toBe("임시 본문");
   });
 
+  it("ignores an autosave acknowledgement for a different draft and preserves a null working copy", () => {
+    const current = draft({
+      workingCopy: {
+        title: "현재 제목",
+        blocks: [{ type: "paragraph", text: "현재 본문" }],
+        summary: "현재 요약",
+        contentVersion: 4,
+      },
+    });
+    const state = withDraft(initialWritingState(), current);
+    const other = draft({ id: "other", workingCopy: null, title: "다른 제목" });
+
+    expect(withAutoSaveAcknowledged(state, other)).toBe(state);
+
+    const serverAcknowledgement = { ...current, title: "서버 제목", workingCopy: null };
+    const next = withAutoSaveAcknowledged(
+      { ...state, draft: { ...current, title: "로컬 제목" } },
+      serverAcknowledgement,
+    );
+    expect(next.draft?.title).toBe("로컬 제목");
+    expect(next.draft?.workingCopy).toBeNull();
+    expect(next.blocks).toEqual(state.blocks);
+  });
+
   it("requires an explicit checkpoint when working copy and active revision differ", () => {
     const base = revision();
     const current = draft({
@@ -322,6 +346,44 @@ describe("writing state", () => {
     expect(canStage(withRun(ready, run({ state: "succeeded" })))).toBe(true);
   });
 
+  it("compares structured blocks instead of treating equal lists and images as dirty", () => {
+    const blocks = [
+      { type: "image" as const, image_id: IMAGE_ID, caption: "사진" },
+      { type: "ordered_list" as const, items: ["첫째", "둘째"] },
+      { type: "unordered_list" as const, items: ["메모"] },
+      { type: "divider" as const },
+    ];
+    const base = draft({
+      revisions: [revision({ blocks })],
+      workingCopy: null,
+    });
+    const state = withDraft(initialWritingState(), base);
+
+    expect(hasUncheckpointedChanges(state)).toBe(false);
+    expect(
+      hasUncheckpointedChanges({
+        ...state,
+        blocks: [{ type: "image", image_id: IMAGE_ID, caption: "다른 캡션" }, ...blocks.slice(1)],
+      }),
+    ).toBe(true);
+    expect(
+      hasUncheckpointedChanges({
+        ...state,
+        blocks: [
+          blocks[0] as BodyBlock,
+          { type: "ordered_list", items: ["첫째", "달라짐"] },
+          ...blocks.slice(2),
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      hasUncheckpointedChanges({
+        ...state,
+        blocks: [{ type: "divider" }, ...blocks.slice(1)],
+      }),
+    ).toBe(true);
+  });
+
   it("resolves terminal staging events to a bounded run state", () => {
     const base = withRun(withDraft(initialWritingState(), draft()), run());
 
@@ -335,6 +397,42 @@ describe("writing state", () => {
     );
     expect(withStagingTerminal(base, "stream_error").run?.state).toBe("unconfirmed");
     expect(withStagingTerminal(base, "run_finished").busy).toBe(false);
+    expect(withStagingTerminal(base, "run_snapshot").run?.state).toBe("unconfirmed");
+    expect(withStagingTerminal(base, "unknown_event")).toBe(base);
+    expect(withStagingTerminal({ ...base, run: null }, "run_finished")).toEqual({
+      ...base,
+      run: null,
+    });
+  });
+
+  it("keeps the previous body verification when a progress payload is incomplete", () => {
+    const base = withStagingEvent(withRun(withDraft(initialWritingState(), draft()), run()), {
+      step: "body",
+      state: "succeeded",
+      detail: {
+        requested_range_start: 1,
+        requested_range_end: 2,
+        observed_prefix_count: 2,
+      },
+    });
+
+    for (const detail of [
+      null,
+      [],
+      { requested_range_start: 0, requested_range_end: 2, observed_prefix_count: 2 },
+      { requested_range_start: 2, requested_range_end: 1, observed_prefix_count: 2 },
+      { requested_range_start: 1, requested_range_end: 2, observed_prefix_count: -1 },
+      { requested_range_start: 1.5, requested_range_end: 2, observed_prefix_count: 2 },
+    ]) {
+      const next = withStagingEvent(base, { step: "body", detail });
+      expect(next.stagingBodyVerification).toEqual(base.stagingBodyVerification);
+    }
+
+    expect(withStagingEvent(base, { step: "not-a-step", detail: {} })).toBe(base);
+    expect(withStagingEvent({ ...base, run: null }, { step: "body", detail: {} })).toEqual({
+      ...base,
+      run: null,
+    });
   });
 
   it("records a failure message", () => {

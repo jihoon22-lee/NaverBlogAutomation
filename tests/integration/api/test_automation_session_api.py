@@ -12,7 +12,6 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 SESSION = "/api/v1/automation/session"
 
 
@@ -24,7 +23,6 @@ def driver() -> FakeBrowserDriver:
 @pytest.fixture
 def client(tmp_path: Path, driver: FakeBrowserDriver) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'automation.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -161,7 +159,6 @@ def test_invalid_refresh_query_is_rejected(client: TestClient) -> None:
 
 def test_unavailable_driver_reports_service_unavailable(tmp_path: Path) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'automation.db'}",
         generator_mode="fake",
         app_environment="test",

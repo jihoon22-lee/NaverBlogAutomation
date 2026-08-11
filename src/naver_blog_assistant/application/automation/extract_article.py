@@ -1,8 +1,8 @@
 """Extract one Naver Blog article through the locally owned browser session.
 
 The supported-host policy lives here rather than in the injected script, so the server alone decides
-which URLs may be opened. Frame results are ranked exactly like the extension did, then normalized
-and bounded to the generation request limits. Every unusable result fails closed with a stable code.
+which URLs may be opened. Frame results are ranked, normalized, and bounded to the generation
+request limits. Every unusable result fails closed with a stable code.
 """
 
 from __future__ import annotations

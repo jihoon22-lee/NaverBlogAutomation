@@ -1,6 +1,6 @@
 # 네이버 블로그 댓글·글쓰기 보조 도구 아키텍처
 
-Status: 현재 구현을 반영한 개정본, 갱신 2026-08-09 (PR #96~#105)
+Status: 현재 구현을 반영한 개정본, 갱신 2026-08-11
 
 이 문서는 v0.6 이후의 실제 런타임 구조와 현재 웹앱 UX 계약을 기술합니다. 사용자용 설치·운영
 절차는 [`getting-started.md`](getting-started.md)와 [`local-operations.md`](local-operations.md)를,
@@ -36,8 +36,7 @@ flowchart LR
 ```
 
 FastAPI는 `127.0.0.1:8765`에만 bind합니다. **`client/` 로컬 웹앱**이 유일한 end-user
-UI입니다. 과거 Chrome Side Panel extension은 v0.5.6에서 동결(FROZEN)되었으며 더 이상
-개발·사용되지 않습니다. Python 패키지는 loopback 서비스와 SPA를 함께 제공하며
+UI입니다. Python 패키지는 loopback 서비스와 SPA를 함께 제공하며
 별도 프레젠테이션 프로세스는 필요하지 않습니다.
 
 ## 구성 요소 책임
@@ -124,7 +123,9 @@ trusted input으로 실행합니다.
 ### Local API, Domain, Persistence
 
 FastAPI는 체크인된 [`api/openapi.yaml`](api/openapi.yaml) 계약, 입력 검증, request-size
-제한, exact-origin CORS, local rate limiting, timeout 처리, redacted 로그를 소유합니다.
+제한, 허용된 Host와 same-service Origin 경계, local rate limiting, timeout 처리, redacted 로그를
+소유합니다. Origin header가 있는 browser request는 요청 Host와 같은 HTTP service origin일 때만
+통과하며, paired device는 별도의 session cookie와 CSRF header 경계도 통과해야 합니다.
 application과 domain 레이어는 FastAPI, Chrome, SQLAlchemy, 어떤 LLM SDK에도 의존하지
 않습니다.
 
@@ -313,8 +314,8 @@ management의 PC 전용 값을 노출하지 않습니다.
   storage path를 받지 않습니다.
   원본 파일명은 sanitize되며, response에 bytes가 포함되지 않습니다. `use_image_vision:
   true`를 설정한 경우에만 이미지가 provider에 전달됩니다.
-- FastAPI는 loopback에만 bind하며, CORS는 선언된 origin만 허용합니다. 브라우저
-  credentials는 비활성입니다.
+- FastAPI는 기본적으로 loopback에 bind하며, HTTP Origin이 service origin과 다르면 거부합니다.
+  브라우저 credentials는 paired private-LAN session에만 사용합니다.
 - `blog.naver.com`과 `m.blog.naver.com` HTTPS URL만 초기 허용 대상입니다.
 - 자동화 브라우저는 전용 profile을 사용하며 기존 브라우저와 분리됩니다. 쿠키·계정
   정보를 읽지 않고, 공개 페이지의 sign-in affordance만 관찰합니다.
@@ -323,13 +324,6 @@ management의 PC 전용 값을 노출하지 않습니다.
 - Client abort나 탭 닫기 시 브라우저 reference는 해제되나, 이미 실행 중인 FastAPI/
   provider 작업의 취소는 보장하지 않습니다.
 
-### Extension 동결 상태
-
-Chrome Manifest V3 extension은 v0.5.6에서 동결(FROZEN)되었습니다. `extension/`
-디렉토리는 코드베이스에 남아 있지만 새 기능이 추가되지 않으며, 사용자 워크플로에서
-사용되지 않습니다. 기존 `chrome.storage.local`에 저장된 데이터는 웹앱 이전을 위해
-참조만 가능합니다.
-
 ## 런타임과 품질 전략
 
 Python 3.14, `uv`, FastAPI, SQLAlchemy, Alembic, SQLite가 서비스를 구성합니다.
@@ -337,15 +331,14 @@ Python 3.14, `uv`, FastAPI, SQLAlchemy, Alembic, SQLite가 서비스를 구성�
 자동화 브라우저는 Playwright입니다.
 
 PR CI는 Ruff, ty, pytest(87% branch coverage 이상), TypeScript 검사, Biome, Vitest
-coverage, extension production build, 설치된 wheel smoke test, 별도 System E2E
+coverage, web-app production build, 설치된 wheel smoke test, 별도 System E2E
 workflow를 실행합니다. Fixture는 합성 HTML만 포함하며, 실제 Naver 페이지나 live LLM
 호출은 opt-in입니다.
 
 현재 client 회귀 범위는 앱 셸·home·onboarding·workbench·writing editor·settings·async
 lifecycle guard를 포함합니다. packaged E2E는 desktop, 768px portrait, 1024px landscape에서
 navigation, queue/detail, writing interaction, settings disclosure, focus와 horizontal overflow를
-DOM/metric으로 확인합니다. Extension의 기존 Side Panel workflow는 별도 legacy suite이며, 새
-웹앱 기능의 source of truth가 아닙니다.
+DOM/metric으로 확인합니다.
 
 비동기 회귀 테스트는 다음 불변 조건을 특히 확인합니다.
 

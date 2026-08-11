@@ -182,6 +182,51 @@ const SCHEDULE = {
   blocking_reason: null,
 };
 
+const DRAFT = {
+  id: "11111111-1111-4111-8111-111111111111",
+  title: "합성 초안",
+  category_no: null,
+  status: "composed",
+  use_image_vision: false,
+  seed_text: "메모",
+  revisions: [
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      round_no: 1,
+      kind: "composed",
+      provider: null,
+      model: null,
+      title: "합성 초안",
+      summary: "",
+      is_active: true,
+      blocks: [{ type: "paragraph", text: "본문" }],
+      created_at: null,
+    },
+  ],
+  working_copy: null,
+  images: [],
+  tags: [],
+  created_at: null,
+  updated_at: null,
+};
+
+const PUBLISH_RUN = {
+  id: "33333333-3333-4333-8333-333333333333",
+  draft_id: DRAFT.id,
+  revision_id: DRAFT.revisions[0]?.id,
+  state: "running",
+  result_code: null,
+  steps: ["title", "body", "images", "tags", "save"].map((name, position) => ({
+    name,
+    position,
+    state: "pending",
+    result_code: null,
+    updated_at: null,
+  })),
+  created_at: null,
+  updated_at: null,
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -750,6 +795,93 @@ describe("optional request fields", () => {
     expect((handler.mock.calls[6] as unknown[])[1]).toMatchObject({
       body: JSON.stringify({ selected: ["전시"], added: ["후기"] }),
     });
+  });
+
+  it("round-trips every draft endpoint and keeps optional fields absent when omitted", async () => {
+    const handler = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/drafts?limit=5")) return jsonResponse({ items: [DRAFT] });
+      if (url.endsWith("/stage")) return jsonResponse(PUBLISH_RUN, 202);
+      if (init?.method === "DELETE" && !url.includes("/images/")) {
+        return new Response(null, { status: 204 });
+      }
+      return jsonResponse(DRAFT, 200);
+    });
+    const client = clientWith(handler as never);
+    const file = new File(["image"], "photo.png", { type: "image/png" });
+
+    await expect(client.createDraft({ title: "제목", seedText: "메모" })).resolves.toMatchObject({
+      id: DRAFT.id,
+    });
+    await expect(client.drafts(5)).resolves.toHaveLength(1);
+    await expect(client.draft(DRAFT.id)).resolves.toMatchObject({ title: DRAFT.title });
+    await expect(client.deleteDraft(DRAFT.id)).resolves.toBeUndefined();
+    await expect(client.patchDraft(DRAFT.id, {})).resolves.toMatchObject({ id: DRAFT.id });
+    await expect(client.uploadDraftImage(DRAFT.id, file)).resolves.toMatchObject({ id: DRAFT.id });
+    await expect(client.deleteDraftImage(DRAFT.id, "image-id")).resolves.toMatchObject({
+      id: DRAFT.id,
+    });
+    await expect(
+      client.saveDraftBody(DRAFT.id, {
+        title: "제목",
+        blocks: [{ type: "paragraph", text: "본문" }],
+      }),
+    ).resolves.toMatchObject({ id: DRAFT.id });
+    await expect(client.checkpointDraft(DRAFT.id)).resolves.toMatchObject({ id: DRAFT.id });
+    await expect(client.composeDraft(DRAFT.id, { provider: "openai" })).resolves.toMatchObject({
+      id: DRAFT.id,
+    });
+    await expect(client.refineDraft(DRAFT.id, { provider: "openai" })).resolves.toMatchObject({
+      id: DRAFT.id,
+    });
+    await expect(client.generateDraftTags(DRAFT.id, { provider: "openai" })).resolves.toMatchObject(
+      { id: DRAFT.id },
+    );
+    await expect(client.patchDraftTags(DRAFT.id, {})).resolves.toMatchObject({ id: DRAFT.id });
+    await expect(client.stageDraft(DRAFT.id)).resolves.toMatchObject({ id: PUBLISH_RUN.id });
+
+    const calls = handler.mock.calls as unknown as [string, RequestInit | undefined][];
+    expect(calls.map(([url, init]) => [init?.method ?? "GET", url])).toEqual([
+      ["POST", "/api/v1/drafts"],
+      ["GET", "/api/v1/drafts?limit=5"],
+      ["GET", `/api/v1/drafts/${DRAFT.id}`],
+      ["DELETE", `/api/v1/drafts/${DRAFT.id}`],
+      ["PATCH", `/api/v1/drafts/${DRAFT.id}`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/images`],
+      ["DELETE", `/api/v1/drafts/${DRAFT.id}/images/image-id`],
+      ["PUT", `/api/v1/drafts/${DRAFT.id}/body`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/checkpoint`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/compose`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/refine`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/tags`],
+      ["PATCH", `/api/v1/drafts/${DRAFT.id}/tags`],
+      ["POST", `/api/v1/drafts/${DRAFT.id}/stage`],
+    ]);
+    expect(calls.map(([url]) => url)).toEqual([
+      "/api/v1/drafts",
+      "/api/v1/drafts?limit=5",
+      `/api/v1/drafts/${DRAFT.id}`,
+      `/api/v1/drafts/${DRAFT.id}`,
+      `/api/v1/drafts/${DRAFT.id}`,
+      `/api/v1/drafts/${DRAFT.id}/images`,
+      `/api/v1/drafts/${DRAFT.id}/images/image-id`,
+      `/api/v1/drafts/${DRAFT.id}/body`,
+      `/api/v1/drafts/${DRAFT.id}/checkpoint`,
+      `/api/v1/drafts/${DRAFT.id}/compose`,
+      `/api/v1/drafts/${DRAFT.id}/refine`,
+      `/api/v1/drafts/${DRAFT.id}/tags`,
+      `/api/v1/drafts/${DRAFT.id}/tags`,
+      `/api/v1/drafts/${DRAFT.id}/stage`,
+    ]);
+    expect(JSON.parse(calls[0]?.[1]?.body as string)).toEqual({
+      title: "제목",
+      seed_text: "메모",
+    });
+    expect(JSON.parse(calls[7]?.[1]?.body as string)).toEqual({
+      title: "제목",
+      blocks: [{ type: "paragraph", text: "본문" }],
+    });
+    expect(JSON.parse(calls[12]?.[1]?.body as string)).toEqual({});
   });
 
   it("preserves every supported block form in a working copy", () => {

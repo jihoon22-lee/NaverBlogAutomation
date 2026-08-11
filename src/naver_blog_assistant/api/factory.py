@@ -35,8 +35,8 @@ from naver_blog_assistant.api.errors import (
     validation_error_handler,
 )
 from naver_blog_assistant.api.middleware import (
-    ExactCorsMiddleware,
     HostBoundaryMiddleware,
+    OriginBoundaryMiddleware,
     RemoteAccessMiddleware,
     RequestContextMiddleware,
     RequestSizeLimitMiddleware,
@@ -206,7 +206,6 @@ from naver_blog_assistant.ports import CommentGenerator, GenerationNotStartedErr
 from naver_blog_assistant.ports.browser import BrowserDriver
 
 SUPPORTED_HOSTS: Final = frozenset({"blog.naver.com", "m.blog.naver.com"})
-EXTENSION_ORIGIN_PATTERN: Final = re.compile(r"chrome-extension://[a-p]{32}\Z")
 DEFAULT_DATABASE_URL: Final = "sqlite:///data/naver_blog_assistant.db"
 logger = logging.getLogger("naver_blog_assistant.api")
 
@@ -304,7 +303,6 @@ class ContractFastAPI(FastAPI):
 class ApiSettings:
     """Non-secret local API settings, validated before opening a socket."""
 
-    extension_origin: str = ""
     database_url: str = DEFAULT_DATABASE_URL
     generator_mode: Literal["openai", "gemini", "anthropic", "fake"] = "openai"
     app_environment: Literal["production", "development", "test"] = "production"
@@ -345,8 +343,6 @@ class ApiSettings:
             raise ValueError("DATABASE_URL must use the local SQLite adapter")
         if self.webapp_access_mode not in {"local", "lan"}:
             raise ValueError("WEBAPP_ACCESS_MODE must be local or lan")
-        if self.extension_origin and not EXTENSION_ORIGIN_PATTERN.fullmatch(self.extension_origin):
-            raise ValueError("CHROME_EXTENSION_ORIGIN must contain one valid Chrome extension ID")
         if self.generator_mode == "fake" and self.app_environment == "production":
             raise ValueError("the fake generator is forbidden in production")
         provider_keys = {
@@ -444,7 +440,6 @@ class ApiSettings:
         if environment not in {"production", "development", "test"}:
             raise ValueError("APP_ENV must be production, development, or test")
         return cls(
-            extension_origin=os.getenv("CHROME_EXTENSION_ORIGIN", "").strip(),
             database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL).strip(),
             generator_mode=cast(Literal["openai", "gemini", "anthropic", "fake"], mode),
             app_environment=cast(Literal["production", "development", "test"], environment),
@@ -806,10 +801,7 @@ def create_app(
     app.state.browser_sessions = browser_sessions
     app.state.remote_access = remote_access
     app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_request_bytes)
-    app.add_middleware(
-        ExactCorsMiddleware,
-        allowed_extension_origin=settings.extension_origin or None,
-    )
+    app.add_middleware(OriginBoundaryMiddleware)
     app.add_middleware(
         RemoteAccessMiddleware,
         access_mode=settings.webapp_access_mode,

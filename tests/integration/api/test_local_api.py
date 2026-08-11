@@ -39,7 +39,6 @@ from naver_blog_assistant.infrastructure.generators import DeterministicFakeGene
 from naver_blog_assistant.infrastructure.generators.openai import OpenAICommentGenerator
 from naver_blog_assistant.ports import GenerationNotStartedError
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 BLOG_URL = "https://blog.naver.com/example/123"
 BODY = "전시에서 인상 깊었던 작품과 관람 동선을 자세하게 정리한 테스트 본문입니다."
 ROOT = Path(__file__).parents[3]
@@ -53,7 +52,6 @@ def database_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(database_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -444,7 +442,6 @@ def test_saved_search_refresh_explains_when_official_api_credentials_are_missing
     database_path: Path,
 ) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -1024,11 +1021,10 @@ def test_framework_404_and_405_errors_are_problem_json(client: TestClient) -> No
     assert_problem(client.delete("/health"), status=405, code="method_not_allowed")
 
 
-def test_streamed_oversized_request_returns_cors_readable_problem(
+def test_streamed_oversized_request_returns_problem(
     database_path: Path,
 ) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -1049,7 +1045,6 @@ def test_streamed_oversized_request_returns_cors_readable_problem(
                 headers={
                     "Content-Type": "application/json",
                     "Idempotency-Key": str(uuid4()),
-                    "Origin": ORIGIN,
                 },
             )
 
@@ -1059,70 +1054,29 @@ def test_streamed_oversized_request_returns_cors_readable_problem(
         app.state.database_engine.dispose()
 
     assert_problem(response, status=413, code="payload_too_large")
-    assert response.headers["access-control-allow-origin"] == ORIGIN
 
 
-def test_cors_allows_only_configured_extension_origin(client: TestClient) -> None:
-    allowed = client.options(
-        "/api/v1/recommendations",
-        headers={
-            "Origin": ORIGIN,
-            "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "content-type,idempotency-key",
-        },
-    )
+def test_origin_boundary_allows_same_service_and_rejects_foreign_origin(
+    client: TestClient,
+) -> None:
     denied = client.options(
         "/api/v1/recommendations",
         headers={
-            "Origin": "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Origin": "https://example.test",
             "Access-Control-Request-Method": "POST",
         },
     )
 
-    assert allowed.status_code == 200
-    assert allowed.headers["access-control-allow-origin"] == ORIGIN
-    assert allowed.headers["access-control-expose-headers"] == (
-        "Idempotency-Replayed, Engagement-Replayed, Retry-After"
-    )
-    assert allowed.headers["access-control-allow-methods"] == "DELETE, GET, POST, PUT, PATCH"
-    assert "access-control-allow-credentials" not in allowed.headers
-    assert_problem(denied, status=403, code="cors_origin_forbidden")
+    assert_problem(denied, status=403, code="origin_forbidden")
     assert "access-control-allow-origin" not in denied.headers
 
     same_origin = client.get("/health", headers={"Origin": "http://testserver"})
     assert same_origin.status_code == 200
     assert "access-control-allow-origin" not in same_origin.headers
 
-    delete_preflight = client.options(
-        "/api/v1/recommendations/00000000-0000-4000-8000-000000000010",
-        headers={"Origin": ORIGIN, "Access-Control-Request-Method": "DELETE"},
-    )
-    assert delete_preflight.status_code == 200
-    assert delete_preflight.headers["access-control-allow-origin"] == ORIGIN
-
-    put_preflight = client.options(
-        "/api/v1/discovery/automation-settings",
-        headers={"Origin": ORIGIN, "Access-Control-Request-Method": "PUT"},
-    )
-    assert put_preflight.status_code == 200
-    assert put_preflight.headers["access-control-allow-origin"] == ORIGIN
-
-    oversized = client.post(
-        "/api/v1/recommendations",
-        content=b"x" * 512_001,
-        headers={
-            "Content-Type": "application/json",
-            "Idempotency-Key": str(uuid4()),
-            "Origin": ORIGIN,
-        },
-    )
-    assert_problem(oversized, status=413, code="payload_too_large")
-    assert oversized.headers["access-control-allow-origin"] == ORIGIN
-
 
 def test_local_rate_limit_returns_retry_after(database_path: Path) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -1170,7 +1124,6 @@ def test_legacy_success_snapshot_replays_with_default_preference_echo(
     database_path: Path,
 ) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -1253,7 +1206,6 @@ def test_get_echoes_defaults_for_recommendation_migrated_from_v2(
         connection.commit()
 
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=database_url,
         generator_mode="fake",
         app_environment="test",
@@ -1269,7 +1221,6 @@ def test_get_echoes_defaults_for_recommendation_migrated_from_v2(
 
 def test_generation_timeout_is_safely_mapped(database_path: Path) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",
@@ -1332,7 +1283,6 @@ def test_provider_timeout_precedes_outer_timeout_and_blocks_duplicate(
     )
     generator = OpenAICommentGenerator(client=provider_client, timeout_seconds=0.05)
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="openai",
         app_environment="test",
@@ -1390,7 +1340,6 @@ def test_provider_failures_are_mapped_without_raw_details(
     retry_after: str | None,
 ) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{database_path}",
         generator_mode="fake",
         app_environment="test",

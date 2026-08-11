@@ -170,6 +170,40 @@ def _health_check() -> CheckResult:
     )
 
 
+def _origin_boundary_check() -> CheckResult:
+    request = urllib.request.Request(
+        f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/health",
+        headers={"Origin": "https://foreign-origin.invalid"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2):
+            return CheckResult(
+                "API Origin boundary", False, "foreign browser Origin was unexpectedly accepted"
+            )
+    except urllib.error.HTTPError as error:
+        try:
+            payload = json.load(error)
+        except ValueError:
+            payload = None
+        ok = (
+            error.code == 403
+            and isinstance(payload, dict)
+            and payload.get("status") == 403
+            and payload.get("code") == "origin_forbidden"
+        )
+        return CheckResult(
+            "API Origin boundary",
+            ok,
+            "foreign browser Origin is rejected"
+            if ok
+            else "foreign Origin response did not match the local API boundary",
+        )
+    except OSError, urllib.error.URLError:
+        return CheckResult(
+            "API Origin boundary", False, "API is not reachable for Origin boundary verification"
+        )
+
+
 def collect_checks(
     *,
     root: Path = REPOSITORY_ROOT,
@@ -197,7 +231,7 @@ def collect_checks(
         _web_app_build_check(root),
     ]
     if require_api:
-        checks.append(_health_check())
+        checks.extend((_health_check(), _origin_boundary_check()))
     return checks
 
 
@@ -205,7 +239,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """Print a redacted setup report and fail when any required check fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--require-api", action="store_true", help="also require live health and CORS"
+        "--require-api",
+        action="store_true",
+        help="also require live API health and foreign-Origin rejection",
     )
     parser.add_argument(
         "--env-file",

@@ -28,7 +28,6 @@ from naver_blog_assistant.infrastructure.database.session_repository import (
     SqliteSessionRepository,
 )
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 SESSIONS = "/api/v1/automation/sessions"
 
 
@@ -43,7 +42,6 @@ def repository(tmp_path: Path) -> Iterator[SqliteSessionRepository]:
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'api.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -177,7 +175,6 @@ def test_application_startup_aborts_a_session_left_active_by_a_previous_process(
     tmp_path: Path,
 ) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'restart.db'}",
         generator_mode="fake",
         app_environment="test",

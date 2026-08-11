@@ -14,7 +14,6 @@ from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 from naver_blog_assistant.infrastructure.browser.page_scripts import _CALL_EXPRESSION
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 EXTRACT = "/api/v1/automation/extract"
 SESSION = "/api/v1/automation/session"
 POST_URL = "https://blog.naver.com/example/223456789012"
@@ -48,7 +47,6 @@ def driver() -> FakeBrowserDriver:
 @pytest.fixture
 def client(tmp_path: Path, driver: FakeBrowserDriver) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'automation.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -182,7 +180,6 @@ def test_a_missing_page_bundle_reports_service_unavailable(
     # An uninstalled bundle makes the runner load the source, which is what fails here.
     driver.page_results[_CALL_EXPRESSION] = {"installed": False, "value": None}
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'missing-bundle.db'}",
         generator_mode="fake",
         app_environment="test",

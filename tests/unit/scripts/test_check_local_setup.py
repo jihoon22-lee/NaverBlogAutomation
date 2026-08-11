@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import stat
+import urllib.error
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -115,3 +118,62 @@ def test_external_environment_check_requires_private_parent(
 
     assert not result.ok
     assert "parent mode" in result.detail
+
+
+def test_live_origin_boundary_accepts_only_the_expected_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        b'{"type":"about:blank","title":"Origin forbidden","status":403,'
+        b'"detail":"This browser origin is not allowed to access the local API.",'
+        b'"code":"origin_forbidden","request_id":"00000000-0000-4000-8000-000000000001"}'
+    )
+    error = urllib.error.HTTPError(
+        "http://127.0.0.1:8765/health",
+        403,
+        "Forbidden",
+        Message(),
+        io.BytesIO(payload),
+    )
+
+    def reject_foreign_origin(request: object, timeout: int) -> object:
+        del request, timeout
+        raise error
+
+    monkeypatch.setattr(check_local_setup.urllib.request, "urlopen", reject_foreign_origin)
+
+    result = check_local_setup._origin_boundary_check()
+
+    assert result == check_local_setup.CheckResult(
+        "API Origin boundary", True, "foreign browser Origin is rejected"
+    )
+
+
+def test_require_api_checks_health_and_origin_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_fake_environment(monkeypatch)
+    repository_fixture(tmp_path)
+    monkeypatch.setattr(
+        check_local_setup,
+        "_tool_version",
+        lambda command, expected: check_local_setup.CheckResult(command, True, str(expected)),
+    )
+    monkeypatch.setattr(
+        check_local_setup,
+        "_health_check",
+        lambda: check_local_setup.CheckResult("API health", True, "healthy"),
+    )
+    monkeypatch.setattr(
+        check_local_setup,
+        "_origin_boundary_check",
+        lambda: check_local_setup.CheckResult("API Origin boundary", True, "rejected"),
+    )
+
+    checks = check_local_setup.collect_checks(
+        root=tmp_path,
+        environment_file=tmp_path / ".env.local",
+        require_api=True,
+    )
+
+    assert [result.name for result in checks[-2:]] == ["API health", "API Origin boundary"]

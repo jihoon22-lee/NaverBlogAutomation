@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../src/app/api/client";
 import { ActivityController } from "../../src/app/controllers/activity";
 
 const RECOMMENDATION = {
@@ -116,5 +117,78 @@ describe("recent activity", () => {
     expect(root.textContent).not.toContain("합성 댓글 작업");
     expect(root.textContent).not.toContain("여러 글 처리 이력");
     expect(client.recommendations).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a second load while the first request is pending", async () => {
+    const root = document.getElementById("workspace") as Element;
+    let releaseRecommendations!: (value: (typeof RECOMMENDATION)[]) => void;
+    const client = api();
+    client.recommendations.mockImplementation(
+      () => new Promise((resolve) => (releaseRecommendations = resolve)),
+    );
+    const controller = new ActivityController(root, client as never);
+
+    const first = controller.load();
+    const second = controller.load();
+
+    expect(client.recommendations).toHaveBeenCalledOnce();
+    expect(root.querySelector<HTMLButtonElement>("#refresh-activity-button")?.disabled).toBe(true);
+
+    releaseRecommendations([RECOMMENDATION]);
+    await first;
+    await second;
+
+    expect(root.textContent).toContain("합성 댓글 작업");
+    expect(root.querySelector<HTMLButtonElement>("#refresh-activity-button")?.disabled).toBe(false);
+  });
+
+  it("keeps the record visible and reports the service detail when deletion fails", async () => {
+    const root = document.getElementById("workspace") as Element;
+    const client = api();
+    client.deleteRecommendation.mockRejectedValue(
+      new ApiError("delete failed", {
+        problem: { code: "conflict", detail: "이미 처리된 추천입니다." } as never,
+        status: 409,
+      }),
+    );
+    const controller = new ActivityController(root, client as never);
+    await controller.load();
+
+    await controller.deleteRecommendation(RECOMMENDATION.id);
+
+    expect(root.textContent).toContain("이미 처리된 추천입니다.");
+    expect(root.textContent).toContain("합성 댓글 작업");
+  });
+
+  it("reports a generic failure when clearing personalization examples is unavailable", async () => {
+    const root = document.getElementById("workspace") as Element;
+    const client = api();
+    client.clearPersonalizationExamples.mockRejectedValue(new Error("offline"));
+    const controller = new ActivityController(root, client as never);
+    await controller.load();
+
+    await controller.clearExamples();
+
+    expect(root.textContent).toContain("최근 작업을 불러오지 못했습니다.");
+  });
+
+  it("does not flip personalization locally when the review update is rejected", async () => {
+    const root = document.getElementById("workspace") as Element;
+    const client = api();
+    client.reviewRecommendation.mockRejectedValue(
+      new ApiError("review failed", {
+        problem: { code: "conflict", detail: "이미 삭제된 추천입니다." } as never,
+        status: 409,
+      }),
+    );
+    const controller = new ActivityController(root, client as never);
+    await controller.load();
+
+    await controller.togglePersonalization(RECOMMENDATION);
+
+    expect(root.textContent).toContain("이미 삭제된 추천입니다.");
+    expect(root.querySelector(`#personalization-${RECOMMENDATION.id}`)?.textContent).toContain(
+      "개인화 예시에서 제외",
+    );
   });
 });

@@ -19,7 +19,6 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DRAFTS = "/api/v1/drafts"
 SESSIONS = "/api/v1/automation/sessions"
 SETTINGS = "/api/v1/settings"
@@ -52,7 +51,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         },
     )
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'journey.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -372,7 +370,6 @@ class TestSettingsRoundTrip:
 
     def test_a_saved_cap_survives_a_new_client(self, tmp_path: Path) -> None:
         settings = ApiSettings(
-            extension_origin=ORIGIN,
             database_url=f"sqlite:///{tmp_path / 'journey.db'}",
             generator_mode="fake",
             app_environment="test",

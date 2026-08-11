@@ -1,4 +1,4 @@
-"""Read and save web app settings without touching extension storage."""
+"""Read and save versioned web-app settings."""
 
 from __future__ import annotations
 

@@ -30,7 +30,6 @@ from naver_blog_assistant.infrastructure.database.publish_run_repository import 
 )
 from naver_blog_assistant.infrastructure.database.schema import metadata
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DRAFTS = "/api/v1/drafts"
 READY = {
     "stage": "ready",
@@ -69,7 +68,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         },
     )
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'staging.db'}",
         generator_mode="fake",
         app_environment="test",

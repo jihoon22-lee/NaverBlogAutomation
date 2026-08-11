@@ -37,7 +37,7 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: extension/package-lock.json
+          cache-dependency-path: client/package-lock.json
 
       - name: Verify tag source and install locked dependencies
         shell: bash
@@ -45,7 +45,6 @@ jobs:
           git fetch origin main --depth=1
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           npm ci --prefix client
-          npm ci --prefix extension
           # The Python wheel force-includes the generated web-app and page bundles. Build them
           # before uv sync so Hatchling can create the editable project during dependency install.
           npm --prefix client run build
@@ -65,8 +64,8 @@ jobs:
           uv run --frozen ty check
           uv run --frozen pytest
 
-      - name: Run extension quality checks
-        run: npm --prefix extension run check
+      - name: Run web-app quality checks
+        run: npm --prefix client run check
 
       - name: Build release assets
         shell: bash
@@ -74,15 +73,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p release-assets wheel
-          npm --prefix client run build
           uv build --wheel --out-dir wheel
           wheel="$(find wheel -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
           cp "$wheel" "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl"
-          uv run --frozen python -c 'import shutil; shutil.make_archive("release-assets/naver-blog-assistant-extension-" + __import__("os").environ["VERSION"], "zip", "extension/dist")'
           (
             cd release-assets
-            sha256sum ./*.whl ./*.zip > SHA256SUMS.txt
+            sha256sum ./*.whl > SHA256SUMS.txt
           )
           uv run --frozen python -m scripts.extract_release_notes \
             --version "$VERSION" --output release-assets/release-notes.md
@@ -108,7 +105,6 @@ jobs:
           notes="$(cat release-assets/release-notes.md)"
           gh release create "$TAG" \
             "release-assets/naver-blog-assistant-${VERSION}-py3-none-any.whl#Python wheel" \
-            "release-assets/naver-blog-assistant-extension-${VERSION}.zip#Chrome extension (Load unpacked)" \
             "release-assets/SHA256SUMS.txt#SHA-256 checksums" \
             --title "Naver Blog Assistant $TAG" \
             --notes "$notes" \

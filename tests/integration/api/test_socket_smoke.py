@@ -25,7 +25,6 @@ def test_launcher_serves_health_on_loopback(tmp_path: Path) -> None:
             "API_PORT": str(LOOPBACK_PORT),
             "APP_ENV": "test",
             "COMMENT_GENERATOR_MODE": "fake",
-            "CHROME_EXTENSION_ORIGIN": ("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             "DATABASE_URL": f"sqlite:///{tmp_path / 'socket-smoke.db'}",
         }
     )

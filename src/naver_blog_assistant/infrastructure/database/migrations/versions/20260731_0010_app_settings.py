@@ -28,7 +28,7 @@ SETTING_KINDS = (
 
 
 def upgrade() -> None:
-    """Add one versioned record per settings kind without touching extension storage."""
+    """Add one versioned record per settings kind."""
     kinds = ", ".join(f"'{kind}'" for kind in SETTING_KINDS)
     op.create_table(
         "app_settings",
@@ -43,5 +43,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove web app settings; extension storage is unaffected either way."""
+    """Remove web-app settings."""
     op.drop_table("app_settings")

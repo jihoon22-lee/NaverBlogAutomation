@@ -16,7 +16,6 @@ from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 from naver_blog_assistant.infrastructure.browser.page_scripts import _CALL_EXPRESSION
 from naver_blog_assistant.infrastructure.llm import FakeStructuredClient, ProviderRegistry
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 COMMENTS = "/api/v1/automation/comments"
 REFINE = "/api/v1/recommendations/{recommendation_id}/refine"
 SESSION = "/api/v1/automation/session"
@@ -51,7 +50,6 @@ def driver() -> FakeBrowserDriver:
 @pytest.fixture
 def client(tmp_path: Path, driver: FakeBrowserDriver) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'comments.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -160,7 +158,6 @@ def test_changed_options_do_not_disturb_the_original_replay(client: TestClient) 
 
 def test_generation_requires_a_live_session(tmp_path: Path, driver: FakeBrowserDriver) -> None:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'no-session.db'}",
         generator_mode="fake",
         app_environment="test",
@@ -305,7 +302,6 @@ def test_refinement_returns_a_bounded_provider_result_and_replays_the_same_key(
         "naver_blog_assistant.api.factory._configured_registry", lambda _settings: registry
     )
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'refinement.db'}",
         generator_mode="fake",
         app_environment="test",

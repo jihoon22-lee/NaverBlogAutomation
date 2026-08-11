@@ -1,8 +1,8 @@
 """Versioned web app settings owned by the local service.
 
-The extension keeps using `chrome.storage.local`; these records exist so the unattended
-scheduler can read the same preferences the web app writes. Every payload is validated here
-rather than trusted from transport, and each kind carries its own schema version.
+These records let the unattended scheduler read the same preferences the web app writes. Every
+payload is validated here rather than trusted from transport, and each kind carries its own schema
+version.
 """
 
 from __future__ import annotations

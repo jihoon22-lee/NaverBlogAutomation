@@ -6,7 +6,7 @@
 ## Runtime Contract
 
 기본 local web app은 `127.0.0.1:8765`에서만 실행되며 `/app/`과 API는 같은 origin을 사용합니다.
-따라서 extension ID나 별도 CORS 설정이 필요하지 않습니다. 태블릿을 쓸 때만 PC의 **관리 > 설정 >
+별도 CORS 설정은 필요하지 않습니다. 태블릿을 쓸 때만 PC의 **관리 > 설정 >
 연결 및 앱**에서 access mode를 LAN으로 저장하고, **저장한 설정 적용**으로 supervised restart를
 승인합니다. service가 `WEBAPP_ACCESS_MODE=lan`과 일치하는 `API_HOST=0.0.0.0`을 private env file에
 함께 기록하며, port는 `8765`으로 고정합니다. 이 경우에도 service는 발견한 private IPv4 address와
@@ -15,7 +15,7 @@ loopback Host만 받으며, 태블릿은 PC에서 만든 일회용 code로 pair�
 
 웹앱의 **홈**, **작업함**, **글쓰기**, **관리**는 같은 PC-owned automation browser를 사용합니다.
 네이버 로그인은 automation browser 창에서 직접 처리하며, 웹앱·태블릿에 계정 비밀번호나 cookie를
-입력하지 않습니다. legacy extension의 별도 실행 조건은 [Extension Legacy](extension-legacy.md)를 따르세요.
+입력하지 않습니다.
 
 ```bash
 uv run --frozen --env-file .env.local naver-blog-api
@@ -280,9 +280,6 @@ gate는 이러한 중단 기록을 통과 증거로 대체할 수 없습니다.
 
 - **Clipboard 실패:** 코드나 편집 영역의 text를 선택해 OS copy command 또는 길게 눌러 직접
   복사합니다. 자동 게시로 전환되지 않습니다.
-- **legacy extension 문제:** 별도 설치·reload 문제는 [Extension Legacy](extension-legacy.md)를
-  참고하세요.
-
 Setup tool은 credential value를 출력하지 않습니다. 문제 보고에는 secret, 원문, source URL,
 browser profile 대신 redacted status와 synthetic reproduction만 첨부하세요.
 

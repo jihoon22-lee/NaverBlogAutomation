@@ -13,9 +13,6 @@ reports/
 data/*.db
 data/*.db-*
 data/*.sqlite*
-extension/coverage/
-extension/dist/
-extension/node_modules/
 client/coverage/
 client/dist/
 client/node_modules/

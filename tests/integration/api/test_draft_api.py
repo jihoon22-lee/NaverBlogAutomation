@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from naver_blog_assistant.api import ApiSettings, create_app
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DRAFTS = "/api/v1/drafts"
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 JPEG = b"\xff\xd8\xff" + b"0" * 64
@@ -20,7 +19,6 @@ JPEG = b"\xff\xd8\xff" + b"0" * 64
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'drafts.db'}",
         generator_mode="fake",
         app_environment="test",

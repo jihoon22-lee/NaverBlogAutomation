@@ -1,8 +1,7 @@
 """Settings endpoints for the local web app.
 
-These records are additive: the frozen extension keeps its own `chrome.storage.local` state, and no
-existing table or endpoint changes. Payload validation happens in the domain layer so the scheduler
-and the web app cannot disagree about what a valid setting is.
+Payload validation happens in the domain layer so the scheduler and the web app cannot disagree
+about what a valid setting is.
 """
 
 from __future__ import annotations

@@ -28,8 +28,8 @@ def version_from_tag(tag: str) -> str:
 def checked_in_versions(*, root: Path = REPOSITORY_ROOT) -> dict[str, str]:
     """Read each public product-version surface without modifying repository files."""
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    package = json.loads((root / "extension/package.json").read_text(encoding="utf-8"))
-    manifest = json.loads((root / "extension/public/manifest.json").read_text(encoding="utf-8"))
+    package = json.loads((root / "client/package.json").read_text(encoding="utf-8"))
+    package_lock = json.loads((root / "client/package-lock.json").read_text(encoding="utf-8"))
     lockfile = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
     locked_project = next(
         (
@@ -46,8 +46,8 @@ def checked_in_versions(*, root: Path = REPOSITORY_ROOT) -> dict[str, str]:
     versions = {
         "pyproject.toml": str(pyproject["project"]["version"]),
         "uv.lock": locked_project["version"],
-        "extension/package.json": str(package["version"]),
-        "extension/public/manifest.json": str(manifest["version"]),
+        "client/package.json": str(package["version"]),
+        "client/package-lock.json": str(package_lock["version"]),
     }
     return versions
 

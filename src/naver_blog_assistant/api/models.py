@@ -424,10 +424,10 @@ class DiscoveryQueueResponse(StrictModel):
 
 
 class WebAppDiscoveryPostResponse(DiscoveryPostResponse):
-    """Queue item enriched for the separately deployed web application.
+    """Queue item enriched for workspace-specific list presentation.
 
-    The browser extension validates the original discovery response strictly, so its public
-    contract must not gain web-only presentation fields.
+    The base discovery response stays minimal for import and automation callers, while this model
+    adds labels used only by the workspace queue.
     """
 
     source_label: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None

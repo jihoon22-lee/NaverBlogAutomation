@@ -16,7 +16,6 @@ from naver_blog_assistant.api import ApiSettings, create_app
 from naver_blog_assistant.application.automation import LOGIN_STATE_EXPRESSION
 from naver_blog_assistant.infrastructure.browser import FakeBrowserDriver
 
-ORIGIN = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 RUNS = "/api/v1/automation/engagement-runs"
 SESSION = "/api/v1/automation/session"
 POST_URL = "https://blog.naver.com/example/223456789012"
@@ -58,7 +57,6 @@ def driver() -> FakeBrowserDriver:
 
 def _settings(tmp_path: Path) -> ApiSettings:
     return ApiSettings(
-        extension_origin=ORIGIN,
         database_url=f"sqlite:///{tmp_path / 'runs.db'}",
         generator_mode="fake",
         app_environment="test",
