@@ -123,7 +123,9 @@ trusted input으로 실행합니다.
 ### Local API, Domain, Persistence
 
 FastAPI는 체크인된 [`api/openapi.yaml`](api/openapi.yaml) 계약, 입력 검증, request-size
-제한, exact-origin CORS, local rate limiting, timeout 처리, redacted 로그를 소유합니다.
+제한, 허용된 Host와 same-service Origin 경계, local rate limiting, timeout 처리, redacted 로그를
+소유합니다. Origin header가 있는 browser request는 요청 Host와 같은 HTTP service origin일 때만
+통과하며, paired device는 별도의 session cookie와 CSRF header 경계도 통과해야 합니다.
 application과 domain 레이어는 FastAPI, Chrome, SQLAlchemy, 어떤 LLM SDK에도 의존하지
 않습니다.
 

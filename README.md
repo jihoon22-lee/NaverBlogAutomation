@@ -41,6 +41,11 @@ Setup launcher는 웹앱 bundle을 준비하고 private 환경 파일을 만듭�
 끝나면 기본 브라우저에서 `/app/`을 엽니다.
 플랫폼별 상세 설치와 첫 실행은 [시작하기](docs/getting-started.md)를 따르세요.
 
+기존 Chrome extension을 설치한 사용자는 `chrome://extensions`에서 **네이버 블로그 댓글 작성 보조
+도구**를 제거하고 local web app으로 전환하세요. Extension의 browser-local 설정은 자동 이전되지
+않으므로 웹앱의 **관리 > 설정**에서 댓글 기본값·자동화 동의·안전 한도를 다시 확인해야 합니다.
+Local service의 SQLite 데이터는 extension 제거만으로 삭제되지 않습니다.
+
 실제 AI를 사용하려면 setup 뒤 자동 생성된 private 환경 파일에 다음 세 값을 넣습니다. 앞의 두 값은
 그대로 입력하고, 마지막 값에는 OpenAI Platform에서 직접 발급한 개인 API key 전체를 넣어야 합니다.
 key 발급 위치·운영체제별 파일 여는 명령·재시작 방법은 [환경 파일에 값
@@ -128,7 +133,7 @@ env file에 넣고 API를 재시작합니다. 하나만 설정해도 되고, 여
 **관리 > 설정 > 탐색 및 자동화 > 고급 · 예약 실행과 AI 예산**에서 조절합니다
 (기술 설정 key: `llm_budget`, `daily_call_cap`, `per_request_provider_cap`).
 API key는 PC의 password field에서 같은 origin의 write-only PATCH로 한 번 전달된 뒤 private env file과
-재시작한 Python process에만 남습니다. 웹앱과 extension에는 구성 여부만 표시됩니다.
+재시작한 Python process에만 남습니다. 웹앱에는 구성 여부만 표시됩니다.
 실제 key를 어디서 발급하고 어느 파일에 넣는지는 [환경 파일에 값
 넣기](docs/getting-started.md#2-환경-파일에-값-넣기)를 따르세요.
 
