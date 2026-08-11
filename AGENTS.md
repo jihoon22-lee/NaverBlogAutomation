@@ -38,7 +38,7 @@ submitting changes.
 
 Add tests with every behavior change. Python requires at least 87% branch coverage and mirrors
 source paths under `tests/`; name tests after observable behavior, for example,
-`test_timeout_reuses_original_idempotency_key`. TypeScript requires 80% coverage and uses Vitest
+`test_timeout_reuses_original_idempotency_key`. TypeScript requires 85% coverage and uses Vitest
 with synthetic HTML for web-app and extraction behavior. Unit-test parsing and content
 generation; use mocked boundaries for Naver, OpenAI, and browser interactions. Document opt-in
 end-to-end tests and required environment variables without including secret values.

@@ -212,6 +212,13 @@ function type(root: Element, selector: string, value: string): void {
   input.dispatchEvent(new Event("input"));
 }
 
+function change(root: Element, selector: string, value: string): void {
+  const control = root.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+  if (control === null) throw new Error(`missing control: ${selector}`);
+  control.value = value;
+  control.dispatchEvent(new Event("change"));
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
 });
@@ -343,6 +350,123 @@ describe("discovery settings", () => {
 
     expect(controller.state.section).toBe("connections");
     expect(controller.state.form.ownBlogId).toBe("local-blog");
+  });
+
+  it("preserves edits in every settings panel when a load completes late", async () => {
+    let resolveSettings!: (settings: AutoDiscoverySettings) => void;
+    const autoDiscoverySettings = vi.fn(
+      () => new Promise<AutoDiscoverySettings>((resolve) => (resolveSettings = resolve)),
+    );
+    const { root, controller } = harness({ autoDiscoverySettings });
+    controller.render();
+    const loading = controller.load();
+    change(root, "#digest-hour", "12");
+    change(root, "#comment-length", "long");
+    change(root, "#daily-like-cap", "12");
+    change(root, "#writing-length", "long");
+    change(root, "#schedule-mode", "schedule");
+    change(root, "#llm-daily-call-cap", "99");
+    controller.state.runtimeForm = { ...controller.state.runtimeForm, activeProvider: "gemini" };
+    resolveSettings(SETTINGS);
+    await loading;
+    expect(controller.state).toMatchObject({
+      digestForm: { hour: 12 },
+      commentForm: { commentLength: "long" },
+      automationForm: { dailyLikeCap: 12 },
+      writingForm: { targetLength: "long" },
+      scheduleForm: { mode: "schedule" },
+      budgetForm: { dailyCallCap: 99 },
+      runtimeForm: { activeProvider: "gemini" },
+    });
+  });
+
+  it("does not clear a newer search query when an earlier save resolves", async () => {
+    let resolveSave!: (search: SavedSearch) => void;
+    const saveSearch = vi.fn(() => new Promise<SavedSearch>((resolve) => (resolveSave = resolve)));
+    const { root, controller } = harness({ saveSearch });
+    await controller.load();
+    controller.render();
+    type(root, "#new-search-query", "첫 검색어");
+    const saving = controller.addSearch();
+    type(root, "#new-search-query", "새 입력");
+    resolveSave(SEARCH);
+    await saving;
+    expect(controller.state.newQuery).toBe("새 입력");
+  });
+
+  it("falls back safely when optional settings contain invalid persisted values", async () => {
+    const appSetting = vi.fn(async (kind: string): Promise<AppSettingRecord> => {
+      const payloads: Record<string, Record<string, unknown>> = {
+        generation_profile: {
+          relationship_level: "unknown",
+          speech_style: 42,
+          comment_length: "huge",
+          comment_mood: null,
+          personalization_mode: "invalid",
+        },
+        closing_phrase: { phrase: 42 },
+        neighbor_message: { message: null },
+        automation_consent: { accepted: "yes" },
+        safety_policy: {
+          daily_comment_cap: "many",
+          daily_like_cap: null,
+          daily_neighbor_cap: 4.5,
+          jitter_ratio: "0.2",
+          allowed_hours: [],
+          max_consecutive_failures: false,
+          min_interval_seconds: undefined,
+        },
+        writing_profile: {
+          target_length: "huge",
+          tone: 4,
+          structure: null,
+          reference_post_count: "three",
+          body_tag_cap: null,
+          use_image_vision: "yes",
+        },
+        schedule_policy: { mode: "unknown", hour: "ten", minute: null, max_posts: false },
+        llm_budget: { daily_call_cap: null, per_request_provider_cap: "many" },
+      };
+      return { kind, schemaVersion: 1, payload: payloads[kind] ?? {}, updatedAt: null };
+    });
+    const { controller } = harness({ appSetting });
+
+    await controller.load();
+
+    expect(controller.state.commentForm).toMatchObject({
+      closingPhrase: "",
+      commentLength: "medium",
+      commentMood: "warm",
+      neighborMessage: "",
+      personalizationMode: "off",
+      relationshipLevel: "friendly",
+      speechStyle: "honorific",
+    });
+    expect(controller.state.automationForm).toMatchObject({
+      accepted: false,
+      dailyCommentCap: 20,
+      dailyLikeCap: 20,
+      dailyNeighborCap: 5,
+      allowedHours: Array.from({ length: 14 }, (_, index) => index + 9),
+      jitterPercent: 40,
+      maxConsecutiveFailures: 3,
+      minIntervalSeconds: 90,
+    });
+    expect(controller.state.writingForm).toMatchObject({
+      targetLength: "medium",
+      tone: "warm",
+      structure: "sectioned",
+      referencePostCount: 3,
+      bodyTagCap: 10,
+      useImageVision: false,
+    });
+    expect(controller.state.scheduleForm).toEqual({
+      mode: "manual",
+      hour: 10,
+      minute: 0,
+      maxPosts: 5,
+    });
+    expect(controller.state.budgetForm).toEqual({ dailyCallCap: 60, perRequestProviderCap: 3 });
   });
 });
 
@@ -750,6 +874,28 @@ describe("desktop runtime configuration", () => {
     expect(controller.state.error).toContain("restart busy");
   });
 
+  it("waits for a successful reset acknowledgement before finishing the restart flow", async () => {
+    vi.useFakeTimers();
+    const status = vi.fn(async () => ({ status: "ready" }));
+    const { controller } = harness({
+      resetRuntimeData: vi.fn(async () => ({ backupLocation: "/backup", restartRequired: true })),
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+      status,
+    });
+    await controller.load();
+    vi.stubGlobal("window", undefined);
+
+    const reset = controller.resetRuntimeData();
+    await vi.advanceTimersByTimeAsync(250);
+    await reset;
+
+    expect(status).toHaveBeenCalledOnce();
+    expect(controller.state.phase).toBe("restarting");
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
   it("keeps the restart notice when the replacement never becomes ready", async () => {
     vi.useFakeTimers();
     const { root, controller } = harness({
@@ -776,6 +922,22 @@ describe("desktop runtime configuration", () => {
     expect(controller.state.notice).toContain("잠시 후 화면을 새로고침하세요");
     expect(controller.state.phase).toBe("ready");
     vi.useRealTimers();
+  });
+
+  it("reports when a browser cannot create an export download", async () => {
+    vi.stubGlobal("URL", { revokeObjectURL: vi.fn() });
+    const { controller } = harness({
+      exportRuntimeData: vi.fn(async () => new Blob(["archive"])),
+      runtimeConfiguration: vi.fn(async () => RUNTIME),
+      runtimeData: vi.fn(async () => RUNTIME_DATA),
+    });
+    await controller.load();
+
+    await controller.exportRuntimeData();
+
+    expect(controller.state.phase).toBe("failed");
+    expect(controller.state.error).toContain("로컬 서비스가 실행 중인지 확인하세요");
+    vi.unstubAllGlobals();
   });
 });
 
@@ -887,6 +1049,22 @@ describe("synchronizing now", () => {
 
     expect(text(root)).toContain("로컬 서비스가 실행 중인지 확인하세요");
   });
+
+  it("maps a synchronization refusal to an actionable Korean message", async () => {
+    const { root, controller } = harness({
+      syncDiscovery: vi.fn(async () => {
+        throw new ApiError("missing blog", {
+          problem: { code: "own_blog_id_missing", detail: "missing" } as never,
+          status: 409,
+        });
+      }),
+    });
+    await controller.load();
+
+    await controller.sync();
+
+    expect(text(root)).toContain("내 블로그 ID를 먼저 저장하세요");
+  });
 });
 
 describe("search terms", () => {
@@ -956,6 +1134,21 @@ describe("search terms", () => {
     await Promise.resolve();
 
     expect(api.deleteSearch).toHaveBeenCalledWith(SEARCH.id);
+  });
+
+  it("keeps a saved term after its deletion fails", async () => {
+    const { root, controller } = harness({
+      savedSearches: vi.fn(async () => [SEARCH]),
+      deleteSearch: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    await controller.load();
+
+    await controller.deleteSearch(SEARCH.id);
+
+    expect(controller.state.searches).toEqual([SEARCH]);
+    expect(text(root)).toContain("로컬 서비스가 실행 중인지 확인하세요");
   });
 
   it("keeps the screen usable when the search list cannot be read", async () => {
@@ -1154,15 +1347,118 @@ describe("email digest", () => {
     await controller.load();
     controller.state.phase = "saving";
 
+    await controller.load();
     await controller.save();
+    await controller.addSearch();
+    await controller.deleteSearch(SEARCH.id);
+    await controller.saveNeighbor();
     await controller.refreshSearch(SEARCH.id);
     await controller.toggleNeighbor(NEIGHBOR.id);
     await controller.saveDigest();
+    await controller.saveCommentSettings();
+    await controller.saveAutomationSettings();
+    await controller.saveScheduleAndBudget();
+    await controller.saveWritingSettings();
+    await controller.saveRuntimeConfiguration();
+    await controller.restartRuntime();
+    await controller.exportRuntimeData();
+    await controller.resetRuntimeData();
 
     expect(api.saveAutoDiscoverySettings).not.toHaveBeenCalled();
+    expect(api.saveSearch).not.toHaveBeenCalled();
+    expect(api.deleteSearch).not.toHaveBeenCalled();
     expect(api.refreshSavedSearch).not.toHaveBeenCalled();
     expect(api.saveDiscoveryNeighbor).not.toHaveBeenCalled();
     expect(api.saveDigestSettings).not.toHaveBeenCalled();
+    expect(api.saveAppSetting).not.toHaveBeenCalled();
+  });
+
+  it("keeps the settings screen recoverable when each write boundary rejects", async () => {
+    const offline = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const { controller, api } = harness({
+      saveSearch: offline,
+      saveDiscoveryNeighbor: offline,
+      saveDigestSettings: offline,
+      saveAppSetting: offline,
+      discoveryNeighbors: vi.fn(async () => [NEIGHBOR]),
+    });
+    await controller.load();
+    controller.state.newQuery = "새 검색어";
+    controller.state.neighborForm = {
+      name: "이웃",
+      blogId: "neighbor",
+      blogUrl: "https://blog.naver.com/neighbor",
+    };
+
+    await controller.addSearch();
+    await controller.saveNeighbor();
+    await controller.toggleNeighbor(NEIGHBOR.id);
+    await controller.saveDigest();
+    await controller.saveCommentSettings();
+    await controller.saveAutomationSettings();
+    await controller.saveScheduleAndBudget();
+    await controller.saveWritingSettings();
+
+    expect(controller.state.phase).toBe("failed");
+    expect(controller.state.error).toContain("로컬 서비스가 실행 중인지 확인하세요");
+    expect(api.saveAppSetting).toHaveBeenCalled();
+  });
+
+  it("uses safe defaults when persisted settings are unavailable or malformed", async () => {
+    const appSetting = vi.fn(async (kind: string): Promise<AppSettingRecord> => {
+      if (kind === "safety_policy") {
+        return { kind, schemaVersion: 1, payload: { allowed_hours: "invalid" }, updatedAt: null };
+      }
+      throw new Error("settings unavailable");
+    });
+    const { controller } = harness({ appSetting });
+
+    await controller.load();
+
+    expect(controller.state.phase).toBe("ready");
+    expect(controller.state.commentForm.commentLength).toBe("medium");
+    expect(controller.state.automationForm.allowedHours).toEqual(
+      Array.from({ length: 14 }, (_, index) => index + 9),
+    );
+    expect(controller.state.scheduleForm.mode).toBe("manual");
+  });
+
+  it("uses provider model defaults when persisted runtime models are missing", async () => {
+    const runtime = {
+      ...RUNTIME,
+      ai: {
+        ...RUNTIME.ai,
+        providers: RUNTIME.ai.providers.map((provider) => ({ ...provider, model: undefined })),
+      },
+    } as unknown as RuntimeConfiguration;
+    const { controller } = harness({
+      runtimeConfiguration: vi.fn(async () => runtime),
+    });
+    await controller.load();
+    expect(controller.state.runtimeForm).toMatchObject({
+      anthropicModel: "claude-sonnet-5-20260514",
+      openaiModel: "gpt-5.6-terra",
+      geminiModel: "gemini-3.6-flash",
+    });
+  });
+
+  it("does not attempt desktop-only runtime actions when paired data is unavailable", async () => {
+    const { controller, api } = harness();
+    await controller.load();
+
+    await controller.saveRuntimeConfiguration();
+    await controller.restartRuntime();
+    await controller.exportRuntimeData();
+    await controller.resetRuntimeData();
+
+    expect(controller.state.runtime).toBeNull();
+    expect(controller.state.runtimeData).toBeNull();
+    expect(api.patchRuntimeConfiguration).toBeUndefined();
+    expect(api.restartRuntime).toBeUndefined();
+    expect(api.exportRuntimeData).toBeUndefined();
+    expect(api.resetRuntimeData).toBeUndefined();
   });
 });
 

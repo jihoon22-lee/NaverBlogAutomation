@@ -11,7 +11,7 @@ Status: 현재 저장소 기준, 갱신 2026-08-11
 | 영역 | 명령 | 최소 기준 |
 | --- | --- | --- |
 | Python | `uv run ruff check .`, `uv run ruff format --check .`, `uv run ty check`, `uv run pytest` | 전체 성공, branch coverage 87% 이상 |
-| 웹앱 | `npm --prefix client run check` | format·lint·type·unit test·build 성공, statements/branches/functions/lines 각각 80% 이상 |
+| 웹앱 | `npm --prefix client run check` | format·lint·type·unit test·build 성공, statements/branches/functions/lines 각각 85% 이상 |
 | Packaged E2E | `npm --prefix client run test:e2e` | 설치된 wheel이 제공하는 웹앱의 Playwright journey 성공 |
 
 PR에서는 변경 영역의 targeted test를 먼저 실행하고, 제출 전 해당 package의 전체 check를 실행합니다.
