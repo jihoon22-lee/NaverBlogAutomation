@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import stat
 import urllib.error
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,7 @@ def test_live_origin_boundary_accepts_only_the_expected_rejection(
         "http://127.0.0.1:8765/health",
         403,
         "Forbidden",
-        {},
+        Message(),
         io.BytesIO(payload),
     )
 
